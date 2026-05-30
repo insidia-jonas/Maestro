@@ -58,6 +58,7 @@ import { OpenCodeOutputParser } from './opencode-output-parser';
 import { CodexOutputParser } from './codex-output-parser';
 import { FactoryDroidOutputParser } from './factory-droid-output-parser';
 import { CopilotOutputParser } from './copilot-output-parser';
+import { GrokBuildOutputParser } from './grok-build-output-parser';
 import {
 	registerOutputParser,
 	clearParserRegistry,
@@ -70,6 +71,7 @@ export { ClaudeOutputParser } from './claude-output-parser';
 export { OpenCodeOutputParser } from './opencode-output-parser';
 export { CodexOutputParser } from './codex-output-parser';
 export { FactoryDroidOutputParser } from './factory-droid-output-parser';
+export { GrokBuildOutputParser } from './grok-build-output-parser';
 export { CopilotOutputParser } from './copilot-output-parser';
 
 const LOG_CONTEXT = '[OutputParsers]';
@@ -88,6 +90,7 @@ export function initializeOutputParsers(): void {
 	registerOutputParser(new CodexOutputParser());
 	registerOutputParser(new FactoryDroidOutputParser());
 	registerOutputParser(new CopilotOutputParser());
+	registerOutputParser(new GrokBuildOutputParser());
 
 	// Log registered parsers for debugging
 	const registeredParsers = getAllOutputParsers().map((p) => p.agentId);
