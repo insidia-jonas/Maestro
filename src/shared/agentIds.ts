@@ -22,6 +22,7 @@ export const AGENT_IDS = [
 	'opencode',
 	'factory-droid',
 	'copilot-cli',
+	'grok-build',
 ] as const;
 
 /**

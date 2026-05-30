@@ -23,6 +23,7 @@ export const AGENT_DISPLAY_NAMES: Record<AgentId, string> = {
 	opencode: 'OpenCode',
 	'factory-droid': 'Factory Droid',
 	'copilot-cli': 'Copilot-CLI',
+	'grok-build': 'Grok Build',
 };
 
 /**
@@ -42,7 +43,11 @@ export function getAgentDisplayName(agentId: AgentId | string): string {
  * These agents can still read files but the CLI calls it "plan mode".
  * Other agents (Codex, Factory Droid) have true read-only enforcement.
  */
-const PLAN_MODE_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>(['claude-code', 'opencode']);
+const PLAN_MODE_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>([
+	'claude-code',
+	'opencode',
+	'grok-build',
+]);
 
 /**
  * Get the UI label for the read-only mode pill based on the agent.
@@ -72,6 +77,7 @@ export const BETA_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>([
 	'opencode',
 	'factory-droid',
 	'copilot-cli',
+	'grok-build', // xAI Grok Build is in public beta (May 2026)
 ]);
 
 /**

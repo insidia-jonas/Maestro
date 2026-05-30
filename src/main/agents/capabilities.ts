@@ -302,6 +302,48 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesJsonLineOutput: true, // --output-format json produces JSONL
 		usesCombinedContextWindow: false, // Default Copilot model is Claude Sonnet; model-specific behavior varies
 	},
+
+	/**
+	 * Grok Build — xAI official agentic coding CLI (Beta, May 2026)
+	 * https://x.ai/news/grok-build-cli
+	 *
+	 * Capabilities VERIFIED against real `grok -p "..." --output-format streaming-json`
+	 * output + `grok --help` (May 2026).
+	 *
+	 * Known limitations confirmed from real output:
+	 *   - streaming-json emits NO usage/token data → supportsUsageStats=false,
+	 *     supportsCostTracking=false. (Token counts may be available via the
+	 *     `trace` subcommand or `--output-format json`; not wired here.)
+	 *   - sessionId arrives only in the terminal `end` event, not at start.
+	 *   - tool calls surface as stderr trace logs, not structured JSON events.
+	 */
+	'grok-build': {
+		supportsResume: true, // verified: -r, --resume [<SESSION_ID>]
+		supportsReadOnlyMode: true, // verified: --permission-mode plan
+		supportsJsonOutput: true, // verified: --output-format streaming-json
+		supportsSessionId: true, // sessionId present in terminal `end` event (camelCase)
+		supportsImageInput: false, // not tested — conservative default
+		supportsImageInputOnResume: false, // not tested
+		supportsSlashCommands: false, // not applicable in batch mode
+		supportsStreamJsonInput: false, // no --input-format stream-json stdin path
+		supportsSessionStorage: false, // deferred — `grok sessions`/`export` exist, implement later
+		supportsCostTracking: false, // verified: no cost field in streaming-json output
+		supportsUsageStats: false, // verified: no token data in streaming-json output
+		supportsBatchMode: true, // verified: -p "prompt" headless mode
+		requiresPromptToStart: true, // no eager spawn — needs prompt to start
+		supportsStreaming: true, // verified: streaming JSONL deltas
+		supportsModelSelection: true, // verified: -m, --model <MODEL>
+		supportsResultMessages: true, // verified: terminal `end` event marks turn completion
+		supportsThinkingDisplay: true, // verified: `thought` events (isReasoning)
+		supportsContextMerge: false, // not implemented
+		supportsContextExport: false, // not implemented (no session storage yet)
+		supportsWizard: false, // not tested
+		supportsGroupChatModeration: true, // can serve as group chat moderator via batch mode
+		supportsAppendSystemPrompt: false, // Grok uses --rules/--system-prompt-override, not --append-system-prompt; embed-in-prompt path used
+		supportsProjectMemory: false, // has --experimental-memory but not wired into Maestro
+		usesJsonLineOutput: true, // verified: streaming-json is newline-delimited JSONL
+		usesCombinedContextWindow: false, // separate input/output limits
+	},
 };
 
 /**

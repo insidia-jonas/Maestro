@@ -984,6 +984,104 @@ const COPILOT_ERROR_PATTERNS: AgentErrorPatterns = {
 };
 
 // ============================================================================
+// Grok Build Error Patterns (xAI Grok Build CLI — Beta May 2026)
+// ============================================================================
+// TODO: Verify exact error message strings after first real Grok Build runs.
+// Run: grok -p "..." --output-format streaming-json 2>&1 | grep -i "error\|auth\|rate"
+
+const GROK_BUILD_ERROR_PATTERNS: AgentErrorPatterns = {
+	auth_expired: [
+		{
+			pattern: /authentication.*failed/i,
+			message: 'Grok Build authentication failed. Run `grok login` to re-authenticate.',
+			recoverable: true,
+		},
+		{
+			pattern: /invalid.*api.*key/i,
+			message: 'Invalid Grok API key. Check GROK_CODE_XAI_API_KEY env var or run `grok login`.',
+			recoverable: true,
+		},
+		{
+			pattern: /please.*log.*in/i,
+			message: 'Grok Build session expired. Run `grok login`.',
+			recoverable: true,
+		},
+		{
+			pattern: /unauthorized/i,
+			message: 'Grok Build unauthorized. Check your SuperGrok subscription and API key.',
+			recoverable: true,
+		},
+	],
+	token_exhaustion: [
+		{
+			pattern: /context.*(?:length|limit|exceeded)/i,
+			message: 'Grok Build context window exceeded. Start a new session.',
+			recoverable: false,
+		},
+		{
+			pattern: /too many tokens/i,
+			message: 'Grok Build token limit exceeded.',
+			recoverable: false,
+		},
+	],
+	rate_limited: [
+		{
+			pattern: /rate.?limit/i,
+			message: 'Grok Build rate limit hit. Maestro will retry automatically.',
+			recoverable: true,
+		},
+		{
+			pattern: /too many requests/i,
+			message: 'Grok Build too many requests. Backing off.',
+			recoverable: true,
+		},
+		{
+			pattern: /quota.*exceeded/i,
+			message: 'Grok Build quota exceeded. Check your SuperGrok plan limits.',
+			recoverable: false,
+		},
+	],
+	network_error: [
+		{
+			pattern: /network.*error/i,
+			message: 'Grok Build network error. Check connectivity to x.ai.',
+			recoverable: true,
+		},
+		{
+			pattern: /connection.*refused/i,
+			message: 'Grok Build connection refused.',
+			recoverable: true,
+		},
+		{
+			pattern: /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,
+			message: 'Grok Build network timeout or DNS failure.',
+			recoverable: true,
+		},
+	],
+	agent_crashed: [
+		{
+			pattern: /fatal error/i,
+			message: 'Grok Build crashed with a fatal error.',
+			recoverable: false,
+		},
+	],
+	permission_denied: [
+		{
+			pattern: /permission.*denied/i,
+			message: 'Grok Build permission denied. Check sandbox profile and file permissions.',
+			recoverable: false,
+		},
+		{
+			pattern: /sandbox.*blocked/i,
+			message:
+				'Grok Build sandbox blocked this operation. ' +
+				'If this is an OSINT/recon network call, change sandbox profile to "workspace" in session settings.',
+			recoverable: false,
+		},
+	],
+};
+
+// ============================================================================
 // Pattern Registry
 // ============================================================================
 
@@ -993,6 +1091,7 @@ const patternRegistry = new Map<ToolType, AgentErrorPatterns>([
 	['codex', CODEX_ERROR_PATTERNS],
 	['factory-droid', FACTORY_DROID_ERROR_PATTERNS],
 	['copilot-cli', COPILOT_ERROR_PATTERNS],
+	['grok-build', GROK_BUILD_ERROR_PATTERNS],
 ]);
 
 /**

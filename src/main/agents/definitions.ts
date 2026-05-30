@@ -568,6 +568,117 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 			},
 		],
 	},
+
+	/**
+	 * Grok Build — xAI's official agentic coding CLI.
+	 * https://x.ai/news/grok-build-cli
+	 *
+	 * Batch mode: grok -p "prompt" --output-format streaming-json
+	 *   [--permission-mode bypassPermissions] [--model <id>] [--resume <session-id>]
+	 *
+	 * All flags verified against `grok --help` (Grok Build beta, May 2026):
+	 *   -p, --single <PROMPT>          single-turn headless prompt
+	 *   -r, --resume [<SESSION_ID>]    resume a session by ID
+	 *   -m, --model <MODEL>            model selection
+	 *       --cwd <CWD>                working directory
+	 *       --permission-mode <MODE>   default|acceptEdits|auto|dontAsk|bypassPermissions|plan
+	 *       --sandbox <PROFILE>        filesystem/network sandbox (env: GROK_SANDBOX)
+	 *       --output-format <FMT>      plain|json|streaming-json
+	 *       --effort <LEVEL>           low|medium|high|xhigh|max
+	 *
+	 * Sandbox profile defaults to "workspace" to allow child-process network
+	 * egress (required for OSINT recon pipelines). NOTE: exact profile value
+	 * names are not enumerated in --help; "workspace" assumed — verify via
+	 * `grok inspect`.
+	 *
+	 * System prompt: Grok has --system-prompt-override (full) and --rules (append),
+	 * but Maestro's prompt-delivery is hardcoded to Claude Code's --append-system-prompt.
+	 * Since supportsAppendSystemPrompt=false, Maestro embeds the system prompt into
+	 * the first user turn (works correctly). Native --rules wiring is a future
+	 * enhancement (would require per-agent append-flag mapping in process.ts).
+	 *
+	 * Auth: pre-authenticate with `grok login` on each remote host, or set
+	 * GROK_CODE_XAI_API_KEY env var for unattended SSH agents.
+	 */
+	{
+		id: 'grok-build',
+		name: 'Grok Build',
+		binaryName: 'grok',
+		command: 'grok',
+		args: [],
+
+		// Prompt delivery: grok -p "prompt text"  (verified: -p, --single <PROMPT>)
+		promptArgs: (prompt: string) => ['-p', prompt],
+		noPromptSeparator: true,
+
+		// Working directory (verified: --cwd <CWD>)
+		workingDirArgs: (dir: string) => ['--cwd', dir],
+
+		// JSON streaming output (verified: --output-format streaming-json)
+		jsonOutputArgs: ['--output-format', 'streaming-json'],
+
+		// Permission / read-only modes (verified: --permission-mode plan|bypassPermissions)
+		batchModeArgs: ['--permission-mode', 'bypassPermissions'],
+		readOnlyArgs: ['--permission-mode', 'plan'],
+		readOnlyCliEnforced: true,
+		yoloModeArgs: ['--permission-mode', 'bypassPermissions'],
+
+		// Session resume (verified: -r, --resume [<SESSION_ID>])
+		resumeArgs: (sessionId: string) => ['--resume', sessionId],
+
+		// Model selection (verified: -m, --model <MODEL>)
+		modelArgs: (modelId: string) => ['--model', modelId],
+
+		configOptions: [
+			{
+				key: 'model',
+				type: 'text',
+				label: 'Model',
+				description: 'Grok model to use (e.g. grok-4.3, grok-4-heavy). Leave empty for default.',
+				default: '',
+				argBuilder: (value: string) => {
+					if (value && value.trim()) {
+						return ['--model', value.trim()];
+					}
+					return [];
+				},
+			},
+			{
+				key: 'contextWindow',
+				type: 'number',
+				label: 'Context Window Size',
+				description:
+					'Maximum context window size in tokens. Grok 4.3 supports up to 2,000,000 tokens.',
+				default: 131072, // Conservative default; override for Grok 4 Heavy (2M)
+			},
+			{
+				key: 'sandboxProfile',
+				type: 'select',
+				label: 'Sandbox Profile',
+				description:
+					'Grok Build sandbox level. Use "workspace" to allow network egress from child processes ' +
+					'(required for OSINT/recon pipelines). "strict" blocks child network via seccomp-BPF (Linux only).',
+				options: ['workspace', 'off', 'strict'],
+				default: 'workspace',
+				argBuilder: (value: string) => {
+					if (value && value !== 'off') {
+						return ['--sandbox', value];
+					}
+					return [];
+				},
+			},
+			{
+				key: 'reasoningEffort',
+				type: 'select',
+				label: 'Reasoning Effort',
+				description:
+					'Reasoning effort for reasoning models (verified: --effort low|medium|high|xhigh|max). Leave empty for model default.',
+				options: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
+				default: '',
+				argBuilder: (value: string) => (value && value.trim() ? ['--effort', value.trim()] : []),
+			},
+		],
+	},
 ];
 
 /**
