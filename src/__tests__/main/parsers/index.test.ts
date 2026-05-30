@@ -9,6 +9,7 @@ import {
 	OpenCodeOutputParser,
 	CodexOutputParser,
 	CopilotOutputParser,
+	GrokBuildOutputParser,
 } from '../../../main/parsers';
 
 describe('parsers/index', () => {
@@ -57,21 +58,21 @@ describe('parsers/index', () => {
 			expect(hasOutputParser('copilot-cli')).toBe(true);
 		});
 
-		it('should register exactly 5 parsers', () => {
+		it('should register exactly 6 parsers', () => {
 			initializeOutputParsers();
 
 			const parsers = getAllOutputParsers();
-			expect(parsers.length).toBe(5); // Claude, OpenCode, Codex, Factory Droid, Copilot
+			expect(parsers.length).toBe(6); // Claude, OpenCode, Codex, Factory Droid, Copilot, Grok Build
 		});
 
 		it('should clear existing parsers before registering', () => {
 			// First initialization
 			initializeOutputParsers();
-			expect(getAllOutputParsers().length).toBe(5);
+			expect(getAllOutputParsers().length).toBe(6);
 
-			// Second initialization should still have exactly 5
+			// Second initialization should still have exactly 6
 			initializeOutputParsers();
-			expect(getAllOutputParsers().length).toBe(5);
+			expect(getAllOutputParsers().length).toBe(6);
 		});
 	});
 
@@ -112,6 +113,12 @@ describe('parsers/index', () => {
 			const parser = getOutputParser('copilot-cli');
 			expect(parser).not.toBeNull();
 			expect(parser).toBeInstanceOf(CopilotOutputParser);
+		});
+
+		it('should return GrokBuildOutputParser for grok-build', () => {
+			const parser = getOutputParser('grok-build');
+			expect(parser).not.toBeNull();
+			expect(parser).toBeInstanceOf(GrokBuildOutputParser);
 		});
 	});
 
