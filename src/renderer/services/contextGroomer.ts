@@ -136,6 +136,16 @@ export const AGENT_ARTIFACTS: Partial<Record<ToolType, string[]>> = {
 		'Opus',
 		'Sonnet',
 	],
+	'grok-build': [
+		// Brand references
+		'Grok',
+		'xAI',
+		'Grok Build',
+		'grok-4',
+		// Model references
+		'grok-4-heavy',
+		'grok-4.3',
+	],
 	terminal: [
 		// Terminal has no agent-specific artifacts
 	],
@@ -168,6 +178,12 @@ export const AGENT_TARGET_NOTES: Partial<Record<ToolType, string>> = {
     It supports multiple model providers (Claude, GPT, Gemini).
     It can read and edit files, run commands, search code, and interact with git.
     It has tiered autonomy levels for controlling operation permissions.
+  `,
+	'grok-build': `
+    Grok Build is an agentic coding CLI by xAI.
+    It can read and edit files, run terminal commands, and search code.
+    It supports sandbox profiles for controlling filesystem and network access.
+    It uses Grok models (grok-4, grok-4-heavy) with configurable reasoning effort.
   `,
 	terminal: `
     Terminal is a raw shell interface.

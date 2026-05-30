@@ -45,6 +45,10 @@ export const AGENT_ICONS: Record<string, string> = {
 	// Enterprise
 	'factory-droid': '🏭',
 
+	// xAI
+	'grok-build': '⚡',
+	grok: '⚡',
+
 	// GitHub
 	copilot: '✈️',
 

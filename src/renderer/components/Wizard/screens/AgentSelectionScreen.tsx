@@ -79,6 +79,13 @@ export const AGENT_TILES: AgentTile[] = [
 		description: "GitHub's AI coding assistant",
 		brandColor: '#24292F', // GitHub dark gray
 	},
+	{
+		id: 'grok-build',
+		name: 'Grok Build',
+		supported: true,
+		description: "xAI's agentic coding CLI",
+		brandColor: '#000000', // xAI black
+	},
 	// Coming soon agents at the bottom
 	{
 		id: 'gemini-cli',
@@ -271,6 +278,20 @@ export function AgentLogo({
 					<circle cx="19" cy="21" r="2.5" fill={color} />
 					<circle cx="29" cy="21" r="2.5" fill={color} />
 					<path d="M18 27.5h12" stroke={color} strokeWidth="2" strokeLinecap="round" />
+				</svg>
+			);
+
+		case 'grok-build':
+			// Grok Build (xAI) — lightning bolt logo
+			return (
+				<svg
+					className="w-12 h-12"
+					viewBox="0 0 48 48"
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+					style={{ opacity }}
+				>
+					<path d="M28 4L12 26h10l-4 18L36 22H26l2-18z" fill={color} />
 				</svg>
 			);
 
