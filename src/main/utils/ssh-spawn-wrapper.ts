@@ -137,7 +137,11 @@ export async function wrapSpawnWithSsh(
 	// Large prompts use buildSshCommandWithStdin which sends everything (PATH setup,
 	// cd, env vars, exec command, and prompt) via stdin to /bin/bash on the remote.
 	// This matches the approach used by the process:spawn IPC handler.
-	const isLargePrompt = config.prompt && config.prompt.length > 4000;
+	// grok reads its prompt only from the -p flag, never from stdin. The large-prompt
+	// stdin-passthrough path would leave grok with no prompt -> exit 1. Force grok down
+	// the promptArgs (-p) path below regardless of prompt size.
+	const isGrok = config.agentBinaryName === 'grok' || config.command === 'grok';
+	const isLargePrompt = !isGrok && config.prompt && config.prompt.length > 4000;
 
 	if (config.prompt && isLargePrompt) {
 		// Large prompt - use stdin passthrough via buildSshCommandWithStdin

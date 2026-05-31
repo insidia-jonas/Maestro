@@ -794,6 +794,14 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 						let sshArgs = finalArgs;
 						let stdinInput: string | undefined = effectivePrompt;
 
+						// grok-build reads its prompt from the -p flag, NOT from stdin (no stdin
+						// prompt path). Over SSH the prompt would otherwise go via stdin passthrough,
+						// leaving grok with no prompt -> exit 1. Deliver via promptArgs (-p) instead.
+						if (agent?.id === 'grok-build' && effectivePrompt && agent.promptArgs) {
+							sshArgs = [...sshArgs, ...agent.promptArgs(effectivePrompt)];
+							stdinInput = undefined;
+						}
+
 						if (hasImages && effectivePrompt && agent?.capabilities?.supportsStreamJsonInput) {
 							// Stream-json agent (Claude Code): embed images in the stdin message
 							stdinInput = buildStreamJsonMessage(effectivePrompt, config.images!) + '\n';
