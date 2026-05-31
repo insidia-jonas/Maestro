@@ -94,6 +94,9 @@ export class GrokBuildOutputParser implements AgentOutputParser {
 		}
 
 		// ---- Assistant text delta ----
+		// NOT marked isPartial — this is the final answer, not thinking/commentary.
+		// StdoutHandler routes non-partial text directly to emitDataBuffered for
+		// real-time markdown streaming (same as the stdout path, not thinking-chunk).
 		if (type === EV_TEXT) {
 			const e = event as unknown as GrokDeltaEvent;
 			const text = e.data ?? '';
@@ -101,7 +104,6 @@ export class GrokBuildOutputParser implements AgentOutputParser {
 			return {
 				type: 'text',
 				text,
-				isPartial: true,
 				raw: event,
 			};
 		}

@@ -116,6 +116,19 @@ export class ExitHandler {
 						this.bufferManager.emitDataBuffered(sessionId, resultText);
 					}
 				}
+				// Handle grok-build text deltas stuck in buffer without trailing
+				// newline (cancelled/aborted turn).  Same gating as StdoutHandler.
+				if (
+					event &&
+					managedProcess.toolType === 'grok-build' &&
+					event.type === 'text' &&
+					!event.isPartial &&
+					!event.isReasoning &&
+					event.text
+				) {
+					this.bufferManager.emitDataBuffered(sessionId, event.text);
+					managedProcess.resultEmitted = true;
+				}
 			} catch {
 				// If parsing fails, emit the raw line as data
 				this.bufferManager.emitDataBuffered(sessionId, remainingLine);

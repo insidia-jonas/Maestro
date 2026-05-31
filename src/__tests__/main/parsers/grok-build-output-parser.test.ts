@@ -51,7 +51,9 @@ describe('GrokBuildOutputParser', () => {
 		const event = parser.parseJsonLine(line);
 		expect(event?.type).toBe('text');
 		expect(event?.text).toBe('Hello');
-		expect(event?.isPartial).toBe(true);
+		// Text deltas are NOT isPartial — they are the final answer, not thinking.
+		// This routes them through emitDataBuffered for real-time markdown streaming.
+		expect(event?.isPartial).toBeFalsy();
 		expect(event?.isReasoning).toBeFalsy();
 	});
 
@@ -246,7 +248,7 @@ describe('GrokBuildOutputParser', () => {
 		const event = parser.parseJsonObject({ type: 'text', data: 'Hello' });
 		expect(event?.type).toBe('text');
 		expect(event?.text).toBe('Hello');
-		expect(event?.isPartial).toBe(true);
+		expect(event?.isPartial).toBeFalsy();
 	});
 
 	it('parses pre-parsed JSON object (end event)', () => {

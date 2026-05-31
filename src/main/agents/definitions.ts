@@ -634,7 +634,8 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 				key: 'model',
 				type: 'text',
 				label: 'Model',
-				description: 'Grok model to use (e.g. grok-4.3, grok-4-heavy). Leave empty for default.',
+				description:
+					'Grok model to use (e.g. grok-4-heavy). Available IDs are account-dependent — run `grok models` to list yours. Leave empty for default.',
 				default: '',
 				argBuilder: (value: string) => {
 					if (value && value.trim()) {
@@ -666,16 +667,6 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 					}
 					return [];
 				},
-			},
-			{
-				key: 'reasoningEffort',
-				type: 'select',
-				label: 'Reasoning Effort',
-				description:
-					'Reasoning effort for reasoning models (verified: --effort low|medium|high|xhigh|max). Leave empty for model default.',
-				options: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
-				default: '',
-				argBuilder: (value: string) => (value && value.trim() ? ['--effort', value.trim()] : []),
 			},
 		],
 	},

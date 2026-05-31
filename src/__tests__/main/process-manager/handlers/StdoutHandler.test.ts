@@ -2122,4 +2122,203 @@ describe('StdoutHandler — single JSON parse per line', () => {
 			mockedMatchSsh.mockReset();
 		});
 	});
+
+	// ── Grok-build streaming contract ─────────────────────────────────────
+
+	describe('grok-build streaming contract', () => {
+		/**
+		 * Grok-build's parser emits three event shapes:
+		 *   EV_TEXT:    { type:'text', text, raw }         (answer — NOT isPartial)
+		 *   EV_THOUGHT: { type:'text', text, isPartial:true, isReasoning:true, raw }
+		 *   EV_END:     { type:'result', text:'', sessionId, raw }
+		 *
+		 * Contract:
+		 *   EV_TEXT    → emitDataBuffered (live markdown), NOT thinking-chunk
+		 *   EV_THOUGHT → thinking-chunk, NOT emitDataBuffered
+		 *   EV_END     → session-id extraction, no re-dump (resultEmitted already true)
+		 */
+
+		function createGrokParser() {
+			return {
+				agentId: 'grok-build',
+				parseJsonLine: vi.fn((line: string) => {
+					try {
+						return JSON.parse(line);
+					} catch {
+						return null;
+					}
+				}),
+				parseJsonObject: vi.fn((parsed: any) => {
+					if (!parsed?.type) return null;
+					if (parsed.type === 'text') {
+						return { type: 'text', text: parsed.text, raw: parsed };
+					}
+					if (parsed.type === 'thought') {
+						return {
+							type: 'text',
+							text: parsed.text,
+							isPartial: true,
+							isReasoning: true,
+							raw: parsed,
+						};
+					}
+					if (parsed.type === 'end') {
+						return {
+							type: 'result',
+							text: '',
+							sessionId: parsed.sessionId,
+							raw: parsed,
+						};
+					}
+					return { type: 'system', raw: parsed };
+				}),
+				extractUsage: vi.fn(() => null),
+				extractSessionId: vi.fn((event: any) => event.sessionId ?? null),
+				extractSlashCommands: vi.fn(() => null),
+				isResultMessage: vi.fn((event: any) => event.type === 'result'),
+				detectErrorFromLine: vi.fn(() => null),
+				detectErrorFromParsed: vi.fn(() => null),
+			};
+		}
+
+		it('EV_TEXT → emitDataBuffered (live markdown), not thinking-chunk', () => {
+			const parser = createGrokParser();
+			const { handler, bufferManager, emitter, sessionId, proc } = createTestContext({
+				isStreamJsonMode: true,
+				toolType: 'grok-build',
+				outputParser: parser as any,
+			});
+
+			const thinkingSpy = vi.fn();
+			emitter.on('thinking-chunk', thinkingSpy);
+
+			sendJsonLine(handler, sessionId, { type: 'text', text: 'Hello world' });
+
+			expect(bufferManager.emitDataBuffered).toHaveBeenCalledWith(sessionId, 'Hello world');
+			expect(thinkingSpy).not.toHaveBeenCalled();
+			expect(proc.resultEmitted).toBe(true);
+		});
+
+		it('EV_THOUGHT → thinking-chunk, not emitDataBuffered', () => {
+			const parser = createGrokParser();
+			const { handler, bufferManager, emitter, sessionId } = createTestContext({
+				isStreamJsonMode: true,
+				toolType: 'grok-build',
+				outputParser: parser as any,
+			});
+
+			const thinkingSpy = vi.fn();
+			emitter.on('thinking-chunk', thinkingSpy);
+
+			sendJsonLine(handler, sessionId, { type: 'thought', text: 'Let me reason...' });
+
+			expect(thinkingSpy).toHaveBeenCalledWith(sessionId, 'Let me reason...');
+			expect(bufferManager.emitDataBuffered).not.toHaveBeenCalled();
+		});
+
+		it('EV_END → extracts session-id, no re-dump of streamed text', () => {
+			const parser = createGrokParser();
+			const { handler, bufferManager, emitter, sessionId, proc } = createTestContext({
+				isStreamJsonMode: true,
+				toolType: 'grok-build',
+				outputParser: parser as any,
+			});
+
+			const sessionIdSpy = vi.fn();
+			emitter.on('session-id', sessionIdSpy);
+
+			// First stream some text so resultEmitted becomes true
+			sendJsonLine(handler, sessionId, { type: 'text', text: 'Answer chunk' });
+			expect(proc.resultEmitted).toBe(true);
+			bufferManager.emitDataBuffered.mockClear();
+
+			// Then the end event — should NOT re-emit
+			sendJsonLine(handler, sessionId, {
+				type: 'end',
+				sessionId: 'grok-session-42',
+				stopReason: 'EndTurn',
+			});
+
+			expect(sessionIdSpy).toHaveBeenCalledWith(sessionId, 'grok-session-42');
+			expect(bufferManager.emitDataBuffered).not.toHaveBeenCalled();
+		});
+
+		it('full streaming sequence: multiple text + thought + end', () => {
+			const parser = createGrokParser();
+			const { handler, bufferManager, emitter, sessionId } = createTestContext({
+				isStreamJsonMode: true,
+				toolType: 'grok-build',
+				outputParser: parser as any,
+			});
+
+			const thinkingSpy = vi.fn();
+			emitter.on('thinking-chunk', thinkingSpy);
+
+			// Reasoning
+			sendJsonLine(handler, sessionId, { type: 'thought', text: 'Thinking...' });
+			// Answer chunks
+			sendJsonLine(handler, sessionId, { type: 'text', text: 'Part 1' });
+			sendJsonLine(handler, sessionId, { type: 'text', text: ' Part 2' });
+			// End
+			sendJsonLine(handler, sessionId, {
+				type: 'end',
+				sessionId: 'grok-s',
+				stopReason: 'EndTurn',
+			});
+
+			expect(thinkingSpy).toHaveBeenCalledTimes(1);
+			expect(thinkingSpy).toHaveBeenCalledWith(sessionId, 'Thinking...');
+			expect(bufferManager.emitDataBuffered).toHaveBeenCalledTimes(2);
+			expect(bufferManager.emitDataBuffered).toHaveBeenNthCalledWith(1, sessionId, 'Part 1');
+			expect(bufferManager.emitDataBuffered).toHaveBeenNthCalledWith(2, sessionId, ' Part 2');
+		});
+
+		it('regression: codex isPartial text still routes to thinking-chunk, not emitDataBuffered', () => {
+			/**
+			 * Codex commentary events are { type:'text', isPartial:true } — the same
+			 * shape grok-build used before the fix.  The grok-build gate must NOT
+			 * redirect codex text through the live-markdown path.
+			 */
+			const codexParser = {
+				agentId: 'codex',
+				parseJsonLine: vi.fn((line: string) => {
+					try {
+						return JSON.parse(line);
+					} catch {
+						return null;
+					}
+				}),
+				parseJsonObject: vi.fn((parsed: any) => {
+					if (parsed?.type === 'commentary') {
+						return { type: 'text', text: parsed.text, isPartial: true, raw: parsed };
+					}
+					return { type: 'system', raw: parsed };
+				}),
+				extractUsage: vi.fn(() => null),
+				extractSessionId: vi.fn(() => null),
+				extractSlashCommands: vi.fn(() => null),
+				isResultMessage: vi.fn(() => false),
+				detectErrorFromLine: vi.fn(() => null),
+				detectErrorFromParsed: vi.fn(() => null),
+			};
+
+			const { handler, bufferManager, emitter, sessionId, proc } = createTestContext({
+				isStreamJsonMode: true,
+				toolType: 'codex',
+				outputParser: codexParser as any,
+			});
+
+			const thinkingSpy = vi.fn();
+			emitter.on('thinking-chunk', thinkingSpy);
+
+			sendJsonLine(handler, sessionId, { type: 'commentary', text: 'Checking files...' });
+
+			// Codex commentary must go through thinking-chunk (isPartial path)
+			expect(thinkingSpy).toHaveBeenCalledWith(sessionId, 'Checking files...');
+			// Must NOT go through emitDataBuffered (that's grok-build only)
+			expect(bufferManager.emitDataBuffered).not.toHaveBeenCalled();
+			// streamedText must accumulate (non-reasoning)
+			expect(proc.streamedText).toBe('Checking files...');
+		});
+	});
 });

@@ -496,6 +496,25 @@ export class StdoutHandler {
 			}
 		}
 
+		// Handle live-streamed answer text for grok-build.
+		// Grok's EV_TEXT deltas are the final answer (not thinking/commentary), so
+		// they are emitted without isPartial by the parser.  Route each chunk
+		// directly to emitDataBuffered for real-time markdown rendering.  Mark
+		// resultEmitted so the terminal EV_END (which carries empty text) does not
+		// re-dump the accumulated content.
+		// Gated on grok-build to avoid accidentally capturing non-partial text
+		// events from future parsers that might use the same shape.
+		if (
+			managedProcess.toolType === 'grok-build' &&
+			event.type === 'text' &&
+			!event.isPartial &&
+			!event.isReasoning &&
+			event.text
+		) {
+			this.bufferManager.emitDataBuffered(sessionId, event.text);
+			managedProcess.resultEmitted = true;
+		}
+
 		// Handle tool execution events (OpenCode, Codex)
 		if (event.type === 'tool_use' && event.toolName) {
 			const toolStatus = getToolStatus(event.toolState);
