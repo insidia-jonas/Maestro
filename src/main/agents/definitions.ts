@@ -654,16 +654,15 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 			},
 			{
 				key: 'sandboxProfile',
-				type: 'select',
+				type: 'text',
 				label: 'Sandbox Profile',
 				description:
-					'Grok Build sandbox level. Use "workspace" to allow network egress from child processes ' +
-					'(required for OSINT/recon pipelines). "strict" blocks child network via seccomp-BPF (Linux only).',
-				options: ['workspace', 'off', 'strict'],
-				default: 'workspace',
+					'Name of a sandbox profile defined in ~/.grok/sandbox.toml. ' +
+					"Leave empty to use grok's built-in default.",
+				default: '',
 				argBuilder: (value: string) => {
-					if (value && value !== 'off') {
-						return ['--sandbox', value];
+					if (value && value.trim()) {
+						return ['--sandbox', value.trim()];
 					}
 					return [];
 				},

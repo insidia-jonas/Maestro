@@ -285,6 +285,26 @@ describe('GrokBuildOutputParser', () => {
 		expect(error?.recoverable).toBe(true);
 	});
 
+	it('non-zero exit with benign watcher warning: does NOT flag permission_denied', () => {
+		// Regression: grok's file-watcher prints "failed to watch root recursively"
+		// when it cannot watch a path (e.g. unreadable .ssh dir). This is non-fatal —
+		// grok recovers and the turn completes. It must NOT trigger permission_denied.
+		const stderr = 'failed to watch root recursively: /home/user/.ssh';
+		const error = parser.detectErrorFromExit(1, stderr, '');
+		// Should fall through to agent_crashed (no pattern match), NOT permission_denied
+		expect(error?.type).not.toBe('permission_denied');
+		expect(error?.type).toBe('agent_crashed');
+	});
+
+	it('non-zero exit with real permission error alongside watcher warning: still detects', () => {
+		// If a real sandbox permission error occurs WITH a watcher warning,
+		// the real error should still be detected.
+		const stderr =
+			'failed to watch root recursively: /home/user/.ssh\nsandbox blocked network access';
+		const error = parser.detectErrorFromExit(1, stderr, '');
+		expect(error?.type).toBe('permission_denied');
+	});
+
 	// ---- raw field preservation ----
 
 	it('preserves raw field for debugging', () => {

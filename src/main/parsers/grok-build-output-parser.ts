@@ -206,9 +206,19 @@ export class GrokBuildOutputParser implements AgentOutputParser {
 		}
 
 		const combined = `${stderr}\n${stdout}`;
+
+		// Filter non-fatal file-watcher warnings before pattern matching.
+		// grok's file-watcher prints this when it cannot watch a path recursively
+		// (e.g. unreadable .ssh dir in cwd). grok recovers and the turn completes,
+		// so this must NOT trigger the permission_denied pattern on exit.
+		const filteredCombined = combined
+			.split('\n')
+			.filter((line) => !/failed to watch root recursively/i.test(line))
+			.join('\n');
+
 		const patterns = getErrorPatterns('grok-build');
 		if (patterns) {
-			const match = matchErrorPattern(patterns, combined);
+			const match = matchErrorPattern(patterns, filteredCombined);
 			if (match) {
 				return {
 					...match,

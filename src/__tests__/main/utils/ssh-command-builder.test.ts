@@ -914,8 +914,10 @@ describe('ssh-command-builder', () => {
 			const cmdLine = result.stdinScript?.split('\n').find((line) => line.startsWith('codex '));
 			expect(cmdLine).toContain("'-i'");
 			expect(cmdLine).toContain('/tmp/maestro-image-');
-			// Should have cleanup rm -f after the command
-			expect(cmdLine).toContain('; rm -f');
+			// Cleanup rm -f should appear in the script (on a separate line, after exit-code capture)
+			expect(result.stdinScript).toContain('rm -f');
+			expect(result.stdinScript).toContain('__maestro_st=$?');
+			expect(result.stdinScript).toContain('exit $__maestro_st');
 		});
 
 		it('handles multiple images for file-based agents', async () => {
@@ -940,8 +942,9 @@ describe('ssh-command-builder', () => {
 			// Count occurrences of -f
 			const fFlagCount = (cmdLine?.match(/'-f'/g) || []).length;
 			expect(fFlagCount).toBe(2);
-			// Should have cleanup rm -f
-			expect(cmdLine).toContain('; rm -f');
+			// Cleanup rm -f on separate line (exit-code preserved)
+			expect(result.stdinScript).toContain('rm -f');
+			expect(result.stdinScript).toContain('__maestro_st=$?');
 		});
 
 		it('skips invalid image data URLs', async () => {
@@ -995,15 +998,16 @@ describe('ssh-command-builder', () => {
 			// No exec prefix because temp files exist and need cleanup
 			const cmdLine = result.stdinScript?.split('\n').find((line) => line.startsWith('codex '));
 			expect(cmdLine).not.toContain("'-i'");
-			// Should have cleanup rm -f
-			expect(cmdLine).toContain('; rm -f');
-			// The stdinInput (after the command line) should have the image prefix prepended
-			const afterCmd = result.stdinScript?.split(cmdLine + '\n')[1];
-			expect(afterCmd).toContain('[Attached images: /tmp/maestro-image-');
-			expect(afterCmd).toContain('describe this image');
+			// Cleanup rm -f on separate line (exit-code preserved)
+			expect(result.stdinScript).toContain('rm -f');
+			expect(result.stdinScript).toContain('__maestro_st=$?');
+			// The stdinInput (after the exit $__maestro_st line) should have the image prefix prepended
+			const afterCleanup = result.stdinScript?.split('exit $__maestro_st\n')[1];
+			expect(afterCleanup).toContain('[Attached images: /tmp/maestro-image-');
+			expect(afterCleanup).toContain('describe this image');
 			// Image prefix should come BEFORE the prompt content
-			const prefixIdx = afterCmd?.indexOf('[Attached images:') ?? -1;
-			const promptIdx = afterCmd?.indexOf('describe this image') ?? -1;
+			const prefixIdx = afterCleanup?.indexOf('[Attached images:') ?? -1;
+			const promptIdx = afterCleanup?.indexOf('describe this image') ?? -1;
 			expect(prefixIdx).toBeLessThan(promptIdx);
 		});
 
@@ -1024,15 +1028,16 @@ describe('ssh-command-builder', () => {
 			// Command line should NOT have -i flags (no exec prefix when temp files exist)
 			const cmdLine = result.stdinScript?.split('\n').find((line) => line.startsWith('codex '));
 			expect(cmdLine).not.toContain("'-i'");
-			// Should have cleanup rm -f
-			expect(cmdLine).toContain('; rm -f');
+			// Cleanup rm -f on separate line (exit-code preserved)
+			expect(result.stdinScript).toContain('rm -f');
+			expect(result.stdinScript).toContain('__maestro_st=$?');
 			// The stdin should contain attached images prefix with both paths
-			const afterCmd = result.stdinScript?.split(cmdLine + '\n')[1];
-			expect(afterCmd).toContain('[Attached images: /tmp/maestro-image-');
-			expect(afterCmd).toContain('.png');
-			expect(afterCmd).toContain('.jpeg');
+			const afterCleanup = result.stdinScript?.split('exit $__maestro_st\n')[1];
+			expect(afterCleanup).toContain('[Attached images: /tmp/maestro-image-');
+			expect(afterCleanup).toContain('.png');
+			expect(afterCleanup).toContain('.jpeg');
 			// Both paths separated by comma
-			const attachedLine = afterCmd?.split('\n')[0];
+			const attachedLine = afterCleanup?.split('\n')[0];
 			expect(attachedLine).toContain(', /tmp/maestro-image-');
 		});
 
@@ -1061,8 +1066,9 @@ describe('ssh-command-builder', () => {
 			// Should NOT have -i flags anywhere in the command portion
 			const cmdPortion = result.stdinScript?.substring(result.stdinScript.indexOf('codex'));
 			expect(cmdPortion).not.toContain("'-i'");
-			// Should have cleanup rm -f
-			expect(result.stdinScript).toContain('; rm -f');
+			// Cleanup rm -f on separate line (exit-code preserved)
+			expect(result.stdinScript).toContain('rm -f');
+			expect(result.stdinScript).toContain('__maestro_st=$?');
 		});
 
 		it('embeds Copilot image @mentions when imagePromptBuilder is provided', async () => {
@@ -1080,11 +1086,12 @@ describe('ssh-command-builder', () => {
 			const cmdLine = result.stdinScript?.split('\n').find((line) => line.startsWith('copilot '));
 			expect(cmdLine).toBeDefined();
 			expect(cmdLine).not.toContain("'-i'");
-			expect(cmdLine).toContain('; rm -f');
+			// Cleanup rm -f on separate line
+			expect(result.stdinScript).toContain('rm -f');
 
-			const afterCmd = result.stdinScript?.split(cmdLine + '\n')[1];
-			expect(afterCmd).toContain('@/tmp/maestro-image-');
-			expect(afterCmd).toContain('describe this image');
+			const afterCleanup = result.stdinScript?.split('exit $__maestro_st\n')[1];
+			expect(afterCleanup).toContain('@/tmp/maestro-image-');
+			expect(afterCleanup).toContain('describe this image');
 		});
 
 		it('does not embed image paths when imageResumeMode is not set (default behavior)', async () => {
@@ -1101,11 +1108,12 @@ describe('ssh-command-builder', () => {
 			// Should use -i flags (not prompt-embed), no exec prefix when temp files exist
 			const cmdLine = result.stdinScript?.split('\n').find((line) => line.startsWith('codex '));
 			expect(cmdLine).toContain("'-i'");
-			// Should have cleanup rm -f
-			expect(cmdLine).toContain('; rm -f');
+			// Cleanup rm -f on separate line (exit-code preserved)
+			expect(result.stdinScript).toContain('rm -f');
+			expect(result.stdinScript).toContain('__maestro_st=$?');
 			// Should NOT have [Attached images:] in stdinInput
-			const afterCmd = result.stdinScript?.split(cmdLine + '\n')[1];
-			expect(afterCmd).not.toContain('[Attached images:');
+			const afterCleanup = result.stdinScript?.split('exit $__maestro_st\n')[1];
+			expect(afterCleanup).not.toContain('[Attached images:');
 		});
 
 		describe('remote temp file cleanup', () => {
@@ -1123,12 +1131,14 @@ describe('ssh-command-builder', () => {
 				const scriptLines = result.stdinScript?.split('\n') ?? [];
 				const execLines = scriptLines.filter((line) => line.startsWith('exec '));
 				expect(execLines.length).toBe(0);
-				// Should have the command running without exec
+				// Should have the command running without exec, with cleanup on SAME line
 				const cmdLine = scriptLines.find((line) => line.startsWith('codex '));
 				expect(cmdLine).toBeDefined();
-				// Should have rm -f cleanup appended
-				expect(cmdLine).toContain('; rm -f');
+				// All on one line: cmd; __maestro_st=$?; rm -f ...; exit $__maestro_st
+				expect(cmdLine).toContain('__maestro_st=$?');
+				expect(cmdLine).toContain('rm -f');
 				expect(cmdLine).toContain('/tmp/maestro-image-');
+				expect(cmdLine).toContain('exit $__maestro_st');
 			});
 
 			it('uses exec when no remote temp files exist (existing behavior)', async () => {
@@ -1143,7 +1153,7 @@ describe('ssh-command-builder', () => {
 				expect(execLine).toBeDefined();
 				expect(execLine).toContain('exec codex');
 				// Should NOT have rm -f
-				expect(execLine).not.toContain('rm -f');
+				expect(result.stdinScript).not.toContain('rm -f');
 			});
 
 			it('uses exec when images array is empty', async () => {
@@ -1157,7 +1167,7 @@ describe('ssh-command-builder', () => {
 
 				const execLine = result.stdinScript?.split('\n').find((line) => line.startsWith('exec '));
 				expect(execLine).toBeDefined();
-				expect(execLine).not.toContain('rm -f');
+				expect(result.stdinScript).not.toContain('rm -f');
 			});
 
 			it('includes all temp file paths in rm -f cleanup for multiple images', async () => {
@@ -1170,12 +1180,11 @@ describe('ssh-command-builder', () => {
 					imageArgs: (path: string) => ['-i', path],
 				});
 
+				// rm -f is on the same line as the command (single-line cleanup pattern)
 				const cmdLine = result.stdinScript?.split('\n').find((line) => line.startsWith('codex '));
-				expect(cmdLine).toContain('; rm -f');
-				// Should contain paths for both images
-				const rmPart = cmdLine?.split('; rm -f ')[1] ?? '';
-				expect(rmPart).toContain('.png');
-				expect(rmPart).toContain('.jpeg');
+				expect(cmdLine).toContain('rm -f');
+				expect(cmdLine).toContain('.png');
+				expect(cmdLine).toContain('.jpeg');
 			});
 
 			it('cleans up temp files in prompt-embed mode too', async () => {
@@ -1190,8 +1199,46 @@ describe('ssh-command-builder', () => {
 				});
 
 				const cmdLine = result.stdinScript?.split('\n').find((line) => line.startsWith('codex '));
-				expect(cmdLine).toContain('; rm -f');
+				expect(cmdLine).toContain('rm -f');
 				expect(cmdLine).toContain('/tmp/maestro-image-');
+				expect(cmdLine).toContain('__maestro_st=$?');
+			});
+
+			it('stdin payload appears AFTER cleanup line, not interleaved (shell stdin semantics)', async () => {
+				// R2: Critical shell-semantics test. Without exec, the agent inherits stdin
+				// from bash. Bash reads scripts line-by-line from stdin. If cleanup were on
+				// separate lines AFTER the command, a stdin-reading agent could see those
+				// lines as input. Correct pattern: cleanup on SAME line as command, stdinInput
+				// (the prompt) on the NEXT line — never mixed.
+				const testImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+				const prompt = 'Describe this image in detail';
+				const result = await buildSshCommandWithStdin(baseConfig, {
+					command: 'codex',
+					args: ['exec'],
+					stdinInput: prompt,
+					images: [testImage],
+					imageArgs: (path: string) => ['-i', path],
+				});
+
+				const lines = result.stdinScript!.split('\n');
+				// Find the command+cleanup line
+				const cmdLineIdx = lines.findIndex((l) => l.startsWith('codex '));
+				expect(cmdLineIdx).toBeGreaterThan(-1);
+				const cmdLine = lines[cmdLineIdx];
+
+				// Verify single-line pattern: cmd; capture; cleanup; exit — all on one line
+				expect(cmdLine).toMatch(/^codex .+; __maestro_st=\$\?; rm -f .+; exit \$__maestro_st$/);
+
+				// stdinInput must appear AFTER the command line, not before or on it
+				const afterCmdLines = lines.slice(cmdLineIdx + 1).join('\n');
+				expect(afterCmdLines).toContain(prompt);
+
+				// The command line itself must NOT contain the prompt (it's stdin, not a CLI arg here)
+				expect(cmdLine).not.toContain(prompt);
+
+				// No cleanup-related tokens should appear in the stdin payload area
+				expect(afterCmdLines).not.toContain('__maestro_st');
+				expect(afterCmdLines).not.toContain('rm -f');
 			});
 		});
 
@@ -1278,6 +1325,54 @@ describe('ssh-command-builder', () => {
 			// Verify exec line doesn't have the prompt
 			const execLine = result.stdinScript?.split('\n').find((line) => line.startsWith('exec '));
 			expect(execLine).not.toContain('{"type"');
+		});
+
+		it('writes promptFile to remote temp file via base64 heredoc', async () => {
+			const promptContent = 'Hello from grok prompt file';
+			const contentBase64 = Buffer.from(promptContent, 'utf-8').toString('base64');
+			const remotePath = '/tmp/maestro-grok-prompt-123.txt';
+
+			const result = await buildSshCommandWithStdin(baseConfig, {
+				command: 'grok',
+				args: ['--prompt-file', remotePath, '--output-format', 'streaming-json'],
+				cwd: '/home/user/project',
+				promptFile: { remotePath, contentBase64 },
+			});
+
+			// Script should contain the base64 decode heredoc
+			expect(result.stdinScript).toContain(`base64 -d > '${remotePath}' <<'MAESTRO_PROMPT_EOF'`);
+			expect(result.stdinScript).toContain(contentBase64);
+			expect(result.stdinScript).toContain('MAESTRO_PROMPT_EOF');
+
+			// The temp file should be cleaned up after the command runs
+			expect(result.stdinScript).toContain(`rm -f '${remotePath}'`);
+			// Should NOT use exec (cleanup needs to run after command)
+			expect(result.stdinScript).not.toContain('exec grok');
+
+			// Exit code must be preserved through cleanup (F1 critic fix)
+			expect(result.stdinScript).toContain('__maestro_st=$?');
+			expect(result.stdinScript).toContain('exit $__maestro_st');
+
+			// No stdinInput passthrough (grok doesn't read stdin)
+			const lines = result.stdinScript!.split('\n');
+			const cmdLine = lines.find((l) => l.includes('grok') && l.includes('--prompt-file'));
+			expect(cmdLine).toContain('--prompt-file');
+			expect(cmdLine).toContain('streaming-json');
+		});
+
+		it('promptFile does not interfere with stdin passthrough for other agents', async () => {
+			// Non-grok agent: stdinInput is used, no promptFile
+			const result = await buildSshCommandWithStdin(baseConfig, {
+				command: 'opencode',
+				args: ['run'],
+				stdinInput: 'Hello via stdin',
+			});
+
+			// No base64 heredoc for prompt files
+			expect(result.stdinScript).not.toContain('MAESTRO_PROMPT_EOF');
+			// stdin passthrough works normally
+			expect(result.stdinScript).toContain('Hello via stdin');
+			expect(result.stdinScript).toContain('exec opencode');
 		});
 	});
 });

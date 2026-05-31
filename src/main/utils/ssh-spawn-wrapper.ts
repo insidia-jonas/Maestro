@@ -11,6 +11,7 @@
  */
 
 import * as os from 'os';
+import * as crypto from 'crypto';
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../shared/types';
 import { getSshRemoteConfig, SshRemoteSettingsStore } from './ssh-remote-resolver';
 import { buildSshCommand, buildSshCommandWithStdin } from './ssh-command-builder';
@@ -137,14 +138,42 @@ export async function wrapSpawnWithSsh(
 	// Large prompts use buildSshCommandWithStdin which sends everything (PATH setup,
 	// cd, env vars, exec command, and prompt) via stdin to /bin/bash on the remote.
 	// This matches the approach used by the process:spawn IPC handler.
-	// grok reads its prompt only from the -p flag, never from stdin. The large-prompt
-	// stdin-passthrough path would leave grok with no prompt -> exit 1. Force grok down
-	// the promptArgs (-p) path below regardless of prompt size.
 	const isGrok = config.agentBinaryName === 'grok' || config.command === 'grok';
-	const isLargePrompt = !isGrok && config.prompt && config.prompt.length > 4000;
+	const isLargePrompt = config.prompt && config.prompt.length > 4000;
 
-	if (config.prompt && isLargePrompt) {
-		// Large prompt - use stdin passthrough via buildSshCommandWithStdin
+	if (config.prompt && isLargePrompt && isGrok) {
+		// grok reads its prompt from -p or --prompt-file, never from stdin.
+		// For large prompts, write to a remote temp file and pass --prompt-file.
+		const remoteTempPath = `/tmp/maestro-grok-prompt-${crypto.randomUUID()}.txt`;
+		const contentBase64 = Buffer.from(config.prompt, 'utf-8').toString('base64');
+
+		logger.info('Using --prompt-file for large grok prompt in SSH remote execution', LOG_CONTEXT, {
+			promptLength: config.prompt.length,
+			remoteTempPath,
+			reason: 'grok-no-stdin-support',
+		});
+
+		const sshCommand = await buildSshCommandWithStdin(sshResult.config, {
+			command: remoteCommand,
+			args: [...config.args, '--prompt-file', remoteTempPath],
+			cwd: config.cwd,
+			env: config.customEnvVars,
+			promptFile: { remotePath: remoteTempPath, contentBase64 },
+		});
+
+		return {
+			command: sshCommand.command,
+			args: sshCommand.args,
+			cwd: os.homedir(),
+			customEnvVars: undefined,
+			prompt: undefined,
+			sshStdinScript: sshCommand.stdinScript,
+			sshRemoteUsed: sshResult.config,
+		};
+	}
+
+	if (config.prompt && isLargePrompt && !isGrok) {
+		// Large prompt for stdin-capable agents - use stdin passthrough via buildSshCommandWithStdin.
 		// The prompt is appended after the exec line in the stdin script, so the
 		// exec'd agent reads it directly from stdin as raw text.
 		logger.info('Using stdin passthrough for large prompt in SSH remote execution', LOG_CONTEXT, {

@@ -311,6 +311,10 @@ export async function buildSshCommandWithStdin(
 		/** When set to 'prompt-embed', embed image paths in the prompt/stdinInput instead of adding -i CLI args.
 		 * Used for resumed Codex sessions where the resume command doesn't support -i flag. */
 		imageResumeMode?: 'prompt-embed';
+		/** Write prompt content to a remote temp file (base64-decoded). Used by agents that
+		 * require a file path instead of stdin (e.g., grok --prompt-file). The file is
+		 * automatically cleaned up after the agent exits. */
+		promptFile?: { remotePath: string; contentBase64: string };
 	}
 ): Promise<SshCommandResult> {
 	const args: string[] = [];
@@ -435,6 +439,17 @@ export async function buildSshCommandWithStdin(
 		}
 	}
 
+	// Write prompt content to a remote temp file when the agent requires --prompt-file
+	// instead of reading from stdin (e.g., grok-build with large prompts).
+	// Uses the same base64-heredoc pattern as image temp files.
+	if (remoteOptions.promptFile) {
+		const { remotePath, contentBase64 } = remoteOptions.promptFile;
+		allRemoteTempPaths.push(remotePath);
+		scriptLines.push(`base64 -d > ${shellEscape(remotePath)} <<'MAESTRO_PROMPT_EOF'`);
+		scriptLines.push(contentBase64);
+		scriptLines.push('MAESTRO_PROMPT_EOF');
+	}
+
 	// Build the command line
 	// For the script, we use simple quoting since we're not going through shell parsing layers
 	const cmdParts = [remoteOptions.command, ...remoteOptions.args.map((arg) => shellEscape(arg))];
@@ -456,7 +471,12 @@ export async function buildSshCommandWithStdin(
 	// after the script and passed through to the command via stdin inheritance.
 	if (allRemoteTempPaths.length > 0) {
 		const rmPaths = allRemoteTempPaths.map((p) => shellEscape(p)).join(' ');
-		scriptLines.push(`${cmdParts.join(' ')}; rm -f ${rmPaths}`);
+		// All on ONE line: without exec, bash reads stdin line-by-line — if cleanup were on
+		// separate lines, stdin-reading agents (claude/codex/opencode) would see those lines
+		// as prompt input. Single-line preserves stdin passthrough AND exit-code (via __maestro_st).
+		scriptLines.push(
+			`${cmdParts.join(' ')}; __maestro_st=$?; rm -f ${rmPaths}; exit $__maestro_st`
+		);
 	} else {
 		scriptLines.push(`exec ${cmdParts.join(' ')}`);
 	}

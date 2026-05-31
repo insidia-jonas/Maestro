@@ -117,10 +117,25 @@ vi.mock('../../../../main/utils/ssh-command-builder', () => ({
 			scriptLines.push(`export ${key}='${value}'`);
 		}
 
+		// Handle promptFile (grok --prompt-file base64 heredoc)
+		if (remoteOptions.promptFile) {
+			const { remotePath, contentBase64 } = remoteOptions.promptFile;
+			scriptLines.push(`base64 -d > '${remotePath}' <<'MAESTRO_PROMPT_EOF'`);
+			scriptLines.push(contentBase64);
+			scriptLines.push('MAESTRO_PROMPT_EOF');
+		}
+
 		// Build command with args
 		const cmdWithArgs =
 			`${remoteOptions.command} ${remoteOptions.args.map((a: string) => `'${a}'`).join(' ')}`.trim();
-		scriptLines.push(`exec ${cmdWithArgs}`);
+
+		if (remoteOptions.promptFile) {
+			// Single-line: cmd; capture exit; cleanup; exit — preserves stdin semantics
+			const rmPath = `'${remoteOptions.promptFile.remotePath}'`;
+			scriptLines.push(`${cmdWithArgs}; __maestro_st=$?; rm -f ${rmPath}; exit $__maestro_st`);
+		} else {
+			scriptLines.push(`exec ${cmdWithArgs}`);
+		}
 
 		let stdinScript = scriptLines.join('\n') + '\n';
 		if (remoteOptions.stdinInput) {
@@ -2937,6 +2952,113 @@ describe('process IPC handlers', () => {
 					})
 				);
 			});
+		});
+	});
+
+	describe('grok-build SSH prompt delivery (interactive path)', () => {
+		const mockSshRemote = {
+			id: 'remote-1',
+			name: 'Dev Server',
+			host: 'dev.example.com',
+			port: 22,
+			username: 'devuser',
+			privateKeyPath: '~/.ssh/id_ed25519',
+			enabled: true,
+			remoteEnv: {},
+		};
+
+		const grokAgent = {
+			id: 'grok-build',
+			name: 'Grok Build',
+			requiresPty: false,
+			capabilities: {},
+			promptArgs: (p: string) => ['-p', p],
+		};
+
+		beforeEach(() => {
+			mockAgentDetector.getAgent.mockResolvedValue(grokAgent);
+			mockSettingsStore.get.mockImplementation((key: string, defaultValue: any) => {
+				if (key === 'sshRemotes') return [mockSshRemote];
+				return defaultValue;
+			});
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+		});
+
+		it('short prompt: delivers via -p arg in SSH command', async () => {
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-grok-1',
+				toolType: 'grok-build',
+				cwd: '/project',
+				command: 'grok',
+				args: ['--output-format', 'streaming-json'],
+				prompt: 'Say hello',
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.command).toBe('ssh');
+			// The SSH stdin script should contain `-p 'Say hello'` (the grok prompt flag)
+			expect(spawnCall.sshStdinScript).toContain('-p');
+			expect(spawnCall.sshStdinScript).toContain('Say hello');
+			// Should NOT use --prompt-file for short prompts
+			expect(spawnCall.sshStdinScript).not.toContain('--prompt-file');
+			expect(spawnCall.sshStdinScript).not.toContain('MAESTRO_PROMPT_EOF');
+		});
+
+		it('long prompt (>4000 chars): delivers via --prompt-file with base64 heredoc', async () => {
+			const longPrompt = 'x'.repeat(5000);
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-grok-2',
+				toolType: 'grok-build',
+				cwd: '/project',
+				command: 'grok',
+				args: ['--output-format', 'streaming-json'],
+				prompt: longPrompt,
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.command).toBe('ssh');
+			// Should use --prompt-file approach
+			expect(spawnCall.sshStdinScript).toContain('--prompt-file');
+			expect(spawnCall.sshStdinScript).toContain('MAESTRO_PROMPT_EOF');
+			// The base64 content should be in the script
+			const expectedBase64 = Buffer.from(longPrompt, 'utf-8').toString('base64');
+			expect(spawnCall.sshStdinScript).toContain(expectedBase64);
+			// Exit code should be preserved through cleanup
+			expect(spawnCall.sshStdinScript).toContain('__maestro_st=$?');
+			expect(spawnCall.sshStdinScript).toContain('exit $__maestro_st');
+			// Should NOT have raw prompt in stdin (grok doesn't read stdin)
+			expect(spawnCall.sshStdinScript).not.toContain(`exec grok`);
+		});
+
+		it('long prompt: temp file name uses UUID, not Date.now()', async () => {
+			const longPrompt = 'y'.repeat(5000);
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-grok-3',
+				toolType: 'grok-build',
+				cwd: '/project',
+				command: 'grok',
+				args: ['--output-format', 'streaming-json'],
+				prompt: longPrompt,
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+			});
+
+			const { buildSshCommandWithStdin: mockBuildSsh } =
+				await import('../../../../main/utils/ssh-command-builder');
+			const callArgs = vi.mocked(mockBuildSsh).mock.calls[0][1];
+			// The --prompt-file arg should contain a UUID pattern, not a numeric timestamp
+			const promptFileArg = callArgs.args.find((a: string) =>
+				a.startsWith('/tmp/maestro-grok-prompt-')
+			);
+			expect(promptFileArg).toBeDefined();
+			// UUID pattern: 8-4-4-4-12 hex chars
+			expect(promptFileArg).toMatch(
+				/maestro-grok-prompt-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.txt/
+			);
 		});
 	});
 });

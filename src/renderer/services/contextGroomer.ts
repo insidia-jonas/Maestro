@@ -183,7 +183,7 @@ export const AGENT_TARGET_NOTES: Partial<Record<ToolType, string>> = {
     Grok Build is an agentic coding CLI by xAI.
     It can read and edit files, run terminal commands, and search code.
     It supports sandbox profiles for controlling filesystem and network access.
-    It uses Grok models (grok-4, grok-4-heavy) with configurable reasoning effort.
+    It uses Grok models (grok-4, grok-4-heavy).
   `,
 	terminal: `
     Terminal is a raw shell interface.

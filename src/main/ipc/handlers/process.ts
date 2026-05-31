@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import type { AgentConfigsData } from '../../stores/types';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
@@ -793,12 +794,24 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 						const hasImages = config.images && config.images.length > 0;
 						let sshArgs = finalArgs;
 						let stdinInput: string | undefined = effectivePrompt;
+						let promptFile: { remotePath: string; contentBase64: string } | undefined;
 
-						// grok-build reads its prompt from the -p flag, NOT from stdin (no stdin
-						// prompt path). Over SSH the prompt would otherwise go via stdin passthrough,
-						// leaving grok with no prompt -> exit 1. Deliver via promptArgs (-p) instead.
+						// grok-build reads its prompt from -p or --prompt-file, NOT from stdin.
+						// Over SSH the prompt would otherwise go via stdin passthrough,
+						// leaving grok with no prompt -> exit 1.
+						// Short prompts: deliver via promptArgs (-p).
+						// Long prompts (>4000): write to remote temp file, use --prompt-file.
 						if (agent?.id === 'grok-build' && effectivePrompt && agent.promptArgs) {
-							sshArgs = [...sshArgs, ...agent.promptArgs(effectivePrompt)];
+							if (effectivePrompt.length > 4000) {
+								const remoteTempPath = `/tmp/maestro-grok-prompt-${crypto.randomUUID()}.txt`;
+								promptFile = {
+									remotePath: remoteTempPath,
+									contentBase64: Buffer.from(effectivePrompt, 'utf-8').toString('base64'),
+								};
+								sshArgs = [...sshArgs, '--prompt-file', remoteTempPath];
+							} else {
+								sshArgs = [...sshArgs, ...agent.promptArgs(effectivePrompt)];
+							}
 							stdinInput = undefined;
 						}
 
@@ -852,6 +865,8 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 									: undefined,
 							// Signal resume mode for prompt embedding instead of -i CLI args
 							imageResumeMode: isResumeWithImages ? 'prompt-embed' : undefined,
+							// grok-build: large prompts written to remote temp file (--prompt-file)
+							promptFile,
 						});
 
 						commandToSpawn = sshCommand.command;
