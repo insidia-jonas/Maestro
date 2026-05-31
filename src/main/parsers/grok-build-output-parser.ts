@@ -170,6 +170,11 @@ export class GrokBuildOutputParser implements AgentOutputParser {
 
 	detectErrorFromLine(line: string): AgentError | null {
 		if (!line.trim()) return null;
+		// grok's file-watcher prints a NON-FATAL startup warning when it cannot watch a
+		// path recursively (e.g. an unreadable dir like .ssh in the cwd). grok recovers and
+		// continues to deliver the turn, so this must NOT surface as a fatal error
+		// (it otherwise falsely matches the permission.*denied pattern).
+		if (/failed to watch root recursively/i.test(line)) return null;
 		const patterns = getErrorPatterns('grok-build');
 		if (!patterns) return null;
 		const match = matchErrorPattern(patterns, line);
