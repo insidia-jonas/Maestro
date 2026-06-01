@@ -109,6 +109,11 @@ export interface ProcessListenerDependencies {
 		) => Promise<void>;
 		clearActiveParticipantTaskSession: (groupChatId: string, participantName: string) => void;
 		clearModeratorResponseTimeout: (groupChatId: string) => void;
+		checkAndTrackParticipantResponse: (
+			groupChatId: string,
+			participantName: string,
+			responseHash: string
+		) => { isStale: boolean; count: number };
 	};
 	/** Group chat storage functions */
 	groupChatStorage: {

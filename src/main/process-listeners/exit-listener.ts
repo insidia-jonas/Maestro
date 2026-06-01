@@ -4,6 +4,7 @@
  * This is the largest and most complex listener with routing, recovery, and synthesis logic.
  */
 
+import { createHash } from 'crypto';
 import type { ProcessManager } from '../process-manager';
 import { captureException } from '../utils/sentry';
 import { GROUP_CHAT_PREFIX, type ProcessListenerDependencies } from './types';
@@ -438,21 +439,63 @@ export function setupExitListener(
 							` Parsed text preview: "${parsedText.substring(0, 200)}${parsedText.length > 200 ? '...' : ''}"`
 						);
 						if (parsedText.trim()) {
-							debugLog('GroupChat:Debug', ` Routing agent response from ${participantName}...`);
-							// Await the response logging before marking participant as responded
-							const pm = getProcessManager();
-							await groupChatRouter.routeAgentResponse(
+							// --- Loop guard: detect identical repeated responses ---
+							const responseHash = createHash('sha256').update(parsedText.trim()).digest('hex');
+							const staleCheck = groupChatRouter.checkAndTrackParticipantResponse(
 								groupChatId,
 								participantName,
-								parsedText,
-								pm ?? undefined
+								responseHash
 							);
-							debugLog(
-								'GroupChat:Debug',
-								` Successfully routed agent response from ${participantName}`
-							);
-							// Mark participant AFTER routing completes successfully
-							markAndMaybeSynthesize();
+							if (staleCheck.isStale) {
+								debugLog(
+									'GroupChat:Debug',
+									` STALE: ${participantName} responded identically ${staleCheck.count} times — skipping route`
+								);
+								logger.warn(
+									`[GroupChat] Participant ${participantName} stale — identical response ${staleCheck.count} times`,
+									'ProcessListener',
+									{ groupChatId, participantName, count: staleCheck.count }
+								);
+								// Log a stale notice so the moderator sees it in the chat history
+								try {
+									const { appendToLog } = await import('../group-chat/group-chat-log');
+									const staleChat = await groupChatStorage.loadGroupChat(groupChatId);
+									if (staleChat) {
+										await appendToLog(
+											staleChat.logPath,
+											participantName,
+											`[${participantName} responded identically ${staleCheck.count} times — removed from this round]`
+										);
+									}
+								} catch (logErr) {
+									logger.warn('[GroupChat] Failed to log stale notice', 'ProcessListener', {
+										error: String(logErr),
+									});
+								}
+								groupChatEmitters.emitMessage?.(groupChatId, {
+									timestamp: new Date().toISOString(),
+									from: 'system',
+									content: `⚠️ @${participantName} responded identically ${staleCheck.count} times and has been removed from this round.`,
+								});
+								// Skip routeAgentResponse — mark as responded and proceed
+								markAndMaybeSynthesize();
+							} else {
+								// --- Normal path: route the response ---
+								debugLog('GroupChat:Debug', ` Routing agent response from ${participantName}...`);
+								const pm = getProcessManager();
+								await groupChatRouter.routeAgentResponse(
+									groupChatId,
+									participantName,
+									parsedText,
+									pm ?? undefined
+								);
+								debugLog(
+									'GroupChat:Debug',
+									` Successfully routed agent response from ${participantName}`
+								);
+								// Mark participant AFTER routing completes successfully
+								markAndMaybeSynthesize();
+							}
 						} else {
 							debugLog('GroupChat:Debug', ` WARNING: Parsed text is empty for ${participantName}!`);
 							// No response to route, mark participant as done

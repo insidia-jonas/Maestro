@@ -137,6 +137,21 @@ const participantTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 /** How long to wait for a participant before treating them as timed-out (10 minutes). */
 const PARTICIPANT_RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * Maximum number of identical responses allowed from a participant before
+ * they are marked as "stale" and removed from the current round.
+ * The (N+1)th identical response triggers the guard (i.e. with the default
+ * value of 2, the 3rd identical response is blocked).
+ */
+const MAX_IDENTICAL_RESPONSES = 2;
+
+/**
+ * Tracks per-participant response hashes for loop/stale detection.
+ * Maps groupChatId -> Map<participantName, { hash, count }>
+ * Lives in-memory only — never persisted to disk.
+ */
+const participantResponseHashes = new Map<string, Map<string, { hash: string; count: number }>>();
+
 /** How long to wait for the moderator process before treating it as timed-out (10 minutes). */
 const MODERATOR_RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -329,6 +344,35 @@ export function clearPendingParticipants(groupChatId: string): void {
 	}
 	pendingParticipantResponses.delete(groupChatId);
 	autoRunParticipantTracker.delete(groupChatId);
+	participantResponseHashes.delete(groupChatId);
+}
+
+/**
+ * Checks whether a participant's response is identical to their previous one
+ * and tracks the hash for future comparisons. Agent-agnostic — works for all backends.
+ *
+ * @returns `isStale: true` when the participant has exceeded MAX_IDENTICAL_RESPONSES
+ *          with the exact same response body (by SHA-256 hash).
+ */
+export function checkAndTrackParticipantResponse(
+	groupChatId: string,
+	participantName: string,
+	responseHash: string
+): { isStale: boolean; count: number } {
+	if (!participantResponseHashes.has(groupChatId)) {
+		participantResponseHashes.set(groupChatId, new Map());
+	}
+	const chatHashes = participantResponseHashes.get(groupChatId)!;
+	const prev = chatHashes.get(participantName);
+
+	if (prev && prev.hash === responseHash) {
+		prev.count++;
+		return { isStale: prev.count > MAX_IDENTICAL_RESPONSES, count: prev.count };
+	}
+
+	// Different response — reset the counter
+	chatHashes.set(participantName, { hash: responseHash, count: 1 });
+	return { isStale: false, count: 1 };
 }
 
 /**
