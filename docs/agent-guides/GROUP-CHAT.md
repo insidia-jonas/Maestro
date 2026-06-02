@@ -244,7 +244,7 @@ Timed message sequencer for the Wake-Up Call feature:
 | `pauseWakeUp()`    | Clears pending timer, saves `remainingMs`, sets phase to `paused`, persists pause state       |
 | `resumeWakeUp()`   | Restores timer from saved `remainingMs`, sets phase back to `running`, clears persisted pause |
 | `getWakeUpState()` | Returns ephemeral `WakeUpState` snapshot (or `null` if no active sequence)                    |
-| `stopAllWakeUps()` | Stops all active sequences (called during app shutdown)                                       |
+| `stopAllWakeUps()` | Stops all active sequences (intended for shutdown cleanup)                                    |
 
 Internally uses `AbortController` for clean cancellation and a `dispatchInFlight` guard to prevent pause/stop from corrupting state while `ensureModeratorAndSend()` is awaiting.
 
@@ -357,7 +357,7 @@ Registered in `src/main/ipc/handlers/groupChat.ts`. All handler names are prefix
 | `groupChat:resumeWakeUp`   | Resumes a paused sequence from saved remaining time                      |
 | `groupChat:getWakeUpState` | Returns ephemeral state (`phase`, `currentStep`, `totalSteps`) or `null` |
 
-**Validation in `startWakeUp`:** Messages array: 1–5 entries. `intervalMs`: 5 000–3 600 000. `initialPrompt`: optional string, max 10 000 chars (empty → `undefined`). Each message must target a known participant. Content required and max 10 000 chars when `generate` is off.
+**Validation (throws IPC errors from `groupChat:startWakeUp`):** Messages array: 1–5 entries. `intervalMs`: 5 000–3 600 000. `initialPrompt`: optional string, max 10 000 chars (empty → `undefined`). Each message must target a known participant. Content required and max 10 000 chars when `generate` is off.
 
 ### Emitter System
 
@@ -449,7 +449,7 @@ The sequencer auto-restarts the moderator via `ensureModeratorAndSend()` if it e
 | `src/main/group-chat/wake-up-service.ts`    | Sequencer: start, stop, pause, resume, state query                                                               |
 | `src/main/ipc/handlers/groupChat.ts`        | IPC handlers + validation + progress emitter                                                                     |
 | `src/main/preload/groupChat.ts`             | Preload bridge: `startWakeUp`, `stopWakeUp`, `pauseWakeUp`, `resumeWakeUp`, `getWakeUpState`, `onWakeUpProgress` |
-| `src/renderer/components/WakeUpModal.tsx`   | Config + progress UI (~435 LOC)                                                                                  |
+| `src/renderer/components/WakeUpModal.tsx`   | Config + progress UI (~415 LOC)                                                                                  |
 | `src/renderer/components/GroupChatList.tsx` | Context menu entry (AlarmClock icon, `onWakeUp` prop)                                                            |
 | `src/shared/group-chat-types.ts`            | `WakeUpMessage`, `WakeUpConfig`, `WakeUpState`, `WakeUpProgress`                                                 |
 | `src/renderer/constants/modalPriorities.ts` | `WAKE_UP_CALL: 635`                                                                                              |
