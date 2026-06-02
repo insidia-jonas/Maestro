@@ -3,10 +3,14 @@
  * Handles process exit events including group chat moderator/participant exits.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { setupExitListener } from '../exit-listener';
 import type { ProcessManager } from '../../process-manager';
 import type { ProcessListenerDependencies } from '../types';
+import {
+	checkAndTrackParticipantResponse,
+	clearPendingParticipants,
+} from '../../group-chat/group-chat-router';
 
 describe('Exit Listener', () => {
 	let mockProcessManager: ProcessManager;
@@ -625,6 +629,111 @@ describe('Exit Listener', () => {
 			await vi.waitFor(() => {
 				expect(mockDeps.groupChatRouter.markParticipantResponded).toHaveBeenCalledWith(
 					'test-chat-123',
+					'TestAgent'
+				);
+			});
+		});
+	});
+
+	describe('Loop Guard E2E — production trim+hash path', () => {
+		// Uses the REAL checkAndTrackParticipantResponse (not a mock) so the full
+		// production chain is exercised: parsedText → .trim() → SHA-256 → guard.
+		const participantSessionId = 'group-chat-test-chat-123-participant-TestAgent-abc123';
+		const chatId = 'test-chat-123';
+
+		beforeEach(() => {
+			// Wire the REAL guard function into the dependency injection
+			mockDeps.groupChatRouter.checkAndTrackParticipantResponse = checkAndTrackParticipantResponse;
+			mockDeps.outputParser.parseParticipantSessionId = vi.fn().mockReturnValue({
+				groupChatId: chatId,
+				participantName: 'TestAgent',
+			});
+			// Clear guard state from previous tests
+			clearPendingParticipants(chatId);
+		});
+
+		afterEach(() => {
+			clearPendingParticipants(chatId);
+		});
+
+		it('whitespace-variant bodies that trim to the same string trigger stale on 3rd exit', async () => {
+			// Three whitespace variants that all trim to "done"
+			const variants = ['done\n', '  done  ', '\n\tdone\n'];
+			setupListener();
+			const handler = eventHandlers.get('exit');
+
+			// 1st exit — "done\n" → count=1, routed normally
+			mockDeps.outputParser.extractTextFromStreamJson = vi.fn().mockReturnValue(variants[0]);
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(1);
+			});
+
+			// 2nd exit — "  done  " → count=2, still routed
+			mockDeps.outputParser.extractTextFromStreamJson = vi.fn().mockReturnValue(variants[1]);
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(2);
+			});
+
+			// 3rd exit — "\n\tdone\n" → count=3, STALE — routeAgentResponse NOT called again
+			mockDeps.outputParser.extractTextFromStreamJson = vi.fn().mockReturnValue(variants[2]);
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatEmitters.emitMessage).toHaveBeenCalledWith(
+					chatId,
+					expect.objectContaining({
+						from: 'system',
+						content: expect.stringContaining('responded identically'),
+					})
+				);
+			});
+			// routeAgentResponse must still be at 2 — the 3rd call was blocked
+			expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(2);
+		});
+
+		it('different body after two identical resets counter — no stale', async () => {
+			setupListener();
+			const handler = eventHandlers.get('exit');
+
+			// Two identical
+			mockDeps.outputParser.extractTextFromStreamJson = vi.fn().mockReturnValue('same body');
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(1);
+			});
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(2);
+			});
+
+			// Different body → counter resets, routed normally
+			mockDeps.outputParser.extractTextFromStreamJson = vi.fn().mockReturnValue('different body');
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(3);
+			});
+		});
+
+		it('stale participant is still marked as responded (synthesis can proceed)', async () => {
+			setupListener();
+			const handler = eventHandlers.get('exit');
+
+			mockDeps.outputParser.extractTextFromStreamJson = vi.fn().mockReturnValue('no-op');
+			// Drive to stale (3 identical)
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(1);
+			});
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				expect(mockDeps.groupChatRouter.routeAgentResponse).toHaveBeenCalledTimes(2);
+			});
+			handler?.(participantSessionId, 0);
+			await vi.waitFor(() => {
+				// Stale path must still call markParticipantResponded so synthesis isn't blocked
+				expect(mockDeps.groupChatRouter.markParticipantResponded).toHaveBeenCalledWith(
+					chatId,
 					'TestAgent'
 				);
 			});
