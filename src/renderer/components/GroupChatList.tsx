@@ -15,6 +15,7 @@ import {
 	Settings,
 	Archive,
 	ArchiveRestore,
+	AlarmClock,
 } from 'lucide-react';
 import type { Theme, GroupChat, GroupChatState } from '../types';
 import { useClickOutside, useContextMenuPosition } from '../hooks';
@@ -31,6 +32,7 @@ interface GroupChatContextMenuProps {
 	isArchived: boolean;
 	onEdit: () => void;
 	onRename: () => void;
+	onWakeUp: () => void;
 	onArchive?: () => void;
 	onDelete: () => void;
 	onClose: () => void;
@@ -43,6 +45,7 @@ function GroupChatContextMenu({
 	isArchived,
 	onEdit,
 	onRename,
+	onWakeUp,
 	onArchive,
 	onDelete,
 	onClose,
@@ -99,6 +102,17 @@ function GroupChatContextMenu({
 				<Edit3 className="w-3.5 h-3.5" />
 				Rename
 			</button>
+			<button
+				onClick={() => {
+					onWakeUp();
+					onClose();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<AlarmClock className="w-3.5 h-3.5" />
+				Wake up call
+			</button>
 			{onArchive && (
 				<button
 					onClick={() => {
@@ -144,6 +158,7 @@ interface GroupChatListProps {
 	onEditGroupChat: (id: string) => void;
 	onRenameGroupChat: (id: string) => void;
 	onDeleteGroupChat: (id: string) => void;
+	onWakeUpGroupChat: (id: string) => void;
 	onArchiveGroupChat?: (id: string, archived: boolean) => void;
 	onDeleteAllArchivedGroupChats?: () => void;
 	/** Controlled expanded state (lifted to parent for keyboard navigation) */
@@ -171,6 +186,7 @@ function GroupChatListInner({
 	onEditGroupChat,
 	onRenameGroupChat,
 	onDeleteGroupChat,
+	onWakeUpGroupChat,
 	onArchiveGroupChat,
 	onDeleteAllArchivedGroupChats,
 	isExpanded: controlledIsExpanded,
@@ -458,6 +474,7 @@ function GroupChatListInner({
 					isArchived={!!groupChats.find((c) => c.id === contextMenu.chatId)?.archived}
 					onEdit={() => onEditGroupChat(contextMenu.chatId)}
 					onRename={() => onRenameGroupChat(contextMenu.chatId)}
+					onWakeUp={() => onWakeUpGroupChat(contextMenu.chatId)}
 					onArchive={
 						onArchiveGroupChat
 							? () => {

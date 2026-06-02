@@ -117,6 +117,7 @@ interface SessionListProps {
 	onEditGroupChat?: (id: string) => void;
 	onRenameGroupChat?: (id: string) => void;
 	onDeleteGroupChat?: (id: string) => void;
+	onWakeUpGroupChat?: (id: string) => void;
 	onArchiveGroupChat?: (id: string, archived: boolean) => void;
 	onDeleteAllArchivedGroupChats?: () => void;
 }
@@ -332,6 +333,7 @@ function SessionListInner(props: SessionListProps) {
 		onEditGroupChat,
 		onRenameGroupChat,
 		onDeleteGroupChat,
+		onWakeUpGroupChat,
 		onArchiveGroupChat,
 		onDeleteAllArchivedGroupChats,
 	} = props;
@@ -1385,6 +1387,7 @@ function SessionListInner(props: SessionListProps) {
 								onEditGroupChat={onEditGroupChat}
 								onRenameGroupChat={onRenameGroupChat}
 								onDeleteGroupChat={onDeleteGroupChat}
+								onWakeUpGroupChat={onWakeUpGroupChat || (() => {})}
 								onArchiveGroupChat={onArchiveGroupChat}
 								onDeleteAllArchivedGroupChats={onDeleteAllArchivedGroupChats}
 								isExpanded={groupChatsExpanded}

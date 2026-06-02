@@ -315,6 +315,7 @@ function MaestroConsoleInner() {
 		showDeleteGroupChatModal,
 		showRenameGroupChatModal,
 		showEditGroupChatModal,
+		showWakeUpCallModal,
 		// Git Diff Viewer
 		gitDiffPreview,
 		setGitDiffPreview,
@@ -922,6 +923,7 @@ function MaestroConsoleInner() {
 		handleEditGroupChat,
 		handleOpenRenameGroupChatModal,
 		handleOpenDeleteGroupChatModal,
+		handleOpenWakeUpCallModal,
 		handleCloseNewGroupChatModal,
 		handleCloseDeleteGroupChatModal,
 		handleConfirmDeleteGroupChat,
@@ -929,6 +931,7 @@ function MaestroConsoleInner() {
 		handleRenameGroupChatFromModal,
 		handleCloseEditGroupChatModal,
 		handleCloseGroupChatInfo,
+		handleCloseWakeUpCallModal,
 	} = useGroupChatHandlers();
 
 	// --- MODAL HANDLERS (open/close, error recovery, lightbox, celebrations) ---
@@ -2588,6 +2591,7 @@ function MaestroConsoleInner() {
 		handleEditGroupChat,
 		handleOpenRenameGroupChatModal,
 		handleOpenDeleteGroupChatModal,
+		handleOpenWakeUpCallModal,
 		handleArchiveGroupChat,
 		handleDeleteAllArchivedGroupChats,
 	});
@@ -3039,6 +3043,8 @@ function MaestroConsoleInner() {
 					groupChatMessages={groupChatMessages}
 					onCloseGroupChatInfo={handleCloseGroupChatInfo}
 					onOpenModeratorSession={handleOpenModeratorSession}
+					showWakeUpCallModal={showWakeUpCallModal}
+					onCloseWakeUpCallModal={handleCloseWakeUpCallModal}
 					// AppAgentModals props
 					onCloseLeaderboardRegistration={handleCloseLeaderboardRegistration}
 					leaderboardRegistration={leaderboardRegistration}

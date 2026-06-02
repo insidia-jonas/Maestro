@@ -266,6 +266,7 @@ export type ModalId =
 	| 'renameGroupChat'
 	| 'editGroupChat'
 	| 'groupChatInfo'
+	| 'wakeUpCall'
 	// Git
 	| 'gitDiff'
 	| 'gitLog'
@@ -325,6 +326,7 @@ export interface ModalDataMap {
 	deleteGroupChat: GroupChatModalData;
 	renameGroupChat: GroupChatModalData;
 	editGroupChat: GroupChatModalData;
+	wakeUpCall: GroupChatModalData;
 	gitDiff: GitDiffModalData;
 	tour: TourModalData;
 	standingOvation: StandingOvationData;
@@ -998,6 +1000,7 @@ export function useModalActions() {
 	const renameGroupChatData = useModalStore(selectModalData('renameGroupChat'));
 	const editGroupChatData = useModalStore(selectModalData('editGroupChat'));
 	const groupChatInfoOpen = useModalStore(selectModalOpen('groupChatInfo'));
+	const wakeUpCallData = useModalStore(selectModalData('wakeUpCall'));
 	const gitDiffData = useModalStore(selectModalData('gitDiff'));
 	const gitLogOpen = useModalStore(selectModalOpen('gitLog'));
 	const tourOpen = useModalStore(selectModalOpen('tour'));
@@ -1169,6 +1172,7 @@ export function useModalActions() {
 		showRenameGroupChatModal: renameGroupChatData?.groupChatId ?? null,
 		showEditGroupChatModal: editGroupChatData?.groupChatId ?? null,
 		showGroupChatInfo: groupChatInfoOpen,
+		showWakeUpCallModal: wakeUpCallData?.groupChatId ?? null,
 
 		// Git Diff Viewer
 		gitDiffPreview: gitDiffData?.diff ?? null,

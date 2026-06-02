@@ -91,6 +91,7 @@ export interface GroupChatHandlersReturn {
 	handleEditGroupChat: (id: string) => void;
 	handleOpenRenameGroupChatModal: (id: string) => void;
 	handleOpenDeleteGroupChatModal: (id: string) => void;
+	handleOpenWakeUpCallModal: (id: string) => void;
 
 	// Modal closers (for AppGroupChatModals component)
 	handleCloseNewGroupChatModal: () => void;
@@ -100,6 +101,7 @@ export interface GroupChatHandlersReturn {
 	handleRenameGroupChatFromModal: (newName: string) => void;
 	handleCloseEditGroupChatModal: () => void;
 	handleCloseGroupChatInfo: () => void;
+	handleCloseWakeUpCallModal: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -769,6 +771,10 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 		useModalStore.getState().openModal('deleteGroupChat', { groupChatId: id });
 	}, []);
 
+	const handleOpenWakeUpCallModal = useCallback((id: string) => {
+		useModalStore.getState().openModal('wakeUpCall', { groupChatId: id });
+	}, []);
+
 	// =======================================================================
 	// Modal closers (stable callbacks for AppGroupChatModals component)
 	// =======================================================================
@@ -810,6 +816,10 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 
 	const handleCloseGroupChatInfo = useCallback(() => {
 		useModalStore.getState().closeModal('groupChatInfo');
+	}, []);
+
+	const handleCloseWakeUpCallModal = useCallback(() => {
+		useModalStore.getState().closeModal('wakeUpCall');
 	}, []);
 
 	// =======================================================================
@@ -858,6 +868,7 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 		handleEditGroupChat,
 		handleOpenRenameGroupChatModal,
 		handleOpenDeleteGroupChatModal,
+		handleOpenWakeUpCallModal,
 
 		// Modal closers
 		handleCloseNewGroupChatModal,
@@ -867,5 +878,6 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 		handleRenameGroupChatFromModal,
 		handleCloseEditGroupChatModal,
 		handleCloseGroupChatInfo,
+		handleCloseWakeUpCallModal,
 	};
 }

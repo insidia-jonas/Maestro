@@ -8,6 +8,7 @@
  */
 
 import { ipcRenderer } from 'electron';
+import type { WakeUpConfig, WakeUpState, WakeUpProgress } from '../../shared/group-chat-types';
 
 /**
  * Moderator configuration
@@ -146,6 +147,22 @@ export function createGroupChatApi() {
 
 		getHistoryFilePath: (id: string) => ipcRenderer.invoke('groupChat:getHistoryFilePath', id),
 
+		// Wake-up call
+		startWakeUp: (groupChatId: string, config: WakeUpConfig): Promise<void> =>
+			ipcRenderer.invoke('groupChat:startWakeUp', groupChatId, config),
+
+		stopWakeUp: (groupChatId: string): Promise<void> =>
+			ipcRenderer.invoke('groupChat:stopWakeUp', groupChatId),
+
+		pauseWakeUp: (groupChatId: string): Promise<void> =>
+			ipcRenderer.invoke('groupChat:pauseWakeUp', groupChatId),
+
+		resumeWakeUp: (groupChatId: string): Promise<void> =>
+			ipcRenderer.invoke('groupChat:resumeWakeUp', groupChatId),
+
+		getWakeUpState: (groupChatId: string): Promise<WakeUpState | null> =>
+			ipcRenderer.invoke('groupChat:getWakeUpState', groupChatId),
+
 		// Export
 		getImages: (id: string): Promise<Record<string, string>> =>
 			ipcRenderer.invoke('groupChat:getImages', id),
@@ -232,6 +249,13 @@ export function createGroupChatApi() {
 				callback(groupChatId, participantName);
 			ipcRenderer.on('groupChat:autoRunBatchComplete', handler);
 			return () => ipcRenderer.removeListener('groupChat:autoRunBatchComplete', handler);
+		},
+
+		onWakeUpProgress: (callback: (groupChatId: string, progress: WakeUpProgress) => void) => {
+			const handler = (_: any, groupChatId: string, progress: WakeUpProgress) =>
+				callback(groupChatId, progress);
+			ipcRenderer.on('groupChat:wakeUpProgress', handler);
+			return () => ipcRenderer.removeListener('groupChat:wakeUpProgress', handler);
 		},
 
 		onModeratorSessionIdChanged: (callback: (groupChatId: string, sessionId: string) => void) => {

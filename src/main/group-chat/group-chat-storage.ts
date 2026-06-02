@@ -14,7 +14,11 @@ import * as path from 'path';
 import { app } from 'electron';
 import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
-import type { ModeratorConfig, GroupChatHistoryEntry } from '../../shared/group-chat-types';
+import type {
+	ModeratorConfig,
+	GroupChatHistoryEntry,
+	WakeUpConfig,
+} from '../../shared/group-chat-types';
 import { hasCapability } from '../agents/capabilities';
 import { logger } from '../utils/logger';
 
@@ -132,6 +136,8 @@ export interface GroupChat {
 	logPath: string;
 	imagesDir: string;
 	archived?: boolean;
+	/** Saved Wake-up-call configuration (optional, additive) */
+	wakeUpConfig?: WakeUpConfig;
 }
 
 /**
@@ -145,6 +151,7 @@ export type GroupChatUpdate = Partial<
 		| 'moderatorAgentSessionId'
 		| 'moderatorAgentId'
 		| 'moderatorConfig'
+		| 'wakeUpConfig'
 		| 'participants'
 		| 'updatedAt'
 		| 'archived'

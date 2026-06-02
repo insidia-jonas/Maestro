@@ -6,6 +6,7 @@ import { GroupChatModal } from '../GroupChatModal';
 import { DeleteGroupChatModal } from '../DeleteGroupChatModal';
 import { RenameGroupChatModal } from '../RenameGroupChatModal';
 import { GroupChatInfoOverlay } from '../GroupChatInfoOverlay';
+import { WakeUpModal } from '../WakeUpModal';
 
 /**
  * Props for the AppGroupChatModals component
@@ -49,6 +50,10 @@ export interface AppGroupChatModalsProps {
 	groupChatMessages: GroupChatMessage[];
 	onCloseGroupChatInfo: () => void;
 	onOpenModeratorSession: (moderatorSessionId: string) => void;
+
+	// WakeUpModal
+	showWakeUpCallModal: string | null;
+	onCloseWakeUpCallModal: () => void;
 }
 
 /**
@@ -86,6 +91,9 @@ export const AppGroupChatModals = memo(function AppGroupChatModals({
 	groupChatMessages,
 	onCloseGroupChatInfo,
 	onOpenModeratorSession,
+	// WakeUpModal
+	showWakeUpCallModal,
+	onCloseWakeUpCallModal,
 }: AppGroupChatModalsProps) {
 	// Find group chats by ID for modal props
 	const deleteGroupChat = showDeleteGroupChatModal
@@ -102,6 +110,10 @@ export const AppGroupChatModals = memo(function AppGroupChatModals({
 
 	const infoGroupChat = activeGroupChatId
 		? groupChats.find((c) => c.id === activeGroupChatId)
+		: null;
+
+	const wakeUpGroupChat = showWakeUpCallModal
+		? groupChats.find((c) => c.id === showWakeUpCallModal)
 		: null;
 
 	return (
@@ -148,6 +160,16 @@ export const AppGroupChatModals = memo(function AppGroupChatModals({
 					groupChat={editGroupChat || null}
 					onClose={onCloseEditGroupChatModal}
 					onSave={onUpdateGroupChat}
+				/>
+			)}
+
+			{/* --- WAKE UP CALL MODAL --- */}
+			{showWakeUpCallModal && wakeUpGroupChat && (
+				<WakeUpModal
+					theme={theme}
+					isOpen={!!showWakeUpCallModal}
+					groupChat={wakeUpGroupChat}
+					onClose={onCloseWakeUpCallModal}
 				/>
 			)}
 

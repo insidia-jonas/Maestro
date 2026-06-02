@@ -35,8 +35,22 @@ import {
 	getGroupChatDir,
 } from '../../group-chat/group-chat-storage';
 
-// Group chat history type
-import type { GroupChatHistoryEntry } from '../../../shared/group-chat-types';
+// Group chat history type + wake-up types
+import type {
+	GroupChatHistoryEntry,
+	WakeUpConfig,
+	WakeUpState,
+	WakeUpProgress,
+} from '../../../shared/group-chat-types';
+
+// Wake-up service
+import {
+	startWakeUp as startWakeUpService,
+	stopWakeUp as stopWakeUpService,
+	pauseWakeUp as pauseWakeUpService,
+	resumeWakeUp as resumeWakeUpService,
+	getWakeUpState as getWakeUpStateService,
+} from '../../group-chat/wake-up-service';
 
 // Group chat log imports
 import { appendToLog, readLog, saveImage, GroupChatMessage } from '../../group-chat/group-chat-log';
@@ -114,6 +128,8 @@ export const groupChatEmitters: {
 	emitAutoRunTriggered?: (groupChatId: string, participantName: string, filename?: string) => void;
 	/** Tells the renderer to force-complete the batch run for a participant (clears stuck AUTO badge). */
 	emitAutoRunBatchComplete?: (groupChatId: string, participantName: string) => void;
+	/** Emits wake-up call progress to the renderer. */
+	emitWakeUpProgress?: (groupChatId: string, progress: WakeUpProgress) => void;
 } = {};
 
 // Helper to create handler options with consistent context
@@ -1064,6 +1080,108 @@ Respond with ONLY the summary text, no additional commentary.`;
 			);
 		}
 	};
+
+	// ========== Wake-Up Call Emitter ==========
+
+	groupChatEmitters.emitWakeUpProgress = (groupChatId: string, progress: WakeUpProgress): void => {
+		const mainWindow = getMainWindow();
+		if (isWebContentsAvailable(mainWindow)) {
+			mainWindow.webContents.send('groupChat:wakeUpProgress', groupChatId, progress);
+		}
+	};
+
+	// ========== Wake-Up Call Handlers ==========
+
+	ipcMain.handle(
+		'groupChat:startWakeUp',
+		withIpcErrorLogging(
+			handlerOpts('startWakeUp'),
+			async (groupChatId: string, config: WakeUpConfig): Promise<void> => {
+				// Fix 3: Validate config from renderer before passing to service
+				if (
+					!config ||
+					!Array.isArray(config.messages) ||
+					config.messages.length < 1 ||
+					config.messages.length > 5
+				) {
+					throw new Error('Wake-up config must have 1–5 messages');
+				}
+				const interval = Number(config.intervalMs);
+				if (!Number.isFinite(interval) || interval < 5000 || interval > 3_600_000) {
+					throw new Error('intervalMs must be between 5 000 and 3 600 000');
+				}
+				// Validate initialPrompt if provided
+				if (
+					config.initialPrompt != null &&
+					(typeof config.initialPrompt !== 'string' || config.initialPrompt.length > 10_000)
+				) {
+					throw new Error('initialPrompt must be a string (max 10 000 chars)');
+				}
+				// Load chat to validate participant names
+				const chat = await loadGroupChat(groupChatId);
+				if (!chat) throw new Error(`Group chat not found: ${groupChatId}`);
+				const knownNames = new Set(chat.participants.map((p) => p.name));
+				for (const msg of config.messages) {
+					if (!knownNames.has(msg.targetParticipant)) {
+						throw new Error(`Unknown participant: ${msg.targetParticipant}`);
+					}
+					if (!msg.generate && (!msg.content || msg.content.length > 10_000)) {
+						throw new Error('Message content required (max 10 000 chars) when generate is off');
+					}
+				}
+				// Build a normalized clone — never mutate the incoming IPC object
+				const normalizedConfig: WakeUpConfig = {
+					useSystemPrompt: !!config.useSystemPrompt,
+					initialPrompt: config.initialPrompt || undefined,
+					messages: config.messages.map((msg) => ({
+						targetParticipant: msg.targetParticipant,
+						content: msg.content,
+						generate: !!msg.generate,
+					})),
+					intervalMs: interval,
+				};
+
+				const processManager = getProcessManager();
+				const agentDetector = getAgentDetector();
+				await startWakeUpService(groupChatId, normalizedConfig, processManager, agentDetector);
+				logger.info(`Started wake-up sequence for ${groupChatId}`, LOG_CONTEXT);
+			}
+		)
+	);
+
+	ipcMain.handle(
+		'groupChat:stopWakeUp',
+		withIpcErrorLogging(handlerOpts('stopWakeUp'), async (groupChatId: string): Promise<void> => {
+			stopWakeUpService(groupChatId);
+			logger.info(`Stopped wake-up sequence for ${groupChatId}`, LOG_CONTEXT);
+		})
+	);
+
+	ipcMain.handle(
+		'groupChat:getWakeUpState',
+		withIpcErrorLogging(
+			handlerOpts('getWakeUpState'),
+			async (groupChatId: string): Promise<WakeUpState | null> => {
+				return getWakeUpStateService(groupChatId);
+			}
+		)
+	);
+
+	ipcMain.handle(
+		'groupChat:pauseWakeUp',
+		withIpcErrorLogging(handlerOpts('pauseWakeUp'), async (groupChatId: string): Promise<void> => {
+			await pauseWakeUpService(groupChatId);
+			logger.info(`Paused wake-up sequence for ${groupChatId}`, LOG_CONTEXT);
+		})
+	);
+
+	ipcMain.handle(
+		'groupChat:resumeWakeUp',
+		withIpcErrorLogging(handlerOpts('resumeWakeUp'), async (groupChatId: string): Promise<void> => {
+			await resumeWakeUpService(groupChatId);
+			logger.info(`Resumed wake-up sequence for ${groupChatId}`, LOG_CONTEXT);
+		})
+	);
 
 	logger.info('Registered Group Chat IPC handlers', LOG_CONTEXT);
 }

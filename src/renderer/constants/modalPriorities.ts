@@ -74,6 +74,9 @@ export const MODAL_PRIORITIES = {
 	/** Rename group chat modal */
 	RENAME_GROUP_CHAT: 640,
 
+	/** Wake-up call config/progress modal for group chats */
+	WAKE_UP_CALL: 635,
+
 	/** Group chat info overlay */
 	GROUP_CHAT_INFO: 630,
 

@@ -376,6 +376,8 @@ export interface AppModalsProps {
 	groupChatMessages: GroupChatMessage[];
 	onCloseGroupChatInfo: () => void;
 	onOpenModeratorSession: (moderatorSessionId: string) => void;
+	showWakeUpCallModal: string | null;
+	onCloseWakeUpCallModal: () => void;
 
 	// --- AppAgentModals props ---
 	onCloseLeaderboardRegistration: () => void;
@@ -773,6 +775,8 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		groupChatMessages,
 		onCloseGroupChatInfo,
 		onOpenModeratorSession,
+		showWakeUpCallModal,
+		onCloseWakeUpCallModal,
 		// Agent modals
 		onCloseLeaderboardRegistration,
 		leaderboardRegistration,
@@ -1128,6 +1132,8 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				groupChatMessages={groupChatMessages}
 				onCloseGroupChatInfo={onCloseGroupChatInfo}
 				onOpenModeratorSession={onOpenModeratorSession}
+				showWakeUpCallModal={showWakeUpCallModal}
+				onCloseWakeUpCallModal={onCloseWakeUpCallModal}
 			/>
 
 			{/* Agent/Transfer Modals */}

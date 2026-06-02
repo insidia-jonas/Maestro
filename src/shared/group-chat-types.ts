@@ -103,6 +103,71 @@ export interface GroupChat {
 	imagesDir: string;
 	draftMessage?: string;
 	archived?: boolean;
+	/** Saved Wake-up-call configuration (optional, additive) */
+	wakeUpConfig?: WakeUpConfig;
+}
+
+// ============================================================================
+// WAKE-UP CALL TYPES
+// ============================================================================
+
+/**
+ * A single message in a wake-up sequence.
+ */
+export interface WakeUpMessage {
+	/** Multi-line message content (ignored when generate is true) */
+	content: string;
+	/** Participant name to send this message to (agent dropdown) */
+	targetParticipant: string;
+	/** When true, the moderator generates the content at send time instead of using `content` */
+	generate: boolean;
+}
+
+/**
+ * Persisted configuration for a wake-up-call sequence on a group chat.
+ * Stored in metadata.json as `wakeUpConfig`.
+ */
+export interface WakeUpConfig {
+	/** When true, the initial message references the system prompt instead of sending initialPrompt */
+	useSystemPrompt: boolean;
+	/** Long initial prompt sent before the sequenced messages (used when useSystemPrompt is false) */
+	initialPrompt?: string;
+	/** 1–5 messages sent sequentially at the configured interval */
+	messages: WakeUpMessage[];
+	/** Delay between messages in milliseconds */
+	intervalMs: number;
+	/** Step index at time of pause (set on pause, cleared on resume/start) */
+	pausedAtStep?: number;
+	/** Remaining ms until the next message was due to fire (set on pause, cleared on resume/start) */
+	pausedRemainingMs?: number;
+}
+
+/**
+ * Ephemeral runtime state of a running wake-up sequence (not persisted).
+ */
+export interface WakeUpState {
+	phase: 'running' | 'paused' | 'finished' | 'stopped';
+	/** 0-based index of the current/next message to send */
+	currentStep: number;
+	totalSteps: number;
+	startedAt: number;
+	/** Timestamp when the next message fires (undefined when paused/finished) */
+	nextFireAt?: number;
+	/** Remaining ms until the next fire when paused (for resume calculation) */
+	remainingMs?: number;
+}
+
+/**
+ * Progress event emitted from main → renderer during a wake-up sequence.
+ */
+export interface WakeUpProgress {
+	step: number;
+	totalSteps: number;
+	phase: WakeUpState['phase'];
+	/** Preview of the message that was just sent */
+	messageSent?: string;
+	/** Name of the agent that received the message */
+	targetAgent?: string;
 }
 
 /**

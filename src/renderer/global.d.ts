@@ -2294,6 +2294,23 @@ interface MaestroAPI {
 		onAutoRunBatchComplete: (
 			callback: (groupChatId: string, participantName: string) => void
 		) => () => void;
+		// Wake-up call
+		startWakeUp: (
+			groupChatId: string,
+			config: import('../shared/group-chat-types').WakeUpConfig
+		) => Promise<void>;
+		stopWakeUp: (groupChatId: string) => Promise<void>;
+		pauseWakeUp: (groupChatId: string) => Promise<void>;
+		resumeWakeUp: (groupChatId: string) => Promise<void>;
+		getWakeUpState: (
+			groupChatId: string
+		) => Promise<import('../shared/group-chat-types').WakeUpState | null>;
+		onWakeUpProgress: (
+			callback: (
+				groupChatId: string,
+				progress: import('../shared/group-chat-types').WakeUpProgress
+			) => void
+		) => () => void;
 	};
 	// Leaderboard API
 	leaderboard: {

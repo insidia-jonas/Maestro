@@ -54,6 +54,10 @@ export type {
 	GroupChatHistoryEntry,
 	GroupChatHistoryEntryType,
 	ModeratorConfig,
+	WakeUpConfig,
+	WakeUpMessage,
+	WakeUpState,
+	WakeUpProgress,
 } from '../../shared/group-chat-types';
 // Import AgentError for use within this file
 import type { AgentError, SessionCliActivity } from '../../shared/types';
