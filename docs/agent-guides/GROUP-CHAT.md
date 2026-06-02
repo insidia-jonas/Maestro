@@ -1,4 +1,4 @@
-<!-- Verified 2026-04-10 against origin/rc (06e5a2eb3) -->
+<!-- Verified 2026-06-02 against rc (wake-up-call feature added) -->
 
 # Group Chat System
 
@@ -60,6 +60,7 @@ interface GroupChat {
 	logPath: string; // Path to chat.log
 	imagesDir: string; // Path to images/
 	archived?: boolean;
+	wakeUpConfig?: WakeUpConfig; // Saved wake-up-call configuration (optional)
 }
 ```
 
@@ -232,6 +233,21 @@ Log file I/O:
 | `saveImage()`                           | Saves image buffer to images directory with UUID filename and extension whitelist validation |
 | `escapeContent()` / `unescapeContent()` | Pipe-delimited escape handling                                                               |
 
+### wake-up-service.ts
+
+Timed message sequencer for the Wake-Up Call feature:
+
+| Function           | Purpose                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| `startWakeUp()`    | Persists config, sends initial prompt, schedules message chain via `setTimeout`               |
+| `stopWakeUp()`     | Aborts sequence, clears timers, emits `stopped` progress, cleans persisted pause state        |
+| `pauseWakeUp()`    | Clears pending timer, saves `remainingMs`, sets phase to `paused`, persists pause state       |
+| `resumeWakeUp()`   | Restores timer from saved `remainingMs`, sets phase back to `running`, clears persisted pause |
+| `getWakeUpState()` | Returns ephemeral `WakeUpState` snapshot (or `null` if no active sequence)                    |
+| `stopAllWakeUps()` | Stops all active sequences (called during app shutdown)                                       |
+
+Internally uses `AbortController` for clean cancellation and a `dispatchInFlight` guard to prevent pause/stop from corrupting state while `ensureModeratorAndSend()` is awaiting.
+
 ### group-chat-config.ts
 
 Shared configuration callbacks:
@@ -331,6 +347,18 @@ Registered in `src/main/ipc/handlers/groupChat.ts`. All handler names are prefix
 | `groupChat:clearHistory`       | Clears all history                           |
 | `groupChat:getHistoryFilePath` | Returns the on-disk path of the history file |
 
+### Wake-Up Call
+
+| Handler                    | Description                                                              |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `groupChat:startWakeUp`    | Validates config, normalizes, starts the sequencer                       |
+| `groupChat:stopWakeUp`     | Stops a running sequence (hard abort)                                    |
+| `groupChat:pauseWakeUp`    | Pauses sequence, saves remaining time for resume                         |
+| `groupChat:resumeWakeUp`   | Resumes a paused sequence from saved remaining time                      |
+| `groupChat:getWakeUpState` | Returns ephemeral state (`phase`, `currentStep`, `totalSteps`) or `null` |
+
+**Validation in `startWakeUp`:** Messages array: 1–5 entries. `intervalMs`: 5 000–3 600 000. `initialPrompt`: optional string, max 10 000 chars (empty → `undefined`). Each message must target a known participant. Content required and max 10 000 chars when `generate` is off.
+
 ### Emitter System
 
 The `groupChatEmitters` object provides real-time event broadcasting to the renderer:
@@ -343,6 +371,7 @@ The `groupChatEmitters` object provides real-time event broadcasting to the rend
 | `emitModeratorUsage`      | `groupChat:moderatorUsage`      | Context/cost/token updates |
 | `emitHistoryEntry`        | `groupChat:historyEntry`        | New history entry          |
 | `emitParticipantState`    | `groupChat:participantState`    | Participant working/idle   |
+| `emitWakeUpProgress`      | `groupChat:wakeUpProgress`      | Wake-up step/phase updates |
 
 ## Renderer Components
 
@@ -364,6 +393,66 @@ Located in `src/renderer/components/`:
 | `CreateGroupModal.tsx`      | Group creation dialog                                                 |
 | `DeleteGroupChatModal.tsx`  | Deletion confirmation                                                 |
 | `RenameGroupChatModal.tsx`  | Rename dialog                                                         |
+| `WakeUpModal.tsx`           | Wake-up call config + progress modal (interval, messages, start/stop) |
+
+## Wake-Up Call
+
+The wake-up call feature sends a timed sequence of messages into a group chat at configurable intervals. It is triggered from the group chat context menu in the Left Bar.
+
+### User Flow
+
+1. Right-click a group chat → select **Wake up call** (AlarmClock icon).
+2. The `WakeUpModal` opens with config view: interval selector (30 s – 15 min presets), system-prompt toggle + initial-prompt textarea, and 1–5 message rows.
+3. Each message row has a target-agent dropdown (from `chat.participants`), a generate checkbox (moderator composes at send time), and a content textarea (hidden when generate is on).
+4. Click **Start Wake-up** → renderer calls `window.maestro.groupChat.startWakeUp(chatId, config)`.
+5. Main validates, persists config to `metadata.json`, sends the initial prompt immediately, then schedules each message at `intervalMs` intervals via a `setTimeout` chain.
+6. The modal switches to progress view: step counter (`Step n/total`), phase indicator, and Pause / Resume / Stop buttons.
+7. Progress events flow from main → renderer via `groupChat:wakeUpProgress`.
+
+### Config Schema (`WakeUpConfig`)
+
+```typescript
+interface WakeUpConfig {
+	useSystemPrompt: boolean; // true → initial msg references system prompt
+	initialPrompt?: string; // used when useSystemPrompt is false (max 10 000 chars)
+	messages: WakeUpMessage[]; // 1–5 sequenced messages
+	intervalMs: number; // delay between messages (5 000 – 3 600 000 ms)
+	pausedAtStep?: number; // set on pause, cleared on resume/start
+	pausedRemainingMs?: number; // remaining ms until next fire, set on pause
+}
+
+interface WakeUpMessage {
+	content: string; // message body (ignored when generate is true)
+	targetParticipant: string; // participant name from the group chat
+	generate: boolean; // moderator generates content at send time
+}
+```
+
+Persisted as `wakeUpConfig` on the `GroupChat` object in `metadata.json`. Pause fields (`pausedAtStep`, `pausedRemainingMs`) are stripped on fresh start and on stop.
+
+### Delivery Mechanism
+
+Messages are routed through the **moderator** using `routeUserMessage()`. For generate-mode messages, the moderator receives a prompt like `[Wake-up call 2/5] Generate and send a contextually relevant wake-up message to @agent-name.` For manual messages, the content is sent as `@agent-name <content>`.
+
+The sequencer auto-restarts the moderator via `ensureModeratorAndSend()` if it exited between turns.
+
+### Pause / Resume
+
+- **Pause** clears the pending timer, saves `remainingMs = nextFireAt - Date.now()`, persists `pausedAtStep` + `pausedRemainingMs` to `metadata.json`.
+- **Resume** restores the timer using the saved `remainingMs`, then continues the chain with full `intervalMs` for subsequent messages.
+- A `dispatchInFlight` guard prevents pause/stop from corrupting state while the async moderator send is in flight.
+
+### Key Files
+
+| File                                        | Role                                                                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `src/main/group-chat/wake-up-service.ts`    | Sequencer: start, stop, pause, resume, state query                                                               |
+| `src/main/ipc/handlers/groupChat.ts`        | IPC handlers + validation + progress emitter                                                                     |
+| `src/main/preload/groupChat.ts`             | Preload bridge: `startWakeUp`, `stopWakeUp`, `pauseWakeUp`, `resumeWakeUp`, `getWakeUpState`, `onWakeUpProgress` |
+| `src/renderer/components/WakeUpModal.tsx`   | Config + progress UI (~435 LOC)                                                                                  |
+| `src/renderer/components/GroupChatList.tsx` | Context menu entry (AlarmClock icon, `onWakeUp` prop)                                                            |
+| `src/shared/group-chat-types.ts`            | `WakeUpMessage`, `WakeUpConfig`, `WakeUpState`, `WakeUpProgress`                                                 |
+| `src/renderer/constants/modalPriorities.ts` | `WAKE_UP_CALL: 635`                                                                                              |
 
 ## Symphony System
 
@@ -400,6 +489,7 @@ Group chat uses four prompt templates from `src/prompts/`:
 | `src/main/group-chat/output-parser.ts`        | Agent JSON/JSONL text extraction         |
 | `src/main/group-chat/session-parser.ts`       | Session ID parsing                       |
 | `src/main/group-chat/session-recovery.ts`     | Session-not-found recovery               |
+| `src/main/group-chat/wake-up-service.ts`      | Wake-up call sequencer                   |
 | `src/main/ipc/handlers/groupChat.ts`          | IPC handler registration and emitters    |
 | `src/shared/group-chat-types.ts`              | Shared type definitions                  |
 | `src/shared/symphony-types.ts`                | Symphony type definitions                |
