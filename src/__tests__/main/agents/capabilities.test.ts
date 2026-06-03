@@ -109,8 +109,8 @@ describe('agent-capabilities', () => {
 		it('should have capabilities for gemini-cli', () => {
 			const capabilities = AGENT_CAPABILITIES['gemini-cli'];
 			expect(capabilities).toBeDefined();
-			// Gemini supports multimodal
-			expect(capabilities.supportsImageInput).toBe(true);
+			// Gemini is multimodal but CLI has no image flag for headless mode
+			expect(capabilities.supportsImageInput).toBe(false);
 			expect(capabilities.supportsStreaming).toBe(true);
 		});
 

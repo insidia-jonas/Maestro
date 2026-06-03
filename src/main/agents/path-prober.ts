@@ -459,6 +459,8 @@ function getUnixKnownPaths(binaryName: string): string[] {
 			...nodeVersionManagers('copilot'),
 		],
 		gemini: [
+			// User local bin
+			...localBin('gemini'),
 			// npm global paths
 			...npmGlobal('gemini'),
 			// Homebrew paths

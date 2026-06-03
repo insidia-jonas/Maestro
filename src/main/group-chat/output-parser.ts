@@ -13,16 +13,17 @@ import { logger } from '../utils/logger';
 export function extractTextGeneric(rawOutput: string): string {
 	const lines = rawOutput.split('\n');
 
-	// Check if this looks like JSONL output (first non-empty line starts with '{')
-	// If not JSONL, return the raw output as-is (it's already parsed text)
-	const firstNonEmptyLine = lines.find((line) => line.trim());
-	if (firstNonEmptyLine && !firstNonEmptyLine.trim().startsWith('{')) {
+	// Check if this looks like JSONL output — find first line that starts with '{'
+	// Skip non-JSON noise lines (e.g. Gemini CLI truecolor/ripgrep warnings)
+	const firstJsonLineIndex = lines.findIndex((line) => line.trim().startsWith('{'));
+	if (firstJsonLineIndex === -1) {
 		return rawOutput;
 	}
 
 	const textParts: string[] = [];
 
-	for (const line of lines) {
+	for (let i = firstJsonLineIndex; i < lines.length; i++) {
+		const line = lines[i];
 		if (!line.trim()) continue;
 
 		try {
@@ -75,10 +76,11 @@ export function extractTextFromAgentOutput(rawOutput: string, agentType: string)
 
 	const lines = rawOutput.split('\n');
 
-	// Check if this looks like JSONL output (first non-empty line starts with '{')
-	// If not JSONL, return the raw output as-is (it's already parsed text from process-manager)
-	const firstNonEmptyLine = lines.find((line) => line.trim());
-	if (firstNonEmptyLine && !firstNonEmptyLine.trim().startsWith('{')) {
+	// Check if this looks like JSONL output — find first line that starts with '{'
+	// Some agents (e.g. Gemini CLI) emit non-JSON warnings before JSONL begins;
+	// skip those noise lines instead of treating the entire output as plaintext.
+	const firstJsonLineIndex = lines.findIndex((line) => line.trim().startsWith('{'));
+	if (firstJsonLineIndex === -1) {
 		logger.debug(
 			`[GroupChat] Input is not JSONL, returning as plain text (len=${rawOutput.length})`,
 			'[GroupChat]'
@@ -91,7 +93,8 @@ export function extractTextFromAgentOutput(rawOutput: string, agentType: string)
 	let _resultMessageCount = 0;
 	let _textMessageCount = 0;
 
-	for (const line of lines) {
+	for (let i = firstJsonLineIndex; i < lines.length; i++) {
+		const line = lines[i];
 		if (!line.trim()) continue;
 
 		const event = parser.parseJsonLine(line);

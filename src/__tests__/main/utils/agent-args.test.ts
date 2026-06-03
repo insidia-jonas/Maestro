@@ -538,13 +538,13 @@ describe('buildAgentArgs', () => {
 			expect(result).not.toContain('read-only');
 		});
 
-		it('Gemini CLI: readOnlyArgs include -y for non-interactive execution', () => {
+		it('Gemini CLI: readOnlyArgs use --approval-mode plan for CLI-enforced read-only', () => {
 			const geminiAgent = makeAgent({
 				id: 'gemini-cli',
 				batchModeArgs: ['-y'],
 				jsonOutputArgs: ['--output-format', 'stream-json'],
-				readOnlyArgs: ['-y'],
-				readOnlyCliEnforced: false,
+				readOnlyArgs: ['--approval-mode', 'plan'],
+				readOnlyCliEnforced: true,
 				promptArgs: (prompt: string) => ['-p', prompt],
 			});
 
@@ -554,8 +554,10 @@ describe('buildAgentArgs', () => {
 				readOnlyMode: true,
 			});
 
-			// batchModeArgs skipped, but readOnlyArgs provides -y
-			expect(result).toContain('-y');
+			// --approval-mode plan replaces -y for real read-only enforcement
+			expect(result).toContain('--approval-mode');
+			expect(result).toContain('plan');
+			expect(result).not.toContain('-y');
 			expect(result).toContain('--output-format');
 			expect(result).toContain('stream-json');
 		});

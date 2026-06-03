@@ -83,7 +83,6 @@ describe('agentMetadata', () => {
 			expect(BETA_AGENTS.has('codex')).toBe(false);
 			expect(BETA_AGENTS.has('claude-code')).toBe(false);
 			expect(BETA_AGENTS.has('terminal')).toBe(false);
-			expect(BETA_AGENTS.has('gemini-cli')).toBe(false);
 			expect(BETA_AGENTS.has('qwen3-coder')).toBe(false);
 		});
 
@@ -105,7 +104,6 @@ describe('agentMetadata', () => {
 			expect(isBetaAgent('claude-code')).toBe(false);
 			expect(isBetaAgent('codex')).toBe(false);
 			expect(isBetaAgent('terminal')).toBe(false);
-			expect(isBetaAgent('gemini-cli')).toBe(false);
 			expect(isBetaAgent('qwen3-coder')).toBe(false);
 		});
 

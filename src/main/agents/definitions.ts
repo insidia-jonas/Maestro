@@ -291,17 +291,15 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		name: 'Gemini CLI',
 		binaryName: 'gemini',
 		command: 'gemini',
-		args: [],
+		args: ['--output-format', 'stream-json'],
 		batchModePrefix: [],
 		batchModeArgs: ['-y'],
 		jsonOutputArgs: ['--output-format', 'stream-json'],
 		resumeArgs: (sessionId: string) => ['--resume', sessionId],
-		// Note: --approval-mode plan requires experimental.plan to be enabled in Gemini CLI config.
-		// Until that feature is generally available, read-only behavior is enforced via system
-		// prompt instructions instead. The -y flag is still needed for non-interactive execution
-		// (tab naming, context grooming) to prevent approval prompts from hanging batch mode.
-		readOnlyArgs: ['-y'],
-		readOnlyCliEnforced: false, // No CLI-level read-only enforcement; prompt-only
+		// Gemini CLI supports --approval-mode plan for read-only mode (verified v0.44.1).
+		// This restricts the agent to read-only operations at the CLI level.
+		readOnlyArgs: ['--approval-mode', 'plan'],
+		readOnlyCliEnforced: true, // CLI enforces read-only via --approval-mode plan
 		yoloModeArgs: ['-y'],
 		workingDirArgs: (dir: string) => ['--include-directories', dir],
 		imageArgs: undefined,

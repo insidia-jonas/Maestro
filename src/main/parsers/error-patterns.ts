@@ -1082,6 +1082,80 @@ const GROK_BUILD_ERROR_PATTERNS: AgentErrorPatterns = {
 };
 
 // ============================================================================
+// Gemini CLI Error Patterns
+// ============================================================================
+
+const GEMINI_CLI_ERROR_PATTERNS: AgentErrorPatterns = {
+	auth_expired: [
+		{
+			pattern: /oauth.*expired|token.*expired|authentication.*failed|unauthorized/i,
+			message: 'Gemini CLI authentication expired. Run `gemini` interactively to re-authenticate.',
+			recoverable: true,
+		},
+		{
+			pattern: /no.*credentials|not.*authenticated|login.*required/i,
+			message: 'Gemini CLI is not authenticated. Run `gemini` interactively to log in.',
+			recoverable: true,
+		},
+	],
+	rate_limited: [
+		{
+			pattern: /rate.*limit|quota.*exceeded|too.*many.*requests|429/i,
+			message: 'Gemini API rate limit hit. Wait a moment and try again.',
+			recoverable: true,
+		},
+		{
+			pattern: /resource.*exhausted/i,
+			message: 'Gemini API resource quota exhausted.',
+			recoverable: true,
+		},
+	],
+	token_exhaustion: [
+		{
+			pattern: /context.*(?:length|window|limit).*exceeded/i,
+			message: 'Gemini context window exceeded. Start a new session.',
+			recoverable: false,
+		},
+		{
+			pattern: /input.*too.*(?:long|large)/i,
+			message: 'Input is too large for the Gemini model context window.',
+			recoverable: false,
+		},
+	],
+	network_error: [
+		{
+			pattern: /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|network.*error|connect.*failed/i,
+			message: 'Network error connecting to Gemini API.',
+			recoverable: true,
+		},
+		{
+			pattern: /fetch.*failed|request.*failed/i,
+			message: 'Failed to reach the Gemini API. Check your network connection.',
+			recoverable: true,
+		},
+	],
+	agent_crashed: [
+		{
+			pattern: /internal.*server.*error|500|503.*service.*unavailable/i,
+			message: 'Gemini API returned a server error. Try again shortly.',
+			recoverable: true,
+		},
+		{
+			pattern: /SIGKILL|SIGTERM|killed/i,
+			message: 'Gemini CLI process was terminated.',
+			recoverable: true,
+		},
+	],
+	permission_denied: [
+		{
+			pattern: /permission.*denied|EACCES|forbidden/i,
+			message: 'Permission denied. Check workspace trust settings.',
+			recoverable: false,
+		},
+	],
+};
+
+// ============================================================================
 // Pattern Registry
 // ============================================================================
 
@@ -1092,6 +1166,7 @@ const patternRegistry = new Map<ToolType, AgentErrorPatterns>([
 	['factory-droid', FACTORY_DROID_ERROR_PATTERNS],
 	['copilot-cli', COPILOT_ERROR_PATTERNS],
 	['grok-build', GROK_BUILD_ERROR_PATTERNS],
+	['gemini-cli', GEMINI_CLI_ERROR_PATTERNS],
 ]);
 
 /**

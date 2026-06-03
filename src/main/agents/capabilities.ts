@@ -132,37 +132,37 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 	},
 
 	/**
-	 * Gemini CLI - Google's Gemini model CLI
+	 * Gemini CLI - Google's Gemini model CLI (v0.44+)
+	 * https://github.com/google-gemini/gemini-cli
 	 *
-	 * PLACEHOLDER: Most capabilities set to false until Gemini CLI is stable
-	 * and can be tested. Update this configuration when integrating the agent.
+	 * Verified against Gemini CLI v0.44.1 (2026-06-02)
 	 */
 	'gemini-cli': {
-		supportsResume: false,
-		supportsReadOnlyMode: false,
-		supportsJsonOutput: false,
-		supportsSessionId: false,
-		supportsImageInput: true, // Gemini supports multimodal
-		supportsImageInputOnResume: false, // Not yet investigated
-		supportsSlashCommands: false,
-		supportsSessionStorage: false,
-		supportsCostTracking: false,
-		supportsUsageStats: false,
-		supportsBatchMode: false,
-		requiresPromptToStart: false, // Not yet investigated
-		supportsStreaming: true, // Likely streams
-		supportsResultMessages: false,
-		supportsModelSelection: false, // Not yet investigated
-		supportsStreamJsonInput: false,
-		supportsThinkingDisplay: false, // Not yet investigated
-		supportsContextMerge: false, // Not yet investigated - PLACEHOLDER
-		supportsContextExport: false, // Not yet investigated - PLACEHOLDER
-		supportsWizard: false, // PLACEHOLDER
-		supportsGroupChatModeration: false, // PLACEHOLDER
-		usesJsonLineOutput: false, // PLACEHOLDER
-		usesCombinedContextWindow: false, // PLACEHOLDER
-		supportsAppendSystemPrompt: false,
-		supportsProjectMemory: false,
+		supportsResume: true, // --resume flag (session UUID or "latest")
+		supportsReadOnlyMode: true, // --approval-mode plan
+		supportsJsonOutput: true, // --output-format stream-json
+		supportsSessionId: true, // session_id in init event
+		supportsImageInput: false, // Gemini is multimodal but CLI has no --image/-i flag for headless mode
+		supportsImageInputOnResume: false, // No image input support in headless mode
+		supportsSlashCommands: false, // No slash commands in headless mode
+		supportsSessionStorage: true, // ~/.gemini/tmp/<project>/chats/
+		supportsCostTracking: false, // No cost data in stats
+		supportsUsageStats: true, // result event contains token stats
+		supportsBatchMode: true, // -p flag (non-interactive headless)
+		requiresPromptToStart: true, // -p requires a prompt argument
+		supportsStreaming: true, // stream-json emits message deltas
+		supportsResultMessages: true, // "result" event type
+		supportsModelSelection: true, // -m flag (auto, pro, flash, flash-lite, etc.)
+		supportsStreamJsonInput: false, // No --input-format equivalent
+		supportsThinkingDisplay: false, // Thoughts in session file, not in stream-json output
+		supportsContextMerge: false, // No context merge API
+		supportsContextExport: false, // No context export API
+		supportsWizard: false, // No structured output mode
+		supportsGroupChatModeration: false, // Not tested as moderator
+		usesJsonLineOutput: true, // JSONL stream-json format
+		usesCombinedContextWindow: true, // Gemini uses combined input/output window
+		supportsAppendSystemPrompt: false, // No --append-system-prompt equivalent
+		supportsProjectMemory: false, // Uses ~/.gemini/memory/ but no Maestro integration
 	},
 
 	/**

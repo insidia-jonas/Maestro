@@ -86,12 +86,11 @@ export const AGENT_TILES: AgentTile[] = [
 		description: "xAI's agentic coding CLI",
 		brandColor: '#000000', // xAI black
 	},
-	// Coming soon agents at the bottom
 	{
 		id: 'gemini-cli',
 		name: 'Gemini CLI',
-		supported: false,
-		description: 'Coming soon',
+		supported: true,
+		description: "Google's Gemini coding CLI",
 		brandColor: '#4285F4', // Google blue
 	},
 ];

@@ -1775,9 +1775,9 @@ describe('NewInstanceModal', () => {
 
 		it('should have tabindex=-1 for unsupported agents (coming soon)', async () => {
 			// Note: tabIndex is based on isSupported (in SUPPORTED_AGENTS), not availability
-			// gemini-cli is not in SUPPORTED_AGENTS so it should have tabIndex=-1
+			// qwen3-coder is not in SUPPORTED_AGENTS so it should have tabIndex=-1
 			vi.mocked(window.maestro.agents.detect).mockResolvedValue([
-				createAgentConfig({ id: 'gemini-cli', name: 'Gemini CLI', available: false }),
+				createAgentConfig({ id: 'qwen3-coder', name: 'Qwen3 Coder', available: false }),
 			]);
 
 			render(
@@ -1791,7 +1791,7 @@ describe('NewInstanceModal', () => {
 			);
 
 			await waitFor(() => {
-				const option = screen.getByRole('option', { name: /Gemini CLI/i });
+				const option = screen.getByRole('option', { name: /Qwen3 Coder/i });
 				expect(option).toHaveAttribute('tabIndex', '-1');
 			});
 		});

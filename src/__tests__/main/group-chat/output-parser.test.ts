@@ -81,8 +81,7 @@ describe('group-chat/output-parser', () => {
 		});
 
 		it('should skip lines with session_id when in JSON context', () => {
-			// Note: The first non-empty line must start with '{' for JSONL processing
-			// If first line doesn't start with '{', raw output is returned as-is
+			// Non-JSON lines after JSON begins are handled in the catch block
 			const jsonlOutput = [
 				'{"text": "Actual content"}',
 				'session_id: abc123', // This line would be skipped in the catch block
@@ -90,9 +89,14 @@ describe('group-chat/output-parser', () => {
 			expect(extractTextGeneric(jsonlOutput)).toBe('Actual content');
 		});
 
-		it('should return raw output if first line is not JSON', () => {
+		it('should skip non-JSON prefix lines and extract JSON content', () => {
 			const rawOutput = ['session_id: abc123', '{"text": "Actual content"}'].join('\n');
-			// When first non-empty line doesn't start with '{', returns raw output
+			// Non-JSON lines before JSONL are skipped (e.g. Gemini CLI warnings)
+			expect(extractTextGeneric(rawOutput)).toBe('Actual content');
+		});
+
+		it('should return raw output if no lines are JSON', () => {
+			const rawOutput = ['session_id: abc123', 'some plain text output'].join('\n');
 			expect(extractTextGeneric(rawOutput)).toBe(rawOutput);
 		});
 

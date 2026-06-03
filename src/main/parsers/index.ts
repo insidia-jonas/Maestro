@@ -59,6 +59,7 @@ import { CodexOutputParser } from './codex-output-parser';
 import { FactoryDroidOutputParser } from './factory-droid-output-parser';
 import { CopilotOutputParser } from './copilot-output-parser';
 import { GrokBuildOutputParser } from './grok-build-output-parser';
+import { GeminiCliOutputParser } from './gemini-cli-output-parser';
 import {
 	registerOutputParser,
 	clearParserRegistry,
@@ -73,6 +74,7 @@ export { CodexOutputParser } from './codex-output-parser';
 export { FactoryDroidOutputParser } from './factory-droid-output-parser';
 export { GrokBuildOutputParser } from './grok-build-output-parser';
 export { CopilotOutputParser } from './copilot-output-parser';
+export { GeminiCliOutputParser } from './gemini-cli-output-parser';
 
 const LOG_CONTEXT = '[OutputParsers]';
 
@@ -91,6 +93,7 @@ export function initializeOutputParsers(): void {
 	registerOutputParser(new FactoryDroidOutputParser());
 	registerOutputParser(new CopilotOutputParser());
 	registerOutputParser(new GrokBuildOutputParser());
+	registerOutputParser(new GeminiCliOutputParser());
 
 	// Log registered parsers for debugging
 	const registeredParsers = getAllOutputParsers().map((p) => p.agentId);

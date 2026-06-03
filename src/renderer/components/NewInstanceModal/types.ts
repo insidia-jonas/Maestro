@@ -13,6 +13,7 @@ export const SUPPORTED_AGENTS = [
 	'factory-droid',
 	'copilot-cli',
 	'grok-build',
+	'gemini-cli',
 ];
 
 export interface AgentDebugInfo {

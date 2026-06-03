@@ -21,6 +21,7 @@ export const DEFAULT_CONTEXT_WINDOWS: Partial<Record<AgentId, number>> = {
 	'factory-droid': 200000, // Factory Droid (varies by model, defaults to Claude Opus)
 	'copilot-cli': 200000, // Copilot-CLI (varies by model, defaults to Claude Sonnet)
 	'grok-build': 131072, // Grok Build conservative default; Grok 4 Heavy supports up to 2,000,000
+	'gemini-cli': 1048576, // Gemini 2.5 Pro default (1M tokens)
 	terminal: 0, // Terminal has no context window
 };
 

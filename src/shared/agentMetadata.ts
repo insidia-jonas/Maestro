@@ -47,6 +47,7 @@ const PLAN_MODE_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>([
 	'claude-code',
 	'opencode',
 	'grok-build',
+	'gemini-cli', // --approval-mode plan
 ]);
 
 /**
@@ -78,6 +79,7 @@ export const BETA_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>([
 	'factory-droid',
 	'copilot-cli',
 	'grok-build', // xAI Grok Build is in public beta (May 2026)
+	'gemini-cli', // Gemini CLI integration (June 2026)
 ]);
 
 /**
