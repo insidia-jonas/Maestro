@@ -190,6 +190,12 @@ describe('groupChat IPC handlers', () => {
 				'groupChat:getHistoryFilePath',
 				// Image handlers
 				'groupChat:getImages',
+				// Wake-up handlers
+				'groupChat:startWakeUp',
+				'groupChat:stopWakeUp',
+				'groupChat:getWakeUpState',
+				'groupChat:pauseWakeUp',
+				'groupChat:resumeWakeUp',
 			];
 
 			for (const channel of expectedChannels) {
