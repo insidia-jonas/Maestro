@@ -291,7 +291,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		name: 'Gemini CLI',
 		binaryName: 'gemini',
 		command: 'gemini',
-		args: ['--output-format', 'stream-json'],
+		args: ['--output-format', 'stream-json', '--skip-trust'],
 		batchModePrefix: [],
 		batchModeArgs: ['-y'],
 		jsonOutputArgs: ['--output-format', 'stream-json'],
@@ -301,7 +301,10 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		readOnlyArgs: ['--approval-mode', 'plan'],
 		readOnlyCliEnforced: true, // CLI enforces read-only via --approval-mode plan
 		yoloModeArgs: ['-y'],
-		workingDirArgs: (dir: string) => ['--include-directories', dir],
+		// Gemini CLI uses cwd (set by the spawner) as its workspace.
+		// --include-directories adds *additional* dirs on top of cwd and triggers
+		// a recursive scan, which hangs on large projects (node_modules, .git).
+		workingDirArgs: undefined,
 		imageArgs: undefined,
 		modelArgs: (modelId: string) => ['-m', modelId],
 		promptArgs: (prompt: string) => ['-p', prompt],

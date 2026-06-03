@@ -18,6 +18,7 @@ import { CodexOutputParser } from './codex-output-parser';
 import { FactoryDroidOutputParser } from './factory-droid-output-parser';
 import { CopilotOutputParser } from './copilot-output-parser';
 import { GrokBuildOutputParser } from './grok-build-output-parser';
+import { GeminiCliOutputParser } from './gemini-cli-output-parser';
 
 const PARSER_CONSTRUCTORS: Record<string, () => AgentOutputParser> = {
 	'claude-code': () => new ClaudeOutputParser(),
@@ -26,6 +27,7 @@ const PARSER_CONSTRUCTORS: Record<string, () => AgentOutputParser> = {
 	'factory-droid': () => new FactoryDroidOutputParser(),
 	'copilot-cli': () => new CopilotOutputParser(),
 	'grok-build': () => new GrokBuildOutputParser(),
+	'gemini-cli': () => new GeminiCliOutputParser(),
 };
 
 /**
