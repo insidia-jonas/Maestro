@@ -155,7 +155,7 @@ export class ExitHandler {
 			const agentError = outputParser.detectErrorFromExit(
 				code,
 				managedProcess.stderrBuffer || '',
-				managedProcess.stdoutBuffer || managedProcess.streamedText || ''
+				managedProcess.stdoutBuffer || ''
 			);
 			if (agentError) {
 				managedProcess.errorEmitted = true;

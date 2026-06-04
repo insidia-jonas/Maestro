@@ -295,7 +295,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		batchModePrefix: [],
 		// Keep Gemini in headless mode without passing the prompt as a long -p arg.
 		// The prompt body is sent via raw stdin by ChildProcessSpawner.
-		batchModeArgs: ['--approval-mode', 'plan', '-p', ''],
+		batchModeArgs: ['-y', '-p', ''],
 		jsonOutputArgs: ['--output-format', 'stream-json'],
 		// resumeArgs disabled: Gemini CLI's --resume hangs on sessions from
 		// killed/crashed processes, causing zombie accumulation and OOM crashes.

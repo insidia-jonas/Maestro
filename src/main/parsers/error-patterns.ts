@@ -1100,48 +1100,43 @@ const GEMINI_CLI_ERROR_PATTERNS: AgentErrorPatterns = {
 	],
 	rate_limited: [
 		{
-			pattern: /rate.*limit|quota.*exceeded|too.*many.*requests|429/i,
+			// Matches explicit Gemini CLI status, 429 status code, or specific error strings.
+			// Word boundaries and specific keyword combinations reduce false positives.
+			pattern:
+				/\b(?:rate_limited|quota_exceeded|resource_exhausted|429\s?too\s?many)\b|\brate\s?limit\b\s?(?:exceeded|hit)\b|\bquota\s?(?:has\s?been\s?)?exceeded\b/i,
 			message: 'Gemini API rate limit hit. Wait a moment and try again.',
-			recoverable: true,
-		},
-		{
-			pattern: /resource.*exhausted/i,
-			message: 'Gemini API resource quota exhausted.',
 			recoverable: true,
 		},
 	],
 	token_exhaustion: [
 		{
-			pattern: /context.*(?:length|window|limit).*exceeded/i,
+			pattern:
+				/\b(?:context_window_exceeded|input_too_large)\b|\bcontext\b.*(?:length|limit|window).*\bexceeded\b|\binput\b.*too\b.*large\b/i,
 			message: 'Gemini context window exceeded. Start a new session.',
-			recoverable: false,
-		},
-		{
-			pattern: /input.*too.*(?:long|large)/i,
-			message: 'Input is too large for the Gemini model context window.',
 			recoverable: false,
 		},
 	],
 	network_error: [
 		{
-			pattern: /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|network.*error|connect.*failed/i,
+			pattern: /\b(?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT)\b|network\s?error|connect\s?failed/i,
 			message: 'Network error connecting to Gemini API.',
 			recoverable: true,
 		},
 		{
-			pattern: /fetch.*failed|request.*failed/i,
+			pattern: /\bfetch\b.*failed|\brequest\b.*failed/i,
 			message: 'Failed to reach the Gemini API. Check your network connection.',
 			recoverable: true,
 		},
 	],
 	agent_crashed: [
 		{
-			pattern: /internal.*server.*error|500|503.*service.*unavailable/i,
+			pattern:
+				/\b(?:internal_server_error|500|503\s?service\s?unavailable)\b|\binternal\s?server\s?error\b/i,
 			message: 'Gemini API returned a server error. Try again shortly.',
 			recoverable: true,
 		},
 		{
-			pattern: /SIGKILL|SIGTERM|killed/i,
+			pattern: /\b(?:SIGKILL|SIGTERM)\b|\bGemini\s?CLI\s?process\s?was\s?killed\b/i,
 			message: 'Gemini CLI process was terminated.',
 			recoverable: true,
 		},
