@@ -47,7 +47,9 @@ export function extractTextGeneric(rawOutput: string): string {
 		}
 	}
 
-	// Join with newlines to preserve paragraph structure
+	// Join parts. Note: extractTextGeneric doesn't have access to isPartial flags,
+	// but for generic JSON patterns we typically expect full lines or paragraphs.
+	// We use newline as a safe default for non-streaming generic fallbacks.
 	return textParts.join('\n');
 }
 
@@ -90,6 +92,7 @@ export function extractTextFromAgentOutput(rawOutput: string, agentType: string)
 
 	const textParts: string[] = [];
 	let resultText: string | null = null;
+	let hasPartialEvents = false;
 	let _resultMessageCount = 0;
 	let _textMessageCount = 0;
 
@@ -109,6 +112,9 @@ export function extractTextFromAgentOutput(rawOutput: string, agentType: string)
 
 		if (event.type === 'text' && event.text) {
 			textParts.push(event.text);
+			if (event.isPartial) {
+				hasPartialEvents = true;
+			}
 			_textMessageCount++;
 		}
 	}
@@ -118,9 +124,10 @@ export function extractTextFromAgentOutput(rawOutput: string, agentType: string)
 		return resultText;
 	}
 
-	// Fallback: if no result message, concatenate streaming text parts with newlines
-	// to preserve paragraph structure from partial streaming events
-	return textParts.join('\n');
+	// Fallback: if no result message, concatenate streaming text parts.
+	// If the agent emits partial parts (deltas), join with empty string to reconstruct the message;
+	// otherwise join with newlines for distinct message events.
+	return textParts.join(hasPartialEvents ? '' : '\n');
 }
 
 /**
