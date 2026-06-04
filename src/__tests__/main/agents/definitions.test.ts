@@ -210,6 +210,14 @@ describe('agent-definitions', () => {
 			expect(args).toEqual(['--session', 'session-789']);
 		});
 
+		it('should disable Gemini resume and send headless prompts via stdin', () => {
+			const gemini = getAgentDefinition('gemini-cli');
+			expect(gemini?.resumeArgs).toBeUndefined();
+			expect(gemini?.promptArgs).toBeUndefined();
+			expect(gemini?.batchModeArgs).toEqual(['--approval-mode', 'plan', '-p', '']);
+			expect(gemini?.readOnlyArgs).toEqual(['-p', '', '--approval-mode', 'plan']);
+		});
+
 		it('should have modelArgs function for opencode', () => {
 			const opencode = getAgentDefinition('opencode');
 			expect(opencode?.modelArgs).toBeDefined();

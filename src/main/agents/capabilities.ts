@@ -138,7 +138,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 	 * Verified against Gemini CLI v0.44.1 (2026-06-02)
 	 */
 	'gemini-cli': {
-		supportsResume: true, // --resume flag (session UUID or "latest")
+		supportsResume: false, // --resume hangs on stale sessions from killed processes
 		supportsReadOnlyMode: true, // --approval-mode plan
 		supportsJsonOutput: true, // --output-format stream-json
 		supportsSessionId: true, // session_id in init event

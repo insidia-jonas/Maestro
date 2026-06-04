@@ -89,7 +89,12 @@ export class ChildProcessSpawner {
 		const argsHaveInputStreamJson = args.some(
 			(arg, i) => arg === 'stream-json' && i > 0 && args[i - 1] === '--input-format'
 		);
-		const promptViaStdin = sendPromptViaStdin || sendPromptViaStdinRaw || argsHaveInputStreamJson;
+		const forceRawPromptViaStdin = toolType === 'gemini-cli' && !!prompt && !config.sshStdinScript;
+		const promptViaStdin =
+			sendPromptViaStdin ||
+			sendPromptViaStdinRaw ||
+			forceRawPromptViaStdin ||
+			argsHaveInputStreamJson;
 
 		// Build final args based on batch mode and images
 		// Track whether the prompt was added to CLI args (used later to decide stdin behavior)
@@ -524,8 +529,10 @@ export class ChildProcessSpawner {
 				});
 				childProcess.stdin?.write(config.sshStdinScript);
 				childProcess.stdin?.end();
-			} else if (config.sendPromptViaStdinRaw && effectivePrompt) {
-				// Raw stdin mode: send prompt as literal text (non-stream-json agents on Windows)
+			} else if ((sendPromptViaStdinRaw || forceRawPromptViaStdin) && effectivePrompt) {
+				// Raw stdin mode: send prompt as literal text (Windows raw stdin and Gemini CLI).
+				// Gemini CLI hangs on long -p arguments through Node's execve; using
+				// `-p ""` plus raw stdin follows the CLI's documented "stdin + prompt" path.
 				// Note: When sending via stdin, PowerShell treats the input as literal text,
 				// NOT as code to parse. No escaping is needed for special characters.
 				logger.debug('[ProcessManager] Sending raw prompt via stdin', 'ProcessManager', {

@@ -7,14 +7,7 @@ Respond to the moderator's request below. Your response will be shared with the 
 **IMPORTANT RESPONSE FORMAT:**
 Your response MUST begin with a single-sentence summary of what you accomplished or are reporting. This first sentence will be extracted for the group chat history. Keep it concise and action-oriented.
 
-## File Access
-
-You have permission to read and write files in:
-
-- Your configured working directory (your project folder)
-- The group chat shared folder: {{GROUP_CHAT_FOLDER}}
-
-The shared folder contains chat logs and can be used for collaborative file exchange between participants.
+Stay focused on the moderator's current request. Only read or modify files that are directly required for the task at hand — do not scan directories, list files, or explore the workspace unless explicitly asked to.
 
 ## Recent Chat History:
 

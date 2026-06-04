@@ -70,6 +70,8 @@ describe('Exit Listener', () => {
 				clearActiveParticipantTaskSession: vi.fn(),
 				clearModeratorResponseTimeout: vi.fn(),
 				checkAndTrackParticipantResponse: vi.fn().mockReturnValue({ isStale: false, count: 1 }),
+				isParticipantTimedOut: vi.fn().mockReturnValue(false),
+				clearTimedOutParticipant: vi.fn(),
 			},
 			groupChatStorage: {
 				loadGroupChat: vi.fn().mockResolvedValue(createMockGroupChat()),
@@ -737,6 +739,57 @@ describe('Exit Listener', () => {
 					'TestAgent'
 				);
 			});
+		});
+	});
+
+	describe('Timed-out participant guard (consume-on-exit)', () => {
+		it('skips idle emit, consumes guard, and skips mark-and-synthesize for timed-out session', () => {
+			const chatId = 'timed-out-chat-1';
+			const participantName = 'TimedAgent';
+			const sessionId = `group-chat-${chatId}-participant-${participantName}-99999`;
+
+			mockDeps.outputParser.parseParticipantSessionId = vi.fn().mockReturnValue({
+				groupChatId: chatId,
+				participantName,
+			});
+			mockDeps.groupChatRouter.isParticipantTimedOut = vi.fn().mockReturnValue(true);
+
+			setupListener();
+			const handler = eventHandlers.get('exit');
+			handler!(sessionId, 137);
+
+			expect(mockDeps.groupChatRouter.isParticipantTimedOut).toHaveBeenCalledWith(sessionId);
+			expect(mockDeps.groupChatRouter.clearTimedOutParticipant).toHaveBeenCalledWith(sessionId);
+			expect(mockDeps.groupChatRouter.clearActiveParticipantTaskSession).toHaveBeenCalledWith(
+				chatId,
+				participantName
+			);
+			expect(mockDeps.groupChatEmitters.emitParticipantState).not.toHaveBeenCalled();
+			expect(mockDeps.groupChatRouter.markParticipantResponded).not.toHaveBeenCalled();
+			expect(mockDeps.outputBuffer.clearGroupChatBuffer).toHaveBeenCalledWith(sessionId);
+		});
+
+		it('emits idle and processes normally for non-timed-out session', () => {
+			const chatId = 'normal-chat-1';
+			const participantName = 'NormalAgent';
+			const sessionId = `group-chat-${chatId}-participant-${participantName}-88888`;
+
+			mockDeps.outputParser.parseParticipantSessionId = vi.fn().mockReturnValue({
+				groupChatId: chatId,
+				participantName,
+			});
+			mockDeps.groupChatRouter.isParticipantTimedOut = vi.fn().mockReturnValue(false);
+
+			setupListener();
+			const handler = eventHandlers.get('exit');
+			handler!(sessionId, 0);
+
+			expect(mockDeps.groupChatEmitters.emitParticipantState).toHaveBeenCalledWith(
+				chatId,
+				participantName,
+				'idle'
+			);
+			expect(mockDeps.groupChatRouter.clearTimedOutParticipant).not.toHaveBeenCalled();
 		});
 	});
 });

@@ -880,16 +880,43 @@ Since OpenCode supports multiple providers/models, Maestro should consider:
 
 ---
 
-### Gemini CLI 📋 Planned
+### Gemini CLI 🧪 Beta
 
-**Status:** Not yet implemented
+**Status:** Implemented as a beta agent (verified against Gemini CLI v0.44.1; marked beta via `BETA_AGENTS` in `src/shared/agentMetadata.ts`)
 
-**To Add:**
+| Aspect           | Value                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| Agent ID         | `gemini-cli`                                                                               |
+| Binary           | `gemini`                                                                                   |
+| JSON Output      | `--output-format stream-json`                                                              |
+| Batch Mode       | Headless `-p ""` placeholder with prompt body delivered via raw stdin                      |
+| YOLO Mode        | `-y` (auto-approves tool calls in non-interactive group chat/batch runs)                   |
+| Read-only        | `--approval-mode plan` (CLI-enforced)                                                      |
+| Resume           | Disabled — `--resume` can hang on stale sessions from killed/crashed processes             |
+| Session ID Field | `session_id` from the `init` event                                                         |
+| Session Storage  | `~/.gemini/tmp/<project>/chats/session-*.jsonl` with project roots in `~/.gemini/history/` |
+| Context Window   | 1,048,576 tokens default (Gemini 2.5 Pro combined input/output window)                     |
 
-1. Agent definition in `agents/definitions.ts`
-2. Capabilities in `agents/capabilities.ts`
-3. Output parser for Gemini JSON format
-4. Error patterns for Google API errors
+**Implementation Status:**
+
+- ✅ Agent Definition: `src/main/agents/definitions.ts`
+- ✅ Capabilities: `src/main/agents/capabilities.ts`
+- ✅ Output Parser: `src/main/parsers/gemini-cli-output-parser.ts`
+- ✅ Session Storage: `src/main/storage/gemini-cli-session-storage.ts`
+- ✅ Error Patterns: `src/main/parsers/error-patterns.ts`
+
+**Prompt Delivery:**
+
+- **Local spawn:** `ChildProcessSpawner` forces Gemini prompts through raw stdin (`forceRawPromptViaStdin`) instead of appending long prompt text to argv.
+- **SSH spawn:** `wrapSpawnWithSsh()` routes Gemini prompts through `buildSshCommandWithStdin()` for all prompt lengths. The remote script `exec`s Gemini, then the prompt bytes are inherited by Gemini on stdin.
+- `promptArgs` is intentionally `undefined`; the empty `-p ""` placeholder keeps Gemini in headless prompt mode while avoiding Node/argv hangs.
+
+**Known Limitations:**
+
+- No image input in headless mode (`supportsImageInput: false`)
+- No group chat moderation support yet (`supportsGroupChatModeration: false`)
+- No cost tracking from Gemini's stream-json stats
+- No context merge/export integration
 
 ---
 

@@ -2280,7 +2280,11 @@ interface MaestroAPI {
 			) => void
 		) => () => void;
 		onParticipantState: (
-			callback: (groupChatId: string, participantName: string, state: 'idle' | 'working') => void
+			callback: (
+				groupChatId: string,
+				participantName: string,
+				state: 'idle' | 'working' | 'timed-out'
+			) => void
 		) => () => void;
 		onParticipantLiveOutput: (
 			callback: (groupChatId: string, participantName: string, chunk: string) => void

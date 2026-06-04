@@ -276,10 +276,23 @@ export function setupExitListener(
 				{ sessionId }
 			);
 
-			// Emit participant state change to show this participant is done working
+			// If the timeout handler already owns this participant's lifecycle
+			// (guard + kill + mark-responded + synthesis), skip the entire
+			// exit-listener flow — just consume the guard and return.
+			if (groupChatRouter.isParticipantTimedOut(sessionId)) {
+				groupChatRouter.clearTimedOutParticipant(sessionId);
+				groupChatRouter.clearActiveParticipantTaskSession(groupChatId, participantName);
+				outputBuffer.clearGroupChatBuffer(sessionId);
+				debugLog(
+					'GroupChat:Debug',
+					` Skipped exit processing — participant was timed-out (consumed guard)`
+				);
+				return;
+			}
+
 			groupChatEmitters.emitParticipantState?.(groupChatId, participantName, 'idle');
-			groupChatRouter.clearActiveParticipantTaskSession(groupChatId, participantName);
 			debugLog('GroupChat:Debug', ` Emitted participant state: idle`);
+			groupChatRouter.clearActiveParticipantTaskSession(groupChatId, participantName);
 
 			// Refresh on-disk usage for copilot-cli participants. Copilot in batch
 			// mode only writes the session.shutdown event (the sole carrier of

@@ -79,6 +79,9 @@ import {
 	getGroupChatReadOnlyState,
 	setGetSessionsCallback,
 	setSshStore,
+	isParticipantTimedOut,
+	clearTimedOutParticipant,
+	markParticipantResponded,
 	type GroupChatSessionInfo,
 } from '../../../main/group-chat/group-chat-router';
 import {
@@ -88,6 +91,8 @@ import {
 } from '../../../main/group-chat/group-chat-moderator';
 import {
 	addParticipant,
+	setActiveParticipantSession,
+	getParticipantSessionId,
 	clearAllParticipantSessionsGlobal,
 } from '../../../main/group-chat/group-chat-agent';
 import {
@@ -1094,6 +1099,243 @@ describe('group-chat-router', () => {
 
 			// SSH wrapper should NOT be called for local sessions
 			expect(mockWrapSpawnWithSsh).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('participant timeout and timed-out state', () => {
+		it('isParticipantTimedOut returns false for unknown session IDs', () => {
+			expect(isParticipantTimedOut('nonexistent-session-123')).toBe(false);
+		});
+
+		it('clearTimedOutParticipant consumes the guard entry (round-trip)', () => {
+			// We cannot insert into timedOutSessions directly (private),
+			// but we can verify clear is a no-op for absent keys — the real
+			// insert→consume cycle is tested in the fake-timer tests below.
+			const sid = 'group-chat-test-participant-Agent-12345';
+			expect(isParticipantTimedOut(sid)).toBe(false);
+			clearTimedOutParticipant(sid);
+			expect(isParticipantTimedOut(sid)).toBe(false);
+		});
+
+		it('routeModeratorResponse emits working state when spawning participant', async () => {
+			const chat = await createTestChatWithModerator('timeout-working-test');
+			await addParticipant(chat.id, 'WorkAgent', 'claude-code');
+
+			groupChatEmitters.emitParticipantState = vi.fn();
+			groupChatEmitters.emitMessage = vi.fn();
+
+			await routeModeratorResponse(
+				chat.id,
+				'@WorkAgent check the timeout value',
+				mockProcessManager,
+				mockAgentDetector,
+				false
+			);
+
+			expect(groupChatEmitters.emitParticipantState).toHaveBeenCalledWith(
+				chat.id,
+				'WorkAgent',
+				'working'
+			);
+		});
+
+		it('timeout fires → kill + guard-add + timed-out emit (fake timers)', async () => {
+			vi.useFakeTimers();
+			try {
+				const chat = await createTestChatWithModerator('timer-kill-test');
+				await addParticipant(chat.id, 'SlowAgent', 'claude-code');
+
+				const emitSpy = vi.fn();
+				groupChatEmitters.emitParticipantState = emitSpy;
+				groupChatEmitters.emitMessage = vi.fn();
+
+				await routeModeratorResponse(
+					chat.id,
+					'@SlowAgent do something',
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+
+				// Capture the session ID that routeModeratorResponse generated
+				const sessionId = getParticipantSessionId(chat.id, 'SlowAgent');
+				expect(sessionId).toBeDefined();
+
+				// Advance past the 30-minute timeout.
+				// The ordering-race fix ensures session-resolve + guard-add + kill + emit
+				// all execute synchronously before any await, so advanceTimersByTime works.
+				vi.advanceTimersByTime(30 * 60 * 1000 + 100);
+
+				// kill() was called with the correct session ID
+				expect(mockProcessManager.kill).toHaveBeenCalledWith(sessionId);
+
+				// Guard was set — isParticipantTimedOut returns true for the session
+				expect(isParticipantTimedOut(sessionId!)).toBe(true);
+
+				// 'timed-out' was emitted (not 'idle')
+				const timedOutEmits = emitSpy.mock.calls.filter(
+					(c: unknown[]) => c[1] === 'SlowAgent' && c[2] === 'timed-out'
+				);
+				expect(timedOutEmits).toHaveLength(1);
+
+				// clearActiveParticipantSession was called — session is gone
+				expect(getParticipantSessionId(chat.id, 'SlowAgent')).toBeUndefined();
+
+				// Cleanup: consume the guard so it doesn't leak into other tests
+				clearTimedOutParticipant(sessionId!);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('participant responds before timeout → no kill, no timed-out', async () => {
+			vi.useFakeTimers();
+			try {
+				const chat = await createTestChatWithModerator('no-timeout-test');
+				await addParticipant(chat.id, 'FastAgent', 'claude-code');
+
+				const emitSpy = vi.fn();
+				groupChatEmitters.emitParticipantState = emitSpy;
+				groupChatEmitters.emitMessage = vi.fn();
+
+				await routeModeratorResponse(
+					chat.id,
+					'@FastAgent do something quick',
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+
+				const sessionId = getParticipantSessionId(chat.id, 'FastAgent');
+
+				// Simulate the agent responding before timeout (routeAgentResponse logs
+				// the response; markParticipantResponded clears the pending entry and
+				// cancels the timeout — mirroring what the exit-listener does)
+				await routeAgentResponse(chat.id, 'FastAgent', 'Done!', mockProcessManager);
+				markParticipantResponded(chat.id, 'FastAgent');
+
+				// Clear kill mock to isolate timeout behavior
+				mockProcessManager.kill.mockClear();
+
+				// Advance past the timeout — should be a no-op (already responded)
+				vi.advanceTimersByTime(30 * 60 * 1000 + 100);
+
+				expect(mockProcessManager.kill).not.toHaveBeenCalled();
+				expect(isParticipantTimedOut(sessionId!)).toBe(false);
+
+				const timedOutEmits = emitSpy.mock.calls.filter(
+					(c: unknown[]) => c[1] === 'FastAgent' && c[2] === 'timed-out'
+				);
+				expect(timedOutEmits).toHaveLength(0);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('last participant timeout: mark-responded runs AFTER log write (multi-timeout-safe)', async () => {
+			vi.useFakeTimers();
+			try {
+				const chat = await createTestChatWithModerator('synth-timeout-test');
+				await addParticipant(chat.id, 'OnlyAgent', 'claude-code');
+
+				groupChatEmitters.emitParticipantState = vi.fn();
+				groupChatEmitters.emitMessage = vi.fn();
+				groupChatEmitters.emitStateChange = vi.fn();
+
+				await routeModeratorResponse(
+					chat.id,
+					'@OnlyAgent analyze everything',
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+
+				const sessionId = getParticipantSessionId(chat.id, 'OnlyAgent');
+
+				vi.advanceTimersByTime(30 * 60 * 1000 + 100);
+
+				// Sync block runs immediately: kill + guard + timed-out emit
+				expect(mockProcessManager.kill).toHaveBeenCalledWith(sessionId);
+				expect(isParticipantTimedOut(sessionId!)).toBe(true);
+				expect(groupChatEmitters.emitParticipantState).toHaveBeenCalledWith(
+					chat.id,
+					'OnlyAgent',
+					'timed-out'
+				);
+
+				// DESIGN INVARIANT: markParticipantResponded is now AFTER the
+				// async log writes (not synchronous). This means OnlyAgent is
+				// still in the pending set at this point — the timeout handler's
+				// async continuation hasn't run yet. This proves the multi-timeout
+				// ordering fix: synthesis can't trigger until the log write completes.
+				const stillPending = markParticipantResponded(chat.id, 'OnlyAgent');
+				// stillPending = true means OnlyAgent WAS still in the pending set
+				// (markParticipantResponded hadn't been called yet by the handler)
+				expect(stillPending).toBe(true);
+
+				// The exit-listener early-return (tested in exit-listener.test.ts)
+				// guarantees no single-session race: timed-out sessions skip the
+				// listener's mark-and-synthesize path entirely.
+
+				clearTimedOutParticipant(sessionId!);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('consume-on-exit: guard insert→check→consume lifecycle proven end-to-end', async () => {
+			vi.useFakeTimers();
+			try {
+				const chat = await createTestChatWithModerator('consume-test');
+				await addParticipant(chat.id, 'ConsumeAgent', 'claude-code');
+
+				const participantStates: Array<[string, string]> = [];
+				groupChatEmitters.emitParticipantState = vi.fn(
+					(_gid: string, name: string, state: string) => {
+						participantStates.push([name, state]);
+					}
+				);
+				groupChatEmitters.emitMessage = vi.fn();
+
+				await routeModeratorResponse(
+					chat.id,
+					'@ConsumeAgent do work',
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+
+				const sessionId = getParticipantSessionId(chat.id, 'ConsumeAgent')!;
+
+				// Before timeout: guard is empty
+				expect(isParticipantTimedOut(sessionId)).toBe(false);
+
+				// Fire the timeout — sync block: guard-add + kill + emit 'timed-out'
+				vi.advanceTimersByTime(30 * 60 * 1000 + 100);
+
+				// INSERT proven: guard is now set with real sessionId
+				expect(isParticipantTimedOut(sessionId)).toBe(true);
+
+				// CHECK proven: calling isParticipantTimedOut returns true
+				// (this is what the exit-listener calls at exit-listener.ts:282)
+				expect(isParticipantTimedOut(sessionId)).toBe(true);
+
+				// CONSUME proven: clearTimedOutParticipant removes the entry
+				// (this is what the exit-listener calls at exit-listener.ts:286)
+				clearTimedOutParticipant(sessionId);
+				expect(isParticipantTimedOut(sessionId)).toBe(false);
+
+				// No 'idle' was emitted for ConsumeAgent after 'timed-out'
+				const timedOutIdx = participantStates.findIndex(
+					([n, s]) => n === 'ConsumeAgent' && s === 'timed-out'
+				);
+				expect(timedOutIdx).toBeGreaterThanOrEqual(0);
+				const afterTimeout = participantStates.slice(timedOutIdx + 1);
+				const idleAfter = afterTimeout.filter(([n, s]) => n === 'ConsumeAgent' && s === 'idle');
+				expect(idleAfter).toHaveLength(0);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 	});
 });

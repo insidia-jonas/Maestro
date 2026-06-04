@@ -541,11 +541,11 @@ describe('buildAgentArgs', () => {
 		it('Gemini CLI: readOnlyArgs use --approval-mode plan for CLI-enforced read-only', () => {
 			const geminiAgent = makeAgent({
 				id: 'gemini-cli',
-				batchModeArgs: ['-y'],
+				batchModeArgs: ['-y', '-p', ''],
 				jsonOutputArgs: ['--output-format', 'stream-json'],
-				readOnlyArgs: ['--approval-mode', 'plan'],
+				readOnlyArgs: ['-p', '', '--approval-mode', 'plan'],
 				readOnlyCliEnforced: true,
-				promptArgs: (prompt: string) => ['-p', prompt],
+				promptArgs: undefined,
 			});
 
 			const result = buildAgentArgs(geminiAgent, {
@@ -558,6 +558,7 @@ describe('buildAgentArgs', () => {
 			expect(result).toContain('--approval-mode');
 			expect(result).toContain('plan');
 			expect(result).not.toContain('-y');
+			expect(result).toContain('-p');
 			expect(result).toContain('--output-format');
 			expect(result).toContain('stream-json');
 		});

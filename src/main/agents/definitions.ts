@@ -293,12 +293,17 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		command: 'gemini',
 		args: ['--output-format', 'stream-json', '--skip-trust'],
 		batchModePrefix: [],
-		batchModeArgs: ['-y'],
+		// Keep Gemini in headless mode without passing the prompt as a long -p arg.
+		// The prompt body is sent via raw stdin by ChildProcessSpawner.
+		batchModeArgs: ['--approval-mode', 'plan', '-p', ''],
 		jsonOutputArgs: ['--output-format', 'stream-json'],
-		resumeArgs: (sessionId: string) => ['--resume', sessionId],
+		// resumeArgs disabled: Gemini CLI's --resume hangs on sessions from
+		// killed/crashed processes, causing zombie accumulation and OOM crashes.
+		// Re-enable when Gemini CLI handles stale sessions gracefully.
+		resumeArgs: undefined,
 		// Gemini CLI supports --approval-mode plan for read-only mode (verified v0.44.1).
 		// This restricts the agent to read-only operations at the CLI level.
-		readOnlyArgs: ['--approval-mode', 'plan'],
+		readOnlyArgs: ['-p', '', '--approval-mode', 'plan'],
 		readOnlyCliEnforced: true, // CLI enforces read-only via --approval-mode plan
 		yoloModeArgs: ['-y'],
 		// Gemini CLI uses cwd (set by the spawner) as its workspace.
@@ -307,7 +312,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		workingDirArgs: undefined,
 		imageArgs: undefined,
 		modelArgs: (modelId: string) => ['-m', modelId],
-		promptArgs: (prompt: string) => ['-p', prompt],
+		promptArgs: undefined,
 		configOptions: [
 			{
 				key: 'model',

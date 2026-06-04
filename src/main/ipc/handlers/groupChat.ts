@@ -106,7 +106,7 @@ export interface ModeratorUsage {
 /**
  * Participant state for tracking individual agent working status.
  */
-export type ParticipantState = 'idle' | 'working';
+export type ParticipantState = 'idle' | 'working' | 'timed-out';
 
 /**
  * Module-level object to store emitter functions after initialization.

@@ -29,7 +29,7 @@ interface GroupChatRightPanelProps {
 	groupChatId: string;
 	participants: GroupChatParticipant[];
 	/** Map of participant name to their working state */
-	participantStates: Map<string, 'idle' | 'working'>;
+	participantStates: Map<string, 'idle' | 'working' | 'timed-out'>;
 	/** Map of participant sessionId to their project root path (for color preferences) */
 	participantSessionPaths?: Map<string, string>;
 	/** Map of session name to SSH remote name (for displaying SSH pill on participant cards) */
@@ -323,13 +323,15 @@ export function GroupChatRightPanel({
 						sortedParticipants.map((participant) => {
 							// Convert 'working' state to 'busy' for SessionState compatibility
 							const workState = participantStates.get(participant.name);
-							const sessionState = workState === 'working' ? 'busy' : 'idle';
+							const sessionState =
+								workState === 'working' ? 'busy' : workState === 'timed-out' ? 'error' : 'idle';
 							return (
 								<ParticipantCard
 									key={participant.sessionId}
 									theme={theme}
 									participant={participant}
 									state={sessionState}
+									timedOut={workState === 'timed-out'}
 									color={participantColors[participant.name]}
 									groupChatId={groupChatId}
 									onContextReset={handleContextReset}

@@ -35,6 +35,7 @@ import {
 	addParticipant,
 	setActiveParticipantSession,
 	clearActiveParticipantSession,
+	getParticipantSessionId,
 } from './group-chat-agent';
 import { AgentDetector } from '../agents';
 import { powerManager } from '../power-manager';
@@ -134,8 +135,24 @@ const autoRunParticipantTracker = new Map<string, Set<string>>();
  */
 const participantTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** How long to wait for a participant before treating them as timed-out (10 minutes). */
-const PARTICIPANT_RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
+/**
+ * Tracks session IDs of processes killed by a timeout so the exit-listener
+ * does not overwrite the `'timed-out'` state with `'idle'`.
+ * Keyed by sessionId (unique per spawn, never reused) to prevent cross-round poisoning.
+ * Consumed (deleted) on process exit to prevent leaks.
+ */
+const timedOutSessions = new Set<string>();
+
+export function isParticipantTimedOut(sessionId: string): boolean {
+	return timedOutSessions.has(sessionId);
+}
+
+export function clearTimedOutParticipant(sessionId: string): void {
+	timedOutSessions.delete(sessionId);
+}
+
+/** How long to wait for a participant before treating them as timed-out (30 minutes). */
+const PARTICIPANT_RESPONSE_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * Maximum number of identical responses allowed from a participant before
@@ -232,13 +249,44 @@ function setParticipantResponseTimeout(
 		console.warn(
 			`[GroupChat:Debug] Participant ${participantName} timed out after ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 1000}s — force-completing`
 		);
+
+		// Resolve session + mark as timed-out + kill BEFORE any async work.
+		// This closes the ordering-race window where the participant could
+		// exit naturally during the log-write awaits and the exit-listener
+		// would emit 'idle' before the guard is in place.
+		const timedOutSession = getParticipantSessionId(groupChatId, participantName);
+		if (timedOutSession) {
+			timedOutSessions.add(timedOutSession);
+		}
+		if (timedOutSession && processManager) {
+			processManager.kill(timedOutSession);
+			clearActiveParticipantSession(groupChatId, participantName);
+		}
+
+		// Emit 'timed-out' (not 'idle') so the renderer shows a distinct visual state.
+		groupChatEmitters.emitParticipantState?.(groupChatId, participantName, 'timed-out');
+
+		// Only emit batch-complete for participants triggered via !autorun, not normal @mentions
+		const autoRunSet = autoRunParticipantTracker.get(groupChatId);
+		if (autoRunSet?.has(participantName)) {
+			groupChatEmitters.emitAutoRunBatchComplete?.(groupChatId, participantName);
+			autoRunSet.delete(participantName);
+			if (autoRunSet.size === 0) autoRunParticipantTracker.delete(groupChatId);
+		}
+
 		groupChatEmitters.emitMessage?.(groupChatId, {
 			timestamp: new Date().toISOString(),
 			from: 'system',
 			content: `⚠️ @${participantName} did not respond within ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 60000} minutes and has been marked as timed out.`,
 		});
 
-		// Log a timeout response so the moderator knows what happened
+		// Persist the timeout log entry BEFORE marking responded.
+		// This guarantees that when the last participant's markParticipantResponded
+		// returns isLast=true and triggers synthesis, ALL timeout log entries
+		// (including earlier participants' entries) are already on disk.
+		// Safe from the R3 single-session race because the exit-listener
+		// early-returns for timed-out sessions (L279-291) and never calls
+		// markParticipantResponded for them.
 		try {
 			const { loadGroupChat } = await import('./group-chat-storage');
 			const { appendToLog } = await import('./group-chat-log');
@@ -251,7 +299,6 @@ function setParticipantResponseTimeout(
 				);
 			}
 		} catch (err) {
-			// Non-critical — synthesize anyway, but log and report so we can diagnose
 			logger.error('Failed to log timeout response', LOG_CONTEXT, {
 				groupChatId,
 				participantName,
@@ -264,18 +311,9 @@ function setParticipantResponseTimeout(
 			});
 		}
 
-		// Reset participant state and force-complete the batch so the AUTO badge
-		// and progress bar clear immediately — the batch loop may still be awaiting
-		// a process exit that will never come.
-		groupChatEmitters.emitParticipantState?.(groupChatId, participantName, 'idle');
-		// Only emit batch-complete for participants triggered via !autorun, not normal @mentions
-		const autoRunSet = autoRunParticipantTracker.get(groupChatId);
-		if (autoRunSet?.has(participantName)) {
-			groupChatEmitters.emitAutoRunBatchComplete?.(groupChatId, participantName);
-			autoRunSet.delete(participantName);
-			if (autoRunSet.size === 0) autoRunParticipantTracker.delete(groupChatId);
-		}
-
+		// Mark responded AFTER the log write completes. When this is the last
+		// participant (isLast=true), synthesis starts below — and all timeout
+		// log entries are guaranteed to be persisted.
 		const isLast = markParticipantResponded(groupChatId, participantName);
 		if (isLast && processManager && agentDetector) {
 			spawnModeratorSynthesis(groupChatId, processManager, agentDetector).catch((err) => {
@@ -345,6 +383,11 @@ export function clearPendingParticipants(groupChatId: string): void {
 	pendingParticipantResponses.delete(groupChatId);
 	autoRunParticipantTracker.delete(groupChatId);
 	participantResponseHashes.delete(groupChatId);
+	// Purge any lingering timed-out session entries for this chat
+	const prefix = `group-chat-${groupChatId}-participant-`;
+	for (const sid of timedOutSessions) {
+		if (sid.startsWith(prefix)) timedOutSessions.delete(sid);
+	}
 }
 
 /**

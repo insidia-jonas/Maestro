@@ -194,3 +194,68 @@ describe('ssh-spawn-wrapper: grok-build prompt delivery', () => {
 		expect(result.prompt).toBe('Hello');
 	});
 });
+
+describe('ssh-spawn-wrapper: gemini-cli stdin delivery', () => {
+	const sshConfig: AgentSshRemoteConfig = {
+		enabled: true,
+		remoteId: 'test-remote-1',
+	};
+
+	const mockSshStore = {
+		getSshRemotes: () => [
+			{
+				id: 'test-remote-1',
+				name: 'Test Remote',
+				host: 'dev.example.com',
+				port: 22,
+				username: 'testuser',
+				privateKeyPath: '~/.ssh/id_ed25519',
+				enabled: true,
+			},
+		],
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('gemini with prompt: always uses buildSshCommandWithStdin regardless of length', async () => {
+		const result = await wrapSpawnWithSsh(
+			{
+				command: 'gemini',
+				args: ['--output-format', 'stream-json', '--skip-trust', '-y', '-p', ''],
+				cwd: '/project',
+				prompt: 'Short prompt',
+				agentBinaryName: 'gemini',
+			},
+			sshConfig,
+			mockSshStore
+		);
+
+		expect(result.sshRemoteUsed).not.toBeNull();
+		expect(result.command).toBe('ssh');
+		// Prompt cleared from result (delivered via sshStdinScript)
+		expect(result.prompt).toBeUndefined();
+		expect(result.sshStdinScript).toBeDefined();
+		// The script must contain the prompt text for stdin delivery
+		expect(result.sshStdinScript).toContain('Short prompt');
+	});
+
+	it('gemini with no prompt: uses standard SSH path without stdin script', async () => {
+		const result = await wrapSpawnWithSsh(
+			{
+				command: 'gemini',
+				args: ['--output-format', 'stream-json', '--skip-trust'],
+				cwd: '/project',
+				agentBinaryName: 'gemini',
+			},
+			sshConfig,
+			mockSshStore
+		);
+
+		expect(result.sshRemoteUsed).not.toBeNull();
+		expect(result.command).toBe('ssh');
+		// No prompt → no stdin script needed
+		expect(result.sshStdinScript).toBeUndefined();
+	});
+});

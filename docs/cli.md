@@ -526,7 +526,7 @@ Use `maestro-cli settings list -v` from inside an AI agent conversation to give 
 
 ### Managing Agent Configuration
 
-Each agent (Claude Code, Codex, OpenCode, Factory Droid) can have its own configuration for custom paths, CLI arguments, environment variables, and model overrides.
+Each agent (e.g., Claude Code, Codex, OpenCode, Factory Droid) can have its own configuration for custom paths, CLI arguments, environment variables, and model overrides.
 
 ```bash
 # List all agent configurations
@@ -1046,5 +1046,5 @@ The system prompt instructs agents to use `settings list -v` to discover availab
 
 ## Requirements
 
-- At least one AI agent CLI must be installed and in PATH (Claude Code, Codex, or OpenCode)
+- At least one AI agent CLI must be installed and in PATH (e.g., Claude Code, Codex, or OpenCode)
 - Maestro config files must exist (created automatically when you use the GUI)

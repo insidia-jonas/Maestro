@@ -95,6 +95,7 @@ Key responsibilities:
 - Gets the correct `AgentOutputParser` for the agent type
 - Wires up `StdoutHandler`, `StderrHandler`, `ExitHandler`
 - Handles stdin writing: SSH script, raw prompt, stream-json message, or close for batch
+- Forces Gemini CLI prompts through raw stdin (`forceRawPromptViaStdin`) when `toolType === 'gemini-cli'` and the spawn is not already using an SSH stdin script. Gemini still receives `-p ""` in argv to stay in headless prompt mode, but the prompt body is written to `stdin` to avoid long-argv hangs.
 - Windows-specific: auto-enables shell for `.exe` basenames and shell scripts, escapes args for cmd.exe or PowerShell
 
 ### Handler Classes
@@ -154,7 +155,13 @@ Runs terminal commands on remote hosts via SSH. Builds SSH args (key, options, p
 
 ### Types (`types.ts`)
 
-**ProcessConfig** - Input to `spawn()`. Key fields: `sessionId`, `toolType`, `command`, `args`, `prompt`, `images`, `requiresPty`, `shell`, `customEnvVars`, `sshStdinScript`, `sendPromptViaStdin`.
+**ProcessConfig** - Input to `spawn()`. Key fields: `sessionId`, `toolType`, `command`, `args`, `prompt`, `images`, `requiresPty`, `shell`, `customEnvVars`, `sendPromptViaStdin`, `sendPromptViaStdinRaw`, `promptAlreadyInArgs`, and `sshStdinScript`.
+
+Stdin delivery has three important non-interactive paths:
+
+- `sendPromptViaStdin` builds stream-json input for agents that support JSON stdin payloads.
+- `sendPromptViaStdinRaw` writes the prompt bytes directly to stdin, mainly for Windows raw-stdin paths and Gemini CLI.
+- `sshStdinScript` is produced by `buildSshCommandWithStdin()` and written as the child process stdin. The script runs `/bin/bash --norc --noprofile -s` on the remote, exports PATH/env, `cd`s into the remote cwd, then `exec`s the target command. Any prompt bytes appended after the `exec` line are inherited by the agent as raw stdin and are never parsed by a shell.
 
 **ManagedProcess** - Internal tracked state. Includes PTY or child process handles, buffers (json, stderr, stdout, data, streamed text), parser, usage totals, timing, and SSH context.
 

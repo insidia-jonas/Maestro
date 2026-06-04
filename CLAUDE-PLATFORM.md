@@ -119,13 +119,27 @@ if (sshRemoteId) {
 }
 ```
 
-**Prompts must go via stdin for SSH:**
+**SSH prompt delivery is agent/size dependent:**
 
 ```typescript
-// IMPORTANT: ALL agent prompts are passed via stdin passthrough for SSH.
-// This avoids shell escaping issues and command line length limits.
-if (isSSH) {
-	// Pass prompt via stdin, not as command line argument
+// Gemini CLI always uses stdin passthrough over SSH when a prompt exists.
+// The argv keeps Gemini in headless mode with `-p ""`; the prompt body is
+// appended after the remote `exec` line and read as raw stdin by Gemini.
+if (isSSH && agentBinaryName === 'gemini') {
+	// wrapSpawnWithSsh() -> buildSshCommandWithStdin()
+}
+
+// Large stdin-capable prompts also use stdin passthrough to avoid command-line
+// length limits and nested shell escaping.
+if (isSSH && prompt.length > 4000 && agentBinaryName !== 'grok') {
+	// buildSshCommandWithStdin()
+}
+
+// Grok does not read prompts from stdin; large Grok prompts use a remote temp
+// file plus --prompt-file. Small non-Gemini prompts may be embedded in the
+// escaped remote command line via buildSshCommand().
+if (isSSH && agentBinaryName === 'grok' && prompt.length > 4000) {
+	// remote prompt file + --prompt-file
 }
 ```
 

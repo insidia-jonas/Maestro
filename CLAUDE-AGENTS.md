@@ -10,6 +10,7 @@ Agent support documentation for the Maestro codebase. For the main guide, see [[
 | `codex`         | Codex         | **Active** | Full support, `--json`, YOLO mode default                                                                                           |
 | `opencode`      | OpenCode      | **Active** | Multi-provider support (75+ LLMs), stub provider session storage                                                                    |
 | `factory-droid` | Factory Droid | **Active** | Factory's AI coding assistant, `-o stream-json`                                                                                     |
+| `gemini-cli`    | Gemini CLI    | **Beta**   | `--output-format stream-json`, `-y -p ""`, prompt via raw stdin, resume disabled due stale-session hangs                            |
 | `copilot-cli`   | Copilot-CLI   | **Beta**   | `-p/--prompt`, `--output-format json`, `--resume`, `@image` mentions, permission filters, reasoning stream, models.dev model picker |
 | `terminal`      | Terminal      | Internal   | Hidden from UI, used for shell sessions                                                                                             |
 
@@ -90,6 +91,20 @@ The backing data (`AGENT_DISPLAY_NAMES` record, `BETA_AGENTS` set) is module-pri
 - **Read-only:** `--agent plan`
 - **YOLO Mode:** Auto-enabled in batch mode (no flag needed)
 - **Multi-Provider:** Supports 75+ LLMs including Ollama, LM Studio, llama.cpp
+
+### Gemini CLI
+
+- **Agent ID:** `gemini-cli`
+- **Binary:** `gemini`
+- **JSON Output:** `--output-format stream-json` (JSONL stream)
+- **Batch Mode:** `-p ""` placeholder with the prompt body delivered via raw stdin
+- **Prompt Delivery:** Local spawns use `ChildProcessSpawner`'s Gemini-only raw-stdin path; SSH spawns always use `buildSshCommandWithStdin()` for Gemini, regardless of prompt length
+- **Resume:** Disabled because Gemini CLI `--resume` can hang on stale sessions from killed/crashed processes
+- **Read-only:** CLI-enforced via `--approval-mode plan`
+- **YOLO Mode:** `-y` auto-approves tool calls in non-interactive group chat/batch runs
+- **Session Storage:** `~/.gemini/tmp/<project>/chats/session-*.jsonl` with project roots mapped under `~/.gemini/history/`
+- **Model Selection:** `-m <model>` (default `auto`; common values include Gemini Pro/Flash variants)
+- **Known Limitations:** No headless image input, no group chat moderation, no cost tracking, no context merge/export
 
 ### Copilot-CLI
 

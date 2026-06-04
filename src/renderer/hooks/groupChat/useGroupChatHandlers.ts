@@ -213,8 +213,8 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 						return next;
 					});
 				}
-				// Clear live output when participant becomes idle
-				if (state === 'idle') {
+				// Clear live output when participant becomes idle or timed out
+				if (state === 'idle' || state === 'timed-out') {
 					clearParticipantLiveOutput(`${id}:${participantName}`);
 				}
 			}

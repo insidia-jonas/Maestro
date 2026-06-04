@@ -82,6 +82,29 @@ Maestro spawns AI agents and terminal processes with the same privileges as the 
 - Be aware that AI agents can execute commands on your system
 - Review agent actions, especially on sensitive repositories
 
+### Group Chat Participants Auto-Approve Tool Calls
+
+Group chat participant agents run in **non-interactive batch mode**. Every tool call they make is **auto-approved** — the user is never shown an approval prompt for an individual `read_file`, `write_file`, `run_shell_command`, `list_directory`, or `grep_search`. This applies to **every** participant backend, each via its own permission-bypass flag (see `src/main/agents/definitions.ts`):
+
+- **Gemini CLI** — `-y`
+- **OpenAI Codex** — `--dangerously-bypass-approvals-and-sandbox`
+- **Claude Code** — `--dangerously-skip-permissions`
+- **Factory Droid** — `--skip-permissions-unsafe`
+- **Copilot CLI** — `--allow-all`
+- **OpenCode** — YOLO mode (enabled via a config env var)
+
+Combined with the Process Execution note above, a group chat participant can read or write **anything the user account can**, with no per-action confirmation. Reachable targets include the user's entire home directory — notably `~/.config/maestro` (session/group persistence, app settings, and any API keys stored in `shellEnvVars`) and agent config directories such as `~/.gemini`.
+
+Read-only group chat mode changes the agent flags where supported (for example Gemini CLI's `--approval-mode plan` or Codex's `--sandbox read-only`) and can reduce write capability at the upstream CLI layer. It does **not** create a Maestro filesystem sandbox, does **not** change the OS user account, and does **not** restore per-action approval prompts. Treat read-only mode as a CLI policy, not an isolation boundary.
+
+**Maestro does not sandbox participant file access.** A recent fix removed a `## File Access` block from the participant prompt that was actively inviting a broad workspace scan — under `-y` this drove Gemini into a tool-execution loop that hung the chat — and added a timeout-kill to reap runaway processes. That fix reduces the observed scan/hang vector but **does not** close the underlying boundary: the broad-access capability remains by design. As the security reviewer put it, participants run "with full user privileges; broad file access is possible and is not sandboxed by Maestro."
+
+Users should:
+
+- Only add participants to group chats on projects and machines they trust
+- Be aware that participants can touch any file the user account can, without prompting
+- Treat secrets stored in plaintext under `~/.config/maestro` accordingly when running untrusted prompts
+
 ### Local Web Server
 
 When the web/mobile interface is enabled, Maestro runs a local web server. The Cloudflare tunnel feature can expose this externally. Users should:

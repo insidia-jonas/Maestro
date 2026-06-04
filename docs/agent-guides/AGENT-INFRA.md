@@ -170,6 +170,21 @@ The `argBuilder` function converts the setting value to CLI arguments.
 - workingDirArgs: `(dir) => ['-C', dir]`
 - yoloModeArgs: `['--dangerously-bypass-approvals-and-sandbox']`
 
+**Gemini CLI** args: `['--output-format', 'stream-json', '--skip-trust']`
+
+- batchModePrefix: `[]`
+- batchModeArgs: `['-y', '-p', '']` — empty prompt placeholder keeps Gemini in headless mode
+- jsonOutputArgs: `['--output-format', 'stream-json']`
+- resumeArgs: `undefined` — `--resume` can hang on stale killed/crashed sessions
+- readOnlyArgs: `['-p', '', '--approval-mode', 'plan']`
+- readOnlyCliEnforced: `true`
+- modelArgs: `(id) => ['-m', id]`
+- promptArgs: `undefined` — prompt text is not appended to argv
+- imageArgs / workingDirArgs: `undefined`
+- yoloModeArgs: `['-y']`
+- Local prompt delivery: `ChildProcessSpawner` forces `toolType === 'gemini-cli'` prompts through raw stdin (`forceRawPromptViaStdin`)
+- SSH prompt delivery: `wrapSpawnWithSsh()` routes Gemini through `buildSshCommandWithStdin()` for every prompt length
+
 **OpenCode** args: `[]`
 
 - batchModePrefix: `['run']`
@@ -231,26 +246,26 @@ interface AgentCapabilities {
 
 ### Capability Matrix (Active Agents)
 
-| Capability        | Claude Code | Codex | OpenCode | Factory Droid |
-| ----------------- | :---------: | :---: | :------: | :-----------: |
-| Resume            |      Y      |   Y   |    Y     |       Y       |
-| Read-Only         |      Y      |   Y   |    Y     |       Y       |
-| JSON Output       |      Y      |   Y   |    Y     |       Y       |
-| Session ID        |      Y      |   Y   |    Y     |       Y       |
-| Image Input       |      Y      |   Y   |    Y     |       Y       |
-| Session Storage   |      Y      |   Y   |    Y     |       Y       |
-| Cost Tracking     |      Y      |   N   |    Y     |       N       |
-| Usage Stats       |      Y      |   Y   |    Y     |       Y       |
-| Batch Mode        |      Y      |   Y   |    Y     |       Y       |
-| Requires Prompt   |      N      |   Y   |    Y     |       Y       |
-| Model Selection   |      Y      |   Y   |    Y     |       Y       |
-| Thinking Display  |      Y      |   Y   |    Y     |       Y       |
-| Context Merge     |      Y      |   Y   |    Y     |       Y       |
-| Wizard            |      Y      |   Y   |    Y     |       N       |
-| Group Chat        |      Y      |   Y   |    Y     |       Y       |
-| JSONL Output      |      N      |   Y   |    Y     |       Y       |
-| Combined Context  |      N      |   Y   |    N     |       N       |
-| Append Sys Prompt |      Y      |   N   |    N     |       N       |
+| Capability        | Claude Code | Codex | Gemini CLI | OpenCode | Factory Droid |
+| ----------------- | :---------: | :---: | :--------: | :------: | :-----------: |
+| Resume            |      Y      |   Y   |     N      |    Y     |       Y       |
+| Read-Only         |      Y      |   Y   |     Y      |    Y     |       Y       |
+| JSON Output       |      Y      |   Y   |     Y      |    Y     |       Y       |
+| Session ID        |      Y      |   Y   |     Y      |    Y     |       Y       |
+| Image Input       |      Y      |   Y   |     N      |    Y     |       Y       |
+| Session Storage   |      Y      |   Y   |     Y      |    Y     |       Y       |
+| Cost Tracking     |      Y      |   N   |     N      |    Y     |       N       |
+| Usage Stats       |      Y      |   Y   |     Y      |    Y     |       Y       |
+| Batch Mode        |      Y      |   Y   |     Y      |    Y     |       Y       |
+| Requires Prompt   |      N      |   Y   |     Y      |    Y     |       Y       |
+| Model Selection   |      Y      |   Y   |     Y      |    Y     |       Y       |
+| Thinking Display  |      Y      |   Y   |     N      |    Y     |       Y       |
+| Context Merge     |      Y      |   Y   |     N      |    Y     |       Y       |
+| Wizard            |      Y      |   Y   |     N      |    Y     |       N       |
+| Group Chat        |      Y      |   Y   |     Y      |    Y     |       Y       |
+| JSONL Output      |      N      |   Y   |     Y      |    Y     |       Y       |
+| Combined Context  |      N      |   Y   |     Y      |    N     |       N       |
+| Append Sys Prompt |      Y      |   N   |     N      |    N     |       N       |
 
 ### Access Functions
 

@@ -272,7 +272,14 @@ Renderer performance integration in `src/renderer/utils/logger.ts`:
 
 | Function                                        | Signature                                                                                            | Purpose                                                                                                                                     |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wrapSpawnWithSsh(config, sshConfig, sshStore)` | `(SshSpawnWrapConfig, AgentSshRemoteConfig?, SshRemoteSettingsStore) => Promise<SshSpawnWrapResult>` | Wrap spawn config with SSH remote execution. Handles prompt embedding (small in CLI, large via stdin). Returns local or SSH-wrapped config. |
+| `wrapSpawnWithSsh(config, sshConfig, sshStore)` | `(SshSpawnWrapConfig, AgentSshRemoteConfig?, SshRemoteSettingsStore) => Promise<SshSpawnWrapResult>` | Wrap spawn config with SSH remote execution. Handles prompt embedding and stdin/prompt-file fallbacks. Returns local or SSH-wrapped config. |
+
+SSH prompt delivery is intentionally agent/size dependent:
+
+- **Gemini CLI:** always uses `buildSshCommandWithStdin()` when a prompt is present, regardless of prompt length. Gemini's argv keeps `-p ""`; the prompt body is appended after the remote `exec` line and read as raw stdin.
+- **Large non-Grok prompts:** use `buildSshCommandWithStdin()` to avoid command-line length and nested shell escaping limits.
+- **Large Grok prompts:** write a remote temp prompt file and pass `--prompt-file`, because Grok does not read prompts from stdin.
+- **Small non-Gemini prompts:** may be embedded in the remote command line through `buildSshCommand()` using the agent's `promptArgs`, positional separator, or `noPromptSeparator` behavior.
 
 ---
 

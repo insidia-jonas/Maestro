@@ -139,7 +139,36 @@ export async function wrapSpawnWithSsh(
 	// cd, env vars, exec command, and prompt) via stdin to /bin/bash on the remote.
 	// This matches the approach used by the process:spawn IPC handler.
 	const isGrok = config.agentBinaryName === 'grok' || config.command === 'grok';
+	const isGemini = config.agentBinaryName === 'gemini' || config.command === 'gemini';
 	const isLargePrompt = config.prompt && config.prompt.length > 4000;
+
+	if (config.prompt && isGemini) {
+		// Gemini CLI hangs on long -p argv when spawned through Node. Keep the same
+		// stdin delivery semantics for SSH, including short prompts, because
+		// Gemini's promptArgs are intentionally disabled.
+		logger.info('Using stdin passthrough for Gemini prompt in SSH remote execution', LOG_CONTEXT, {
+			promptLength: config.prompt.length,
+			reason: 'gemini-stdin-prompt',
+		});
+
+		const sshCommand = await buildSshCommandWithStdin(sshResult.config, {
+			command: remoteCommand,
+			args: [...config.args],
+			cwd: config.cwd,
+			env: config.customEnvVars,
+			stdinInput: config.prompt,
+		});
+
+		return {
+			command: sshCommand.command,
+			args: sshCommand.args,
+			cwd: os.homedir(),
+			customEnvVars: undefined,
+			prompt: undefined,
+			sshStdinScript: sshCommand.stdinScript,
+			sshRemoteUsed: sshResult.config,
+		};
+	}
 
 	if (config.prompt && isLargePrompt && isGrok) {
 		// grok reads its prompt from -p or --prompt-file, never from stdin.

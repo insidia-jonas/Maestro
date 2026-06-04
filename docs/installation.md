@@ -21,7 +21,7 @@ Download the latest release for your platform from the [Releases](https://github
   - [OpenCode](https://github.com/sst/opencode) — Open-source AI coding assistant (fully integrated)
   - [Factory Droid](https://docs.factory.ai/cli) — Factory's AI coding assistant (fully integrated)
   - [Copilot-CLI](https://docs.github.com/copilot/how-tos/copilot-cli) — GitHub's terminal coding agent (beta integration, multi-model via [models.dev](https://models.dev))
-  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) — Planned support
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) — Google's terminal coding agent (beta integration)
 - Git (optional, for git-aware features)
 
 <Note>

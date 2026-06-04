@@ -797,4 +797,46 @@ describe('ChildProcessSpawner', () => {
 			expect(spawnArgs).toContain('/tmp/maestro-image-0.png');
 		});
 	});
+
+	describe('gemini-cli raw stdin prompt delivery', () => {
+		it('sends prompt via raw stdin when toolType is gemini-cli', () => {
+			const { spawner } = createTestContext();
+
+			spawner.spawn(
+				createBaseConfig({
+					toolType: 'gemini-cli',
+					command: 'gemini',
+					args: ['--output-format', 'stream-json', '--skip-trust', '-y', '-p', ''],
+					prompt: 'Explain the architecture of this project',
+				})
+			);
+
+			const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+			// batchModeArgs include `-p ""` placeholder — prompt must NOT be in CLI args
+			expect(spawnArgs).toContain('-p');
+			expect(spawnArgs).not.toContain('Explain the architecture of this project');
+			// Prompt delivered via raw stdin write + end
+			expect(mockChildProcess.stdin.write).toHaveBeenCalledWith(
+				'Explain the architecture of this project'
+			);
+			expect(mockChildProcess.stdin.end).toHaveBeenCalled();
+			// Must NOT use stream-json stdin path
+			expect(buildStreamJsonMessage).not.toHaveBeenCalled();
+		});
+
+		it('does not write to stdin when gemini-cli has no prompt', () => {
+			const { spawner } = createTestContext();
+
+			spawner.spawn(
+				createBaseConfig({
+					toolType: 'gemini-cli',
+					command: 'gemini',
+					args: ['--output-format', 'stream-json', '--skip-trust', '-y', '-p', ''],
+				})
+			);
+
+			// No prompt → forceRawPromptViaStdin is false → no raw stdin write
+			expect(mockChildProcess.stdin.write).not.toHaveBeenCalled();
+		});
+	});
 });

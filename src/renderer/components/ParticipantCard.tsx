@@ -28,6 +28,7 @@ interface ParticipantCardProps {
 	theme: Theme;
 	participant: GroupChatParticipant;
 	state: SessionState;
+	timedOut?: boolean;
 	color?: string;
 	groupChatId?: string;
 	onContextReset?: (participantName: string) => void;
@@ -50,6 +51,7 @@ export function ParticipantCard({
 	theme,
 	participant,
 	state,
+	timedOut,
 	color,
 	groupChatId,
 	onContextReset,
@@ -94,6 +96,7 @@ export function ParticipantCard({
 	const shouldPulse = state === 'busy' || state === 'connecting';
 
 	const getStatusLabel = (): string => {
+		if (timedOut) return 'Timed out';
 		switch (state) {
 			case 'busy':
 				return 'Working';

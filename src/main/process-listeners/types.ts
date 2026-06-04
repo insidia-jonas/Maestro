@@ -109,6 +109,8 @@ export interface ProcessListenerDependencies {
 		) => Promise<void>;
 		clearActiveParticipantTaskSession: (groupChatId: string, participantName: string) => void;
 		clearModeratorResponseTimeout: (groupChatId: string) => void;
+		isParticipantTimedOut: (sessionId: string) => boolean;
+		clearTimedOutParticipant: (sessionId: string) => void;
 		checkAndTrackParticipantResponse: (
 			groupChatId: string,
 			participantName: string,

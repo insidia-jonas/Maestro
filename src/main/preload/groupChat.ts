@@ -214,13 +214,17 @@ export function createGroupChatApi() {
 		},
 
 		onParticipantState: (
-			callback: (groupChatId: string, participantName: string, state: 'idle' | 'working') => void
+			callback: (
+				groupChatId: string,
+				participantName: string,
+				state: 'idle' | 'working' | 'timed-out'
+			) => void
 		) => {
 			const handler = (
 				_: any,
 				groupChatId: string,
 				participantName: string,
-				state: 'idle' | 'working'
+				state: 'idle' | 'working' | 'timed-out'
 			) => callback(groupChatId, participantName, state);
 			ipcRenderer.on('groupChat:participantState', handler);
 			return () => ipcRenderer.removeListener('groupChat:participantState', handler);

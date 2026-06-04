@@ -38,12 +38,12 @@ export interface GroupChatStoreState {
 	// Active chat state
 	groupChatMessages: GroupChatMessage[];
 	groupChatState: GroupChatState;
-	participantStates: Map<string, 'idle' | 'working'>;
+	participantStates: Map<string, 'idle' | 'working' | 'timed-out'>;
 	moderatorUsage: { contextUsage: number; totalCost: number; tokenCount: number } | null;
 
 	// All-chats tracking (for sidebar busy indicators when chat is not active)
 	groupChatStates: Map<string, GroupChatState>;
-	allGroupChatParticipantStates: Map<string, Map<string, 'idle' | 'working'>>;
+	allGroupChatParticipantStates: Map<string, Map<string, 'idle' | 'working' | 'timed-out'>>;
 
 	// Execution
 	groupChatExecutionQueue: QueuedItem[];
@@ -73,8 +73,10 @@ export interface GroupChatStoreActions {
 	setGroupChatState: (v: GroupChatState | ((prev: GroupChatState) => GroupChatState)) => void;
 	setParticipantStates: (
 		v:
-			| Map<string, 'idle' | 'working'>
-			| ((prev: Map<string, 'idle' | 'working'>) => Map<string, 'idle' | 'working'>)
+			| Map<string, 'idle' | 'working' | 'timed-out'>
+			| ((
+					prev: Map<string, 'idle' | 'working' | 'timed-out'>
+			  ) => Map<string, 'idle' | 'working' | 'timed-out'>)
 	) => void;
 	setModeratorUsage: (
 		v:
@@ -93,10 +95,10 @@ export interface GroupChatStoreActions {
 	) => void;
 	setAllGroupChatParticipantStates: (
 		v:
-			| Map<string, Map<string, 'idle' | 'working'>>
+			| Map<string, Map<string, 'idle' | 'working' | 'timed-out'>>
 			| ((
-					prev: Map<string, Map<string, 'idle' | 'working'>>
-			  ) => Map<string, Map<string, 'idle' | 'working'>>)
+					prev: Map<string, Map<string, 'idle' | 'working' | 'timed-out'>>
+			  ) => Map<string, Map<string, 'idle' | 'working' | 'timed-out'>>)
 	) => void;
 
 	// Execution

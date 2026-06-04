@@ -168,11 +168,11 @@ interface GroupChatListProps {
 	/** Current state of the active group chat (for status indicator) */
 	groupChatState?: GroupChatState;
 	/** Per-participant working states for the active group chat */
-	participantStates?: Map<string, 'idle' | 'working'>;
+	participantStates?: Map<string, 'idle' | 'working' | 'timed-out'>;
 	/** State for ALL group chats (groupChatId -> state), for showing busy indicator when not active */
 	groupChatStates?: Map<string, GroupChatState>;
 	/** Participant states for ALL group chats (groupChatId -> Map<participantName, state>) */
-	allGroupChatParticipantStates?: Map<string, Map<string, 'idle' | 'working'>>;
+	allGroupChatParticipantStates?: Map<string, Map<string, 'idle' | 'working' | 'timed-out'>>;
 	/** When true, only show group chats that are busy (moderator/participant working) or the active chat */
 	showUnreadAgentsOnly?: boolean;
 }
