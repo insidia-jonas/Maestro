@@ -1,0 +1,1016 @@
+From 5b240ae1d80066d125911b4d8878875ee4b06954 Mon Sep 17 00:00:00 2001
+From: "Jonas (via Claude)" <jonas@insidia.de>
+Date: Fri, 29 May 2026 10:36:30 +0000
+Subject: [PATCH 2/2] fix(grok-build): calibrate parser + definition against
+ real CLI output
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Phase 2: verified all flags against `grok --help` and the streaming-json
+event schema against real `grok -p` samples. Several Phase-1 assumptions
+were wrong and are corrected here.
+
+Parser schema corrections (verified):
+- Text/thought content is in the 'data' field (not delta/content/text)
+- Events are: thought (reasoning), text, end (terminal) — NO init event
+- sessionId is camelCase and arrives only in the terminal 'end' event
+- NO usage/token data in streaming-json — supportsUsageStats now false
+- Tool calls surface as stderr trace logs, not structured JSON events
+
+Definition corrections (verified against grok --help):
+- Added workingDirArgs: --cwd <CWD>
+- Confirmed: -p/--single, -r/--resume, -m/--model, --permission-mode,
+  --sandbox, --output-format, --effort
+- Added reasoningEffort config option (--effort low|medium|high|xhigh|max)
+- Removed resolved TODO markers
+
+Capabilities corrections:
+- supportsUsageStats: true -> false (no token data in stream)
+- Documented that --rules/--system-prompt-override exist but Maestro's
+  prompt delivery is hardcoded to --append-system-prompt (embed-in-prompt
+  path used instead)
+
+Validated parser end-to-end against both real sample files:
+- hello: 57 reasoning deltas, answer assembled, sessionId extracted
+- tooluse: stderr trace line correctly handled as non-JSON
+
+Docs updated: assumption table now shows verified results + 5 open
+Critic-review findings (F1-F5).
+---
+ docs/GROK-BUILD-INTEGRATION.md                | 102 +++++--
+ .../parsers/grok-build-output-parser.test.ts  | 263 +++++++-----------
+ src/main/agents/capabilities.ts               |  65 ++---
+ src/main/agents/definitions.ts                |  53 +++-
+ src/main/parsers/grok-build-output-parser.ts  | 229 ++++-----------
+ 5 files changed, 307 insertions(+), 405 deletions(-)
+
+diff --git a/docs/GROK-BUILD-INTEGRATION.md b/docs/GROK-BUILD-INTEGRATION.md
+index cc2cb18..9f7998e 100644
+--- a/docs/GROK-BUILD-INTEGRATION.md
++++ b/docs/GROK-BUILD-INTEGRATION.md
+@@ -1,10 +1,15 @@
+ # Grok Build Agent Integration — Implementierungsdokumentation
+ 
+-**Datum:** 2026-05-27
++**Datum:** 2026-05-27 (Phase 1), 2026-05-29 (Phase 2 Kalibrierung)
+ **Branch:** `feat/grok-build-agent`
+ **Basis:** `rc` (Fork von RunMaestro/Maestro)
+ **Commit:** `feat: add Grok Build agent support (xAI CLI)`
+-**Status:** Phase 1 abgeschlossen — Scaffolding + Stub-Parser, CI-Gate grün
++**Status:** Phase 2 abgeschlossen — Parser + Definition gegen echten
++`grok --help` und echte `streaming-json`-Samples kalibriert. CI-Gate grün.
++
++> **Phase-2-Update (2026-05-29):** Definition-Flags und Parser-Event-Schema
++> wurden gegen echten Grok-Build-Output verifiziert. Mehrere Annahmen aus
++> Phase 1 waren falsch und wurden korrigiert — siehe Abschnitt 6a.
+ 
+ ---
+ 
+@@ -373,27 +378,78 @@ möglicherweise ein anderes tsconfig.
+ 
+ ---
+ 
+-## 6. Offene Annahmen — Verifizierung in Phase 2
+-
+-Jede Annahme ist im Code mit `// TODO: verify` markiert.
+-`grep -rn "TODO" src/main/parsers/grok-build-output-parser.ts src/main/agents/definitions.ts`
+-listet alle auf.
+-
+-| #   | Annahme                                    | Verifizierungs-Kommando             | Auswirkung bei Abweichung              |
+-| --- | ------------------------------------------ | ----------------------------------- | -------------------------------------- |
+-| A1  | Resume-Flag ist `--resume <id>`            | `grok --help \| grep -i resume`     | Änderung in `resumeArgs`               |
+-| A2  | Session-ID-Feld heißt `session_id`         | Streaming-JSON-Sample prüfen        | Änderung im Parser `extractSessionId`  |
+-| A3  | Event-Typ `session_start` für Init         | Streaming-JSON-Sample prüfen        | Konstante `EV_INIT` ändern             |
+-| A4  | Event-Typ `content_delta` für Text         | Streaming-JSON-Sample prüfen        | Konstante `EV_TEXT_DELTA` ändern       |
+-| A5  | Event-Typ `tool_use` für Tools             | Streaming-JSON-Sample prüfen        | Konstante `EV_TOOL_USE` ändern         |
+-| A6  | Event-Typ `turn_complete` für Result       | Streaming-JSON-Sample prüfen        | Konstante `EV_RESULT` ändern           |
+-| A7  | `--permission-mode plan` existiert         | `grok --help \| grep -i permission` | Änderung `readOnlyArgs`                |
+-| A8  | `--sandbox workspace` existiert            | `grok --help \| grep -i sandbox`    | Änderung `configOption sandboxProfile` |
+-| A9  | `--model <id>` existiert                   | `grok --help \| grep -i model`      | Änderung `modelArgs`                   |
+-| A10 | Kein `workingDirArgs`-Flag nötig           | `grok --help \| grep -i directory`  | Ggf. `workingDirArgs` hinzufügen       |
+-| A11 | Error-Pattern-Strings matchen echte Fehler | Echte Fehler provozieren            | Patterns anpassen                      |
+-
+----
++## 6. Verifizierungs-Status (Phase 2 abgeschlossen)
++
++Alle Phase-1-Annahmen wurden gegen echten `grok --help` und echte
++`grok -p "..." --output-format streaming-json`-Samples geprüft.
++
++| #   | Phase-1-Annahme                        | Ergebnis     | Korrektur                                                       |
++| --- | -------------------------------------- | ------------ | --------------------------------------------------------------- |
++| A1  | Resume-Flag `--resume <id>`            | ✅ BESTÄTIGT | `-r, --resume [<SESSION_ID>]`                                   |
++| A2  | Session-ID-Feld `session_id`           | ❌ FALSCH    | Heißt `sessionId` (camelCase), nur im `end`-Event               |
++| A3  | Init-Event `session_start`             | ❌ FALSCH    | **Es gibt kein Init-Event**                                     |
++| A4  | Text-Event `content_delta`, Feld delta | ❌ FALSCH    | Event `text`, Feld `data`                                       |
++| A5  | Tool-Event `tool_use` als JSON         | ❌ FALSCH    | **Tool-Calls sind stderr-Trace-Logs, kein JSON**                |
++| A6  | Result-Event `turn_complete`           | ❌ FALSCH    | Event `end` mit `stopReason`/`sessionId`, kein Text/Usage       |
++| A7  | `--permission-mode plan`               | ✅ BESTÄTIGT | Werte: default/acceptEdits/auto/dontAsk/bypassPermissions/plan  |
++| A8  | `--sandbox <profile>`                  | ✅ TEILWEISE | Flag existiert (env GROK_SANDBOX); Profilwerte nicht enumeriert |
++| A9  | `--model <id>`                         | ✅ BESTÄTIGT | `-m, --model <MODEL>`                                           |
++| A10 | Kein workingDir-Flag                   | ❌ FALSCH    | `--cwd <CWD>` existiert -> als `workingDirArgs` ergänzt         |
++| A11 | Error-Patterns matchen                 | ⚠️ OFFEN     | Tool-Fehler als stderr-Trace; Patterns plausibel, 1 Beispiel    |
++
++### 6a. Phase-2-Findings (für Critic-Review zentral)
++
++**F1 — Keine Usage/Token-Daten im streaming-json-Output.**
++Das reale Output enthält keinerlei Token- oder Cost-Felder. `end` hat nur
++`stopReason`, `sessionId`, `requestId`. Konsequenz: `supportsUsageStats=false`,
++`supportsCostTracking=false`. -> **Critic-Frage:** Soll Usage über `grok trace`
++oder `--output-format json` nachgerüstet werden (separater Parser-Pfad)?
++Aktuell: kein Token-Tracking für Grok.
++
++**F2 — sessionId kommt erst am Turn-Ende.**
++Anders als Claude Code (Init-Event mit session_id) liefert Grok die sessionId
++nur im terminalen `end`-Event. Maestro speichert sie für `--resume` nach
++Turn-Abschluss. -> **Critic-Frage:** Erwartet ein Maestro-Flow die sessionId
++früher (z.B. zum Tab-Setup)? Validierung an echten Samples: Extraktion
++funktioniert.
++
++**F3 — Tool-Calls sind nicht im JSON-Stream.**
++Tool-Ausführungen (z.B. `read_file`) erscheinen als ANSI-gefärbte
++stderr-Tracing-Logs, nicht als strukturierte Events. Der Parser surface sie
++über den Non-JSON-Fallback als Text; Error-Erkennung scannt sie. Konsequenz:
++Maestros Tool-Call-UI bekommt für Grok **keine strukturierten tool_use-Events**.
++-> **Critic-Frage:** Akzeptabel, oder soll der Parser die stderr-Trace-Zeilen
++(`tool_name="..."`) regex-parsen, um tool_use-Events zu rekonstruieren? Fragil.
++
++**F4 — System-Prompt: `--rules` / `--system-prompt-override` existieren.**
++Grok hat Append (`--rules`) und Override (`--system-prompt-override`,
++= Claude `--system-prompt`). Maestros Prompt-Delivery in `process.ts` ist aber
++hart auf Claude Codes `--append-system-prompt` verdrahtet. Da
++`supportsAppendSystemPrompt=false`, bettet Maestro den System-Prompt in den
++ersten User-Turn ein (funktioniert). -> **Critic-Frage:** Lohnt es,
++`process.ts` für per-Agent-Append-Flag-Mapping zu erweitern, damit Grok nativ
++`--rules` nutzt? Würde Maestro-Kerncode anfassen. **Relevanz hoch** wegen
++Moderator-Use-Case (Moderator-MD als System-Prompt).
++
++**F5 — `stopReason`-Werte.**
++Beobachtet: `EndTurn` (normal), `Cancelled` (Abbruch nach tool_error). Aktuell
++nur in `raw` durchgereicht. -> **Critic-Frage:** Soll `Cancelled` als
++Fehler/Warnung behandelt werden statt als normales Turn-Ende?
++
++### 6b. Real-Output-Validierung
++
++Beide Sample-Dateien wurden end-to-end durch die Parser-Logik geprüft:
++
++| Sample  | Reasoning-Deltas | Antwort zusammengesetzt               | sessionId | stderr-Zeilen            |
++| ------- | ---------------- | ------------------------------------- | --------- | ------------------------ |
++| hello   | 57               | „Hey LO, my love. ENI's here…" ✅     | ✅        | 0                        |
++| tooluse | 76               | leer (Turn `Cancelled` n. tool_error) | ✅        | 1 (korrekt als Non-JSON) |
++
++Verbleibende echte Unbekannte (niedrige Priorität):
++
++- A8: exakte Sandbox-Profilwerte (`grok inspect` prüfen)
++- A11: vollständige Abdeckung echter Fehlermeldungen (nur 1 Beispiel)
++- supportsImageInput: nicht getestet (`grok -p "..." -i img` probieren)
+ 
+ ## 7. Upstream-Kompatibilität
+ 
+diff --git a/src/__tests__/main/parsers/grok-build-output-parser.test.ts b/src/__tests__/main/parsers/grok-build-output-parser.test.ts
+index f96313c..5c8aa35 100644
+--- a/src/__tests__/main/parsers/grok-build-output-parser.test.ts
++++ b/src/__tests__/main/parsers/grok-build-output-parser.test.ts
+@@ -1,13 +1,11 @@
+ /**
+  * Unit tests for GrokBuildOutputParser
+  *
+- * ⚠️  SCHEMA NOTE: Event type constants in the parser (EV_INIT, EV_TEXT_DELTA, etc.)
+- * are best-effort guesses pending a real `grok -p "..." --output-format streaming-json` run.
+- * If tests fail after you obtain a real sample, update the constants in
+- * `src/main/parsers/grok-build-output-parser.ts` — all tests should then pass.
+- *
+- * To get a real sample:
+- *   grok -p "say hello" --output-format streaming-json 2>&1 | head -50
++ * Tests are written against the VERIFIED Grok Build streaming-json schema
++ * (real `grok -p "..." --output-format streaming-json` output, beta May 2026):
++ *   {"type":"thought","data":"<token>"}
++ *   {"type":"text","data":"<token>"}
++ *   {"type":"end","stopReason":"EndTurn","sessionId":"<uuid>","requestId":"<uuid>"}
+  */
+ 
+ import { describe, it, expect, beforeEach } from 'vitest';
+@@ -34,202 +32,96 @@ describe('GrokBuildOutputParser', () => {
+ 		expect(parser.parseJsonLine('   ')).toBeNull();
+ 	});
+ 
+-	it('returns raw text event for non-JSON line', () => {
+-		const event = parser.parseJsonLine('Grok Build v1.0.0 starting...');
++	it('returns raw text event for non-JSON line (stderr trace merged via 2>&1)', () => {
++		const event = parser.parseJsonLine('Grok Build starting...');
+ 		expect(event).not.toBeNull();
+ 		expect(event?.type).toBe('text');
+-		expect(event?.text).toBe('Grok Build v1.0.0 starting...');
++		expect(event?.text).toBe('Grok Build starting...');
+ 	});
+ 
+ 	it('returns null for JSON without type field', () => {
+-		const event = parser.parseJsonLine('{"session_id": "abc", "model": "grok-4.3"}');
++		const event = parser.parseJsonLine('{"data": "orphan", "foo": "bar"}');
+ 		expect(event).toBeNull();
+ 	});
+ 
+-	// ---- Init / session_start ----
+-
+-	it('parses session_start (init) event and extracts session ID', () => {
+-		const line = JSON.stringify({
+-			type: 'session_start',
+-			session_id: 'grok-sess-001',
+-			model: 'grok-4.3',
+-		});
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('init');
+-		expect(event?.sessionId).toBe('grok-sess-001');
+-	});
+-
+-	it('handles init event without session_id gracefully', () => {
+-		const line = JSON.stringify({ type: 'session_start', model: 'grok-4.3' });
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('init');
+-		expect(event?.sessionId).toBeUndefined();
+-	});
+-
+-	// ---- Text delta ----
++	// ---- Text delta (type: "text", field: "data") ----
+ 
+-	it('parses content_delta event with delta field', () => {
+-		const line = JSON.stringify({
+-			type: 'content_delta',
+-			session_id: 'sess-1',
+-			delta: 'Hello, world!',
+-		});
++	it('parses text delta event', () => {
++		const line = JSON.stringify({ type: 'text', data: 'Hello' });
+ 		const event = parser.parseJsonLine(line);
+ 		expect(event?.type).toBe('text');
+-		expect(event?.text).toBe('Hello, world!');
+-		expect(event?.sessionId).toBe('sess-1');
++		expect(event?.text).toBe('Hello');
+ 		expect(event?.isPartial).toBe(true);
++		expect(event?.isReasoning).toBeFalsy();
+ 	});
+ 
+-	it('parses content_delta event with content field (fallback)', () => {
+-		const line = JSON.stringify({
+-			type: 'content_delta',
+-			content: 'Hello via content field',
++	it('accumulates multiple text deltas (each parsed independently)', () => {
++		const tokens = ['Hey', ' there', '!'];
++		const texts = tokens.map((t) => {
++			const ev = parser.parseJsonLine(JSON.stringify({ type: 'text', data: t }));
++			return ev?.text;
+ 		});
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('text');
+-		expect(event?.text).toBe('Hello via content field');
++		expect(texts).toEqual(['Hey', ' there', '!']);
+ 	});
+ 
+-	it('parses content_delta event with text field (fallback)', () => {
+-		const line = JSON.stringify({
+-			type: 'content_delta',
+-			text: 'Hello via text field',
+-		});
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('text');
+-		expect(event?.text).toBe('Hello via text field');
++	it('returns null for text event with empty data', () => {
++		const line = JSON.stringify({ type: 'text', data: '' });
++		expect(parser.parseJsonLine(line)).toBeNull();
+ 	});
+ 
+-	it('returns null for content_delta with no text content', () => {
+-		const line = JSON.stringify({ type: 'content_delta', session_id: 'x' });
++	it('returns null for text event with missing data field', () => {
++		const line = JSON.stringify({ type: 'text' });
+ 		expect(parser.parseJsonLine(line)).toBeNull();
+ 	});
+ 
+-	// ---- Thinking / reasoning (Grok 4 Heavy) ----
++	// ---- Thought / reasoning delta (type: "thought", field: "data") ----
+ 
+-	it('parses thinking_delta as partial text event', () => {
+-		const line = JSON.stringify({
+-			type: 'thinking_delta',
+-			session_id: 'sess-1',
+-			delta: 'Let me think about this...',
+-		});
++	it('parses thought delta as reasoning text', () => {
++		const line = JSON.stringify({ type: 'thought', data: 'The user said hello.' });
+ 		const event = parser.parseJsonLine(line);
+ 		expect(event?.type).toBe('text');
+-		expect(event?.text).toBe('Let me think about this...');
++		expect(event?.text).toBe('The user said hello.');
+ 		expect(event?.isPartial).toBe(true);
++		expect(event?.isReasoning).toBe(true);
+ 	});
+ 
+-	// ---- Tool use ----
+-
+-	it('parses tool_use event with tool field', () => {
+-		const line = JSON.stringify({
+-			type: 'tool_use',
+-			session_id: 'sess-1',
+-			tool: 'bash',
+-			id: 'call-123',
+-			input: { command: 'ls -la' },
+-			state: 'running',
+-		});
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('tool_use');
+-		expect(event?.toolName).toBe('bash');
+-		expect(event?.sessionId).toBe('sess-1');
+-	});
+-
+-	it('parses tool_use event with name field (fallback)', () => {
+-		const line = JSON.stringify({
+-			type: 'tool_use',
+-			name: 'read_file',
+-			state: 'complete',
+-		});
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('tool_use');
+-		expect(event?.toolName).toBe('read_file');
+-	});
+-
+-	it('falls back to unknown_tool for tool_use without name', () => {
+-		const line = JSON.stringify({ type: 'tool_use', state: 'running' });
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('tool_use');
+-		expect(event?.toolName).toBe('unknown_tool');
+-	});
+-
+-	// ---- Tool result ----
+-
+-	it('parses tool_result as system event', () => {
+-		const line = JSON.stringify({
+-			type: 'tool_result',
+-			id: 'call-123',
+-			output: 'file.ts\nindex.ts',
+-		});
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('system');
++	it('returns null for thought event with empty data', () => {
++		const line = JSON.stringify({ type: 'thought', data: '' });
++		expect(parser.parseJsonLine(line)).toBeNull();
+ 	});
+ 
+-	// ---- Final result ----
++	// ---- Terminal end event (type: "end", sessionId camelCase) ----
+ 
+-	it('parses turn_complete event as result with usage', () => {
++	it('parses end event as result and extracts sessionId', () => {
+ 		const line = JSON.stringify({
+-			type: 'turn_complete',
+-			session_id: 'sess-1',
+-			result: 'Done! I have completed the task.',
+-			usage: {
+-				input_tokens: 1500,
+-				output_tokens: 300,
+-				reasoning_tokens: 100,
+-				cost_usd: 0.0042,
+-			},
++			type: 'end',
++			stopReason: 'EndTurn',
++			sessionId: '019e7344-988f-7e20-abb0-d3d2d598151a',
++			requestId: 'b72270ab-a640-44ce-a4a9-7970df260363',
+ 		});
+ 		const event = parser.parseJsonLine(line);
+ 		expect(event?.type).toBe('result');
+-		expect(event?.text).toBe('Done! I have completed the task.');
+-		expect(event?.sessionId).toBe('sess-1');
+-		expect(event?.usage?.inputTokens).toBe(1500);
+-		expect(event?.usage?.outputTokens).toBe(300);
+-		expect(event?.usage?.reasoningTokens).toBe(100);
+-		expect(event?.usage?.costUsd).toBe(0.0042);
++		expect(event?.sessionId).toBe('019e7344-988f-7e20-abb0-d3d2d598151a');
++		expect(event?.text).toBe(''); // text was streamed via deltas, not in end event
+ 	});
+ 
+-	it('parses turn_complete with top-level token fields (no usage block)', () => {
++	it('parses end event with Cancelled stopReason', () => {
+ 		const line = JSON.stringify({
+-			type: 'turn_complete',
+-			session_id: 'sess-1',
+-			text: 'Result text',
+-			input_tokens: 800,
+-			output_tokens: 120,
++			type: 'end',
++			stopReason: 'Cancelled',
++			sessionId: '019e7344-d5b5-7633-afa9-8efac1dddbb8',
++			requestId: 'b589c9ce-469a-4686-8929-3bddad260e95',
+ 		});
+ 		const event = parser.parseJsonLine(line);
+ 		expect(event?.type).toBe('result');
+-		expect(event?.text).toBe('Result text');
+-		expect(event?.usage?.inputTokens).toBe(800);
+-		expect(event?.usage?.outputTokens).toBe(120);
++		expect(event?.sessionId).toBe('019e7344-d5b5-7633-afa9-8efac1dddbb8');
+ 	});
+ 
+-	it('handles turn_complete with empty result text gracefully', () => {
+-		const line = JSON.stringify({
+-			type: 'turn_complete',
+-			usage: { input_tokens: 100, output_tokens: 10 },
+-		});
++	it('handles end event without sessionId gracefully', () => {
++		const line = JSON.stringify({ type: 'end', stopReason: 'EndTurn' });
+ 		const event = parser.parseJsonLine(line);
+ 		expect(event?.type).toBe('result');
+-		expect(event?.text).toBe('');
+-	});
+-
+-	// ---- Standalone usage event ----
+-
+-	it('parses standalone usage event', () => {
+-		const line = JSON.stringify({
+-			type: 'usage',
+-			input_tokens: 500,
+-			output_tokens: 80,
+-			reasoning_tokens: 30,
+-		});
+-		const event = parser.parseJsonLine(line);
+-		expect(event?.type).toBe('usage');
+-		expect(event?.usage?.inputTokens).toBe(500);
+-		expect(event?.usage?.outputTokens).toBe(80);
+-		expect(event?.usage?.reasoningTokens).toBe(30);
++		expect(event?.sessionId).toBeUndefined();
+ 	});
+ 
+ 	// ---- Unknown event type ----
+@@ -242,8 +134,8 @@ describe('GrokBuildOutputParser', () => {
+ 
+ 	// ---- isResultMessage ----
+ 
+-	it('identifies result events correctly', () => {
+-		const resultEvent: ParsedEvent = { type: 'result', text: 'done' };
++	it('identifies result (end) events correctly', () => {
++		const resultEvent: ParsedEvent = { type: 'result', text: '' };
+ 		const textEvent: ParsedEvent = { type: 'text', text: 'partial' };
+ 		expect(parser.isResultMessage(resultEvent)).toBe(true);
+ 		expect(parser.isResultMessage(textEvent)).toBe(false);
+@@ -251,9 +143,12 @@ describe('GrokBuildOutputParser', () => {
+ 
+ 	// ---- extractSessionId ----
+ 
+-	it('extracts session ID from parsed event', () => {
+-		const event: ParsedEvent = { type: 'init', sessionId: 'sess-42' };
+-		expect(parser.extractSessionId(event)).toBe('sess-42');
++	it('extracts session ID from result event', () => {
++		const event: ParsedEvent = {
++			type: 'result',
++			sessionId: '019e7344-988f-7e20-abb0-d3d2d598151a',
++		};
++		expect(parser.extractSessionId(event)).toBe('019e7344-988f-7e20-abb0-d3d2d598151a');
+ 	});
+ 
+ 	it('returns null when no session ID', () => {
+@@ -261,12 +156,13 @@ describe('GrokBuildOutputParser', () => {
+ 		expect(parser.extractSessionId(event)).toBeNull();
+ 	});
+ 
+-	// ---- Error detection ----
++	// ---- Error detection (stderr trace lines, non-JSON) ----
+ 
+ 	it('detects auth expired error', () => {
+ 		const error = parser.detectErrorFromLine('Error: authentication failed for user');
+ 		expect(error?.type).toBe('auth_expired');
+ 		expect(error?.recoverable).toBe(true);
++		expect(error?.agentId).toBe('grok-build');
+ 	});
+ 
+ 	it('detects invalid API key error', () => {
+@@ -301,12 +197,45 @@ describe('GrokBuildOutputParser', () => {
+ 		expect(parser.detectErrorFromLine('Writing output...')).toBeNull();
+ 	});
+ 
++	// ---- detectErrorFromParsed ----
++
++	it('detects error from parsed object via data field', () => {
++		const error = parser.detectErrorFromParsed({ type: 'text', data: 'rate limit exceeded' });
++		expect(error?.type).toBe('rate_limited');
++	});
++
+ 	// ---- raw field preservation ----
+ 
+ 	it('preserves raw field for debugging', () => {
+-		const raw = { type: 'content_delta', delta: 'hi', session_id: 'x' };
+-		const line = JSON.stringify(raw);
+-		const event = parser.parseJsonLine(line);
++		const raw = { type: 'text', data: 'hi' };
++		const event = parser.parseJsonLine(JSON.stringify(raw));
+ 		expect(event?.raw).toEqual(raw);
+ 	});
++
++	// ---- Integration: realistic event stream ----
++
++	it('parses a realistic hello-world event sequence', () => {
++		const stream = [
++			{ type: 'thought', data: 'The user' },
++			{ type: 'thought', data: ' said hello.' },
++			{ type: 'text', data: 'Hey' },
++			{ type: 'text', data: ' there.' },
++			{ type: 'end', stopReason: 'EndTurn', sessionId: 'sess-xyz', requestId: 'req-1' },
++		];
++		const events = stream.map((e) => parser.parseJsonLine(JSON.stringify(e)));
++
++		// 2 reasoning + 2 text + 1 result
++		const reasoning = events.filter((e) => e?.isReasoning);
++		const text = events.filter((e) => e?.type === 'text' && !e?.isReasoning);
++		const result = events.filter((e) => e?.type === 'result');
++
++		expect(reasoning).toHaveLength(2);
++		expect(text).toHaveLength(2);
++		expect(result).toHaveLength(1);
++		expect(result[0]?.sessionId).toBe('sess-xyz');
++
++		// Final answer text (excluding reasoning) accumulates to "Hey there."
++		const answer = text.map((e) => e?.text).join('');
++		expect(answer).toBe('Hey there.');
++	});
+ });
+diff --git a/src/main/agents/capabilities.ts b/src/main/agents/capabilities.ts
+index 27a4589..5a17253 100644
+--- a/src/main/agents/capabilities.ts
++++ b/src/main/agents/capabilities.ts
+@@ -307,39 +307,42 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
+ 	 * Grok Build — xAI official agentic coding CLI (Beta, May 2026)
+ 	 * https://x.ai/news/grok-build-cli
+ 	 *
+-	 * Capabilities are based on documented Grok Build features.
+-	 * TODO: Review after first real streaming-json sample run:
+-	 *   - supportsSessionId: verify session_id field name in init event
+-	 *   - supportsCostTracking: enable once cost field confirmed in output
+-	 *   - supportsImageInput: test with `grok -p "..." -i /path/to/img`
+-	 *   - supportsSessionStorage: implement if ~/.grok/sessions/ is browsable
++	 * Capabilities VERIFIED against real `grok -p "..." --output-format streaming-json`
++	 * output + `grok --help` (May 2026).
++	 *
++	 * Known limitations confirmed from real output:
++	 *   - streaming-json emits NO usage/token data → supportsUsageStats=false,
++	 *     supportsCostTracking=false. (Token counts may be available via the
++	 *     `trace` subcommand or `--output-format json`; not wired here.)
++	 *   - sessionId arrives only in the terminal `end` event, not at start.
++	 *   - tool calls surface as stderr trace logs, not structured JSON events.
+ 	 */
+ 	'grok-build': {
+-		supportsResume: true, // --resume <session-id> (flag TBD — see definitions.ts TODO)
+-		supportsReadOnlyMode: true, // --permission-mode plan
+-		supportsJsonOutput: true, // --output-format streaming-json
+-		supportsSessionId: true, // Session ID emitted in init event
+-		supportsImageInput: false, // Unknown — conservative default; enable after testing
+-		supportsImageInputOnResume: false, // Unknown — enable if image-on-resume confirmed
+-		supportsSlashCommands: false, // Not applicable in batch mode
+-		supportsStreamJsonInput: false, // Does not use --input-format stream-json stdin path
+-		supportsSessionStorage: false, // Defer: implement storage once ~/.grok layout confirmed
+-		supportsCostTracking: false, // TODO: enable once costUsd field confirmed in streaming-json output
+-		supportsUsageStats: true, // Token usage expected in result event (Grok Heavy reports tokens)
+-		supportsBatchMode: true, // -p "prompt" headless mode
+-		requiresPromptToStart: true, // No eager spawn — needs prompt to start
+-		supportsStreaming: true, // Streaming JSONL output
+-		supportsModelSelection: true, // --model <id> flag
+-		supportsResultMessages: true, // Distinct result event at end of turn
+-		supportsThinkingDisplay: true, // Grok 4 Heavy emits reasoning/thinking content
+-		supportsContextMerge: false, // Not implemented
+-		supportsContextExport: false, // Not implemented (no session storage yet)
+-		supportsWizard: false, // Not tested
+-		supportsGroupChatModeration: true, // Can serve as group chat moderator via batch mode
+-		supportsAppendSystemPrompt: false, // No --append-system-prompt equivalent (uses AGENTS.md)
+-		supportsProjectMemory: false, // No project memory mechanism equivalent
+-		usesJsonLineOutput: true, // streaming-json is newline-delimited JSONL
+-		usesCombinedContextWindow: false, // Separate input/output limits
++		supportsResume: true, // verified: -r, --resume [<SESSION_ID>]
++		supportsReadOnlyMode: true, // verified: --permission-mode plan
++		supportsJsonOutput: true, // verified: --output-format streaming-json
++		supportsSessionId: true, // sessionId present in terminal `end` event (camelCase)
++		supportsImageInput: false, // not tested — conservative default
++		supportsImageInputOnResume: false, // not tested
++		supportsSlashCommands: false, // not applicable in batch mode
++		supportsStreamJsonInput: false, // no --input-format stream-json stdin path
++		supportsSessionStorage: false, // deferred — `grok sessions`/`export` exist, implement later
++		supportsCostTracking: false, // verified: no cost field in streaming-json output
++		supportsUsageStats: false, // verified: no token data in streaming-json output
++		supportsBatchMode: true, // verified: -p "prompt" headless mode
++		requiresPromptToStart: true, // no eager spawn — needs prompt to start
++		supportsStreaming: true, // verified: streaming JSONL deltas
++		supportsModelSelection: true, // verified: -m, --model <MODEL>
++		supportsResultMessages: true, // verified: terminal `end` event marks turn completion
++		supportsThinkingDisplay: true, // verified: `thought` events (isReasoning)
++		supportsContextMerge: false, // not implemented
++		supportsContextExport: false, // not implemented (no session storage yet)
++		supportsWizard: false, // not tested
++		supportsGroupChatModeration: true, // can serve as group chat moderator via batch mode
++		supportsAppendSystemPrompt: false, // Grok uses --rules/--system-prompt-override, not --append-system-prompt; embed-in-prompt path used
++		supportsProjectMemory: false, // has --experimental-memory but not wired into Maestro
++		usesJsonLineOutput: true, // verified: streaming-json is newline-delimited JSONL
++		usesCombinedContextWindow: false, // separate input/output limits
+ 	},
+ };
+ 
+diff --git a/src/main/agents/definitions.ts b/src/main/agents/definitions.ts
+index 6fa7916..95ab136 100644
+--- a/src/main/agents/definitions.ts
++++ b/src/main/agents/definitions.ts
+@@ -576,15 +576,29 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
+ 	 * Batch mode: grok -p "prompt" --output-format streaming-json
+ 	 *   [--permission-mode bypassPermissions] [--model <id>] [--resume <session-id>]
+ 	 *
+-	 * NOTE: Session resume flag (--resume / --session / --continue) and working-dir
+-	 * flag must be verified against actual CLI once beta matures.
+-	 * Run: grok --help | grep -i "resume\|session\|continue\|directory"
++	 * All flags verified against `grok --help` (Grok Build beta, May 2026):
++	 *   -p, --single <PROMPT>          single-turn headless prompt
++	 *   -r, --resume [<SESSION_ID>]    resume a session by ID
++	 *   -m, --model <MODEL>            model selection
++	 *       --cwd <CWD>                working directory
++	 *       --permission-mode <MODE>   default|acceptEdits|auto|dontAsk|bypassPermissions|plan
++	 *       --sandbox <PROFILE>        filesystem/network sandbox (env: GROK_SANDBOX)
++	 *       --output-format <FMT>      plain|json|streaming-json
++	 *       --effort <LEVEL>           low|medium|high|xhigh|max
+ 	 *
+-	 * NOTE: Sandbox profile defaults to "workspace" to allow child-process network
+-	 * egress (required for OSINT recon pipelines). Adjust via configOptions.
++	 * Sandbox profile defaults to "workspace" to allow child-process network
++	 * egress (required for OSINT recon pipelines). NOTE: exact profile value
++	 * names are not enumerated in --help; "workspace" assumed — verify via
++	 * `grok inspect`.
+ 	 *
+-	 * Auth: pre-authenticate with `grok auth login` (device-code flow) on each
+-	 * remote host, or set GROK_CODE_XAI_API_KEY env var for unattended SSH agents.
++	 * System prompt: Grok has --system-prompt-override (full) and --rules (append),
++	 * but Maestro's prompt-delivery is hardcoded to Claude Code's --append-system-prompt.
++	 * Since supportsAppendSystemPrompt=false, Maestro embeds the system prompt into
++	 * the first user turn (works correctly). Native --rules wiring is a future
++	 * enhancement (would require per-agent append-flag mapping in process.ts).
++	 *
++	 * Auth: pre-authenticate with `grok login` on each remote host, or set
++	 * GROK_CODE_XAI_API_KEY env var for unattended SSH agents.
+ 	 */
+ 	{
+ 		id: 'grok-build',
+@@ -593,25 +607,26 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
+ 		command: 'grok',
+ 		args: [],
+ 
+-		// Prompt delivery: grok -p "prompt text"
++		// Prompt delivery: grok -p "prompt text"  (verified: -p, --single <PROMPT>)
+ 		promptArgs: (prompt: string) => ['-p', prompt],
+ 		noPromptSeparator: true,
+ 
+-		// JSON streaming output
++		// Working directory (verified: --cwd <CWD>)
++		workingDirArgs: (dir: string) => ['--cwd', dir],
++
++		// JSON streaming output (verified: --output-format streaming-json)
+ 		jsonOutputArgs: ['--output-format', 'streaming-json'],
+ 
+-		// Permission / read-only modes
+-		// TODO: verify --permission-mode flag names with `grok --help`
++		// Permission / read-only modes (verified: --permission-mode plan|bypassPermissions)
+ 		batchModeArgs: ['--permission-mode', 'bypassPermissions'],
+ 		readOnlyArgs: ['--permission-mode', 'plan'],
+ 		readOnlyCliEnforced: true,
+ 		yoloModeArgs: ['--permission-mode', 'bypassPermissions'],
+ 
+-		// Session resume
+-		// TODO: verify resume flag — `grok --resume <id>` is a best-effort guess
++		// Session resume (verified: -r, --resume [<SESSION_ID>])
+ 		resumeArgs: (sessionId: string) => ['--resume', sessionId],
+ 
+-		// Model selection
++		// Model selection (verified: -m, --model <MODEL>)
+ 		modelArgs: (modelId: string) => ['--model', modelId],
+ 
+ 		// Runtime (set by binary detection at startup)
+@@ -656,6 +671,16 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
+ 					return [];
+ 				},
+ 			},
++			{
++				key: 'reasoningEffort',
++				type: 'select',
++				label: 'Reasoning Effort',
++				description:
++					'Reasoning effort for reasoning models (verified: --effort low|medium|high|xhigh|max). Leave empty for model default.',
++				options: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
++				default: '',
++				argBuilder: (value: string) => (value && value.trim() ? ['--effort', value.trim()] : []),
++			},
+ 		],
+ 	},
+ ];
+diff --git a/src/main/parsers/grok-build-output-parser.ts b/src/main/parsers/grok-build-output-parser.ts
+index 47bf27a..344d0bf 100644
+--- a/src/main/parsers/grok-build-output-parser.ts
++++ b/src/main/parsers/grok-build-output-parser.ts
+@@ -2,21 +2,27 @@
+  * Grok Build Output Parser
+  *
+  * Parses --output-format streaming-json output from xAI's Grok Build CLI.
+- * Grok Build outputs JSONL (newline-delimited JSON) with streaming events.
++ * Grok Build outputs JSONL (newline-delimited JSON), one event per line.
+  *
+- * ⚠️  SCHEMA STATUS: Based on documented Grok Build behavior (May 2026 beta).
+- *    Event type names must be verified with a real `grok -p "..." --output-format streaming-json` run.
+- *    Grep TODOs in this file to find fields that need confirmation.
++ * SCHEMA (verified against real `grok -p "..." --output-format streaming-json`
++ * output, Grok Build beta May 2026):
+  *
+- * To verify event types, run:
+- *   grok -p "say hello" --output-format streaming-json 2>&1 | head -50
+- *   grok --help | grep -i "resume\|session\|continue"
++ *   {"type":"thought","data":"<token>"}   -> reasoning/thinking delta (isReasoning)
++ *   {"type":"text","data":"<token>"}      -> assistant text delta
++ *   {"type":"end","stopReason":"EndTurn","sessionId":"<uuid>","requestId":"<uuid>"}
+  *
+- * Known Grok Build streaming-json contract (from xAI docs):
+- *   - Structured events: files modified, commands run, final results
+- *   - Session ID for resume support
+- *   - Token usage statistics (input/output/reasoning)
+- *   - JSONL format (one event per line)
++ * IMPORTANT schema characteristics:
++ *   - Text/thought content is in the `data` field (NOT delta/content/text).
++ *   - There is NO init/session_start event. The sessionId arrives ONLY in the
++ *     terminal `end` event.
++ *   - There is NO usage/token data in streaming-json output. Token counts and
++ *     cost are not available via this output format (supportsUsageStats=false).
++ *   - Tool calls do NOT appear as structured JSON events in stdout. They surface
++ *     as ANSI-colored tracing log lines on stderr (e.g. "tool_error: ..."). When
++ *     stderr is merged (2>&1), those lines hit parseJsonLine and fall through to
++ *     the non-JSON text path; error detection scans them via detectErrorFromLine.
++ *
++ * stopReason values observed: "EndTurn" (normal), "Cancelled" (aborted turn).
+  *
+  * @see https://x.ai/news/grok-build-cli
+  */
+@@ -26,89 +32,32 @@ import type { AgentOutputParser, ParsedEvent } from './agent-output-parser';
+ import { getErrorPatterns, matchErrorPattern } from './error-patterns';
+ 
+ // ---------------------------------------------------------------------------
+-// TODO: Verify these event type constants against real Grok Build output.
+-// Run: grok -p "say hello" --output-format streaming-json 2>&1
+-// If Grok uses a different event name, update only the constant here.
++// Event type constants (verified against real output — see file header).
+ // ---------------------------------------------------------------------------
+ 
+-/** Init / session-start event — emitted once at the start of a turn. */
+-const EV_INIT = 'session_start'; // TODO: verify — may be 'init', 'start', 'message_start'
+-
+-/** Streaming text delta event. */
+-const EV_TEXT_DELTA = 'content_delta'; // TODO: verify — may be 'text', 'assistant', 'text_delta'
+-
+-/** Tool/command execution event. */
+-const EV_TOOL_USE = 'tool_use'; // TODO: verify — may be 'tool_call', 'command', 'action'
+-
+-/** Tool execution result event. */
+-const EV_TOOL_RESULT = 'tool_result'; // TODO: verify — may be 'tool_output', 'command_result'
+-
+-/** Reasoning / thinking delta (Grok 4 Heavy extended thinking). */
+-const EV_THINKING = 'thinking_delta'; // TODO: verify — may be 'reasoning', 'thinking'
++/** Reasoning/thinking token delta. */
++const EV_THOUGHT = 'thought';
+ 
+-/** Final result event — emitted at the end of a turn with usage stats. */
+-const EV_RESULT = 'turn_complete'; // TODO: verify — may be 'result', 'done', 'message_stop', 'finish'
++/** Assistant text token delta. */
++const EV_TEXT = 'text';
+ 
+-/** Usage-only event (may be embedded in EV_RESULT instead of separate). */
+-const EV_USAGE = 'usage'; // TODO: verify — may not exist as separate event
++/** Terminal event: carries stopReason + sessionId, no text/usage. */
++const EV_END = 'end';
+ 
+ // ---------------------------------------------------------------------------
+-// Raw shape interfaces (best-effort based on xAI documentation)
++// Raw shape interfaces (verified)
+ // ---------------------------------------------------------------------------
+ 
+-interface GrokInitEvent {
+-	type: typeof EV_INIT;
+-	session_id?: string; // TODO: verify field name — may be 'sessionId', 'id', 'conversation_id'
+-	model?: string;
++interface GrokDeltaEvent {
++	type: typeof EV_THOUGHT | typeof EV_TEXT;
++	data?: string;
+ }
+ 
+-interface GrokTextDeltaEvent {
+-	type: typeof EV_TEXT_DELTA;
+-	session_id?: string;
+-	delta?: string; // TODO: verify — may be nested as {content: '...'} or {text: '...'}
+-	content?: string;
+-	text?: string;
+-	is_partial?: boolean;
+-}
+-
+-interface GrokThinkingEvent {
+-	type: typeof EV_THINKING;
+-	session_id?: string;
+-	delta?: string;
+-	thinking?: string;
+-	text?: string;
+-}
+-
+-interface GrokToolUseEvent {
+-	type: typeof EV_TOOL_USE;
+-	session_id?: string;
+-	tool?: string; // TODO: verify — may be 'name', 'tool_name', 'command'
+-	name?: string;
+-	id?: string;
+-	input?: unknown;
+-	state?: string; // 'running' | 'complete' | 'error'
+-}
+-
+-interface GrokResultEvent {
+-	type: typeof EV_RESULT;
+-	session_id?: string;
+-	result?: string;
+-	text?: string;
+-	usage?: GrokUsage;
+-	// Usage may be at the top level
+-	input_tokens?: number;
+-	output_tokens?: number;
+-	reasoning_tokens?: number;
+-	total_cost?: number; // TODO: verify field name
+-	cost_usd?: number;
+-}
+-
+-interface GrokUsage {
+-	input_tokens?: number;
+-	output_tokens?: number;
+-	reasoning_tokens?: number; // Grok 4 Heavy extended thinking
+-	total_cost?: number;
+-	cost_usd?: number;
++interface GrokEndEvent {
++	type: typeof EV_END;
++	stopReason?: string;
++	sessionId?: string;
++	requestId?: string;
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -127,7 +76,9 @@ export class GrokBuildOutputParser implements AgentOutputParser {
+ 			const event = JSON.parse(line) as Record<string, unknown>;
+ 			return this.parseEvent(event);
+ 		} catch {
+-			// Non-JSON line — surface as raw text (e.g. startup messages, warnings)
++			// Non-JSON line — typically a stderr tracing log merged via 2>&1
++			// (e.g. tool_error lines) or a startup banner. Surface as raw text so
++			// it is visible; error detection runs separately via detectErrorFromLine.
+ 			return {
+ 				type: 'text',
+ 				text: line,
+@@ -138,115 +89,51 @@ export class GrokBuildOutputParser implements AgentOutputParser {
+ 
+ 	private parseEvent(event: Record<string, unknown>): ParsedEvent | null {
+ 		const type = event.type as string | undefined;
+-
+ 		if (!type) {
+ 			return null;
+ 		}
+ 
+-		// ---- Init / session start ----
+-		if (type === EV_INIT) {
+-			const e = event as unknown as GrokInitEvent;
+-			return {
+-				type: 'init',
+-				sessionId: e.session_id,
+-				raw: event,
+-			};
+-		}
+-
+-		// ---- Streaming text delta ----
+-		if (type === EV_TEXT_DELTA) {
+-			const e = event as unknown as GrokTextDeltaEvent;
+-			// Grok may nest the text in delta, content, or text field
+-			const text = e.delta ?? e.content ?? e.text ?? '';
++		// ---- Assistant text delta ----
++		if (type === EV_TEXT) {
++			const e = event as unknown as GrokDeltaEvent;
++			const text = e.data ?? '';
+ 			if (!text) return null;
+ 			return {
+ 				type: 'text',
+-				sessionId: e.session_id,
+ 				text,
+-				isPartial: e.is_partial !== false, // default to partial for streaming deltas
++				isPartial: true,
+ 				raw: event,
+ 			};
+ 		}
+ 
+-		// ---- Extended thinking / reasoning (Grok 4 Heavy) ----
+-		if (type === EV_THINKING) {
+-			const e = event as unknown as GrokThinkingEvent;
+-			const text = e.delta ?? e.thinking ?? e.text ?? '';
++		// ---- Reasoning / thinking delta (Grok 4 Heavy extended thinking) ----
++		if (type === EV_THOUGHT) {
++			const e = event as unknown as GrokDeltaEvent;
++			const text = e.data ?? '';
+ 			if (!text) return null;
+ 			return {
+ 				type: 'text',
+-				sessionId: e.session_id,
+ 				text,
+ 				isPartial: true,
++				isReasoning: true, // excluded from final response text, shown as thinking
+ 				raw: event,
+ 			};
+ 		}
+ 
+-		// ---- Tool use ----
+-		if (type === EV_TOOL_USE) {
+-			const e = event as unknown as GrokToolUseEvent;
+-			const toolName = e.tool ?? e.name ?? 'unknown_tool';
+-			return {
+-				type: 'tool_use',
+-				sessionId: e.session_id,
+-				toolName,
+-				toolState: e.state ?? e.input,
+-				raw: event,
+-			};
+-		}
+-
+-		// ---- Tool result ----
+-		if (type === EV_TOOL_RESULT) {
+-			// Surface as system event — tool results are context, not user-facing text
+-			return {
+-				type: 'system',
+-				raw: event,
+-			};
+-		}
+-
+-		// ---- Final result with usage ----
+-		if (type === EV_RESULT) {
+-			const e = event as unknown as GrokResultEvent;
+-			const text = e.result ?? e.text ?? '';
+-			const usageBlock = e.usage ?? {};
+-
+-			const inputTokens = usageBlock.input_tokens ?? e.input_tokens ?? 0;
+-			const outputTokens = usageBlock.output_tokens ?? e.output_tokens ?? 0;
+-			const reasoningTokens = usageBlock.reasoning_tokens ?? e.reasoning_tokens;
+-			const costUsd = usageBlock.cost_usd ?? usageBlock.total_cost ?? e.cost_usd ?? e.total_cost;
+-
++		// ---- Terminal event ----
++		// Grok emits sessionId only here. Maestro stores it for --resume.
++		// No usage/token data is available in streaming-json output.
++		if (type === EV_END) {
++			const e = event as unknown as GrokEndEvent;
+ 			return {
+ 				type: 'result',
+-				sessionId: e.session_id,
+-				text,
+-				usage: {
+-					inputTokens,
+-					outputTokens,
+-					reasoningTokens,
+-					costUsd,
+-				},
+-				raw: event,
+-			};
+-		}
+-
+-		// ---- Standalone usage event ----
+-		if (type === EV_USAGE) {
+-			const e = event as { usage?: GrokUsage } & GrokUsage;
+-			const u = e.usage ?? e;
+-			return {
+-				type: 'usage',
+-				usage: {
+-					inputTokens: u.input_tokens ?? 0,
+-					outputTokens: u.output_tokens ?? 0,
+-					reasoningTokens: u.reasoning_tokens,
+-					costUsd: u.cost_usd ?? u.total_cost,
+-				},
++				sessionId: e.sessionId,
++				text: '', // text was already streamed via EV_TEXT deltas
+ 				raw: event,
+ 			};
+ 		}
+ 
+-		// ---- Unknown event type — surface as system ----
+-		// This ensures unknown events are visible in debug but don't pollute the UI.
++		// ---- Unknown event type — surface as system (visible in debug, not UI text) ----
+ 		return {
+ 			type: 'system',
+ 			raw: event,
+@@ -277,12 +164,14 @@ export class GrokBuildOutputParser implements AgentOutputParser {
+ 
+ 	detectErrorFromParsed(parsed: unknown): AgentError | null {
+ 		if (!parsed || typeof parsed !== 'object') return null;
+-		// Extract the most informative text from the parsed object for pattern matching
+ 		const obj = parsed as Record<string, unknown>;
++		// Grok's streaming-json has no structured error event type; errors arrive
++		// as stderr trace lines (non-JSON), handled by detectErrorFromLine. This
++		// method covers the case where a future structured error event appears.
+ 		const errorText =
+ 			(typeof obj.message === 'string' ? obj.message : null) ??
+ 			(typeof obj.error === 'string' ? obj.error : null) ??
+-			(typeof obj.text === 'string' ? obj.text : null) ??
++			(typeof obj.data === 'string' ? obj.data : null) ??
+ 			JSON.stringify(parsed);
+ 		return this.detectErrorFromLine(errorText);
+ 	}
+-- 
+2.43.0
+

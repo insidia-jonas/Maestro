@@ -102,11 +102,14 @@ export class GeminiCliOutputParser implements AgentOutputParser {
 			line.includes('failed with status') &&
 			(line.includes('429') || line.includes('503'))
 		) {
+			// Emit a system error instead of just text, which will trigger the error handler and allow Maestro to kill the hanging retry loop.
 			return {
-				type: 'text',
-				text: '\n[Gemini API rate limit hit. Retrying with backoff...]\n',
-				isPartial: true,
-				raw: line,
+				type: 'system',
+				raw: {
+					errorLine: line,
+					forceError: true,
+					message: 'Gemini API rate limit hit. Process hanging in retry loop.',
+				},
 			};
 		}
 

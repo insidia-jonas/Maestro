@@ -326,7 +326,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsImageInputOnResume: false, // not tested
 		supportsSlashCommands: false, // not applicable in batch mode
 		supportsStreamJsonInput: false, // no --input-format stream-json stdin path
-		supportsSessionStorage: false, // deferred — `grok sessions`/`export` exist, implement later
+		supportsSessionStorage: true, // enabled: implemented GrokBuildSessionStorage
 		supportsCostTracking: false, // verified: no cost field in streaming-json output
 		supportsUsageStats: false, // verified: no token data in streaming-json output
 		supportsBatchMode: true, // verified: -p "prompt" headless mode
@@ -336,7 +336,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsResultMessages: true, // verified: terminal `end` event marks turn completion
 		supportsThinkingDisplay: true, // verified: `thought` events (isReasoning)
 		supportsContextMerge: false, // not implemented
-		supportsContextExport: false, // not implemented (no session storage yet)
+		supportsContextExport: false, // not implemented
 		supportsWizard: false, // not tested
 		supportsGroupChatModeration: true, // can serve as group chat moderator via batch mode
 		supportsAppendSystemPrompt: false, // Grok uses --rules/--system-prompt-override, not --append-system-prompt; embed-in-prompt path used

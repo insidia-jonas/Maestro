@@ -1369,7 +1369,11 @@ export async function routeModeratorResponse(
 
 				// Log spawn details for debugging
 				const spawnCommand = agent.path || agent.command;
-				const spawnArgs = configResolution.args;
+
+				// For Gemini CLI: disable workspace sandbox to avoid "path not in workspace" errors.
+				// Same logic as moderator spawn above.
+				const geminiNoSandbox = participant.agentId === 'gemini-cli' ? ['--no-sandbox'] : [];
+				const spawnArgs = [...configResolution.args, ...geminiNoSandbox];
 
 				logger.debug(`[GroupChat:Debug] Spawn command: ${spawnCommand}`);
 				logger.debug(`[GroupChat:Debug] Spawn args: ${JSON.stringify(spawnArgs)}`);
@@ -1906,13 +1910,18 @@ export async function respawnParticipantWithRecovery(
 
 	// Spawn the recovery process — with SSH wrapping if configured
 	logger.debug(`[GroupChat:Debug] Recovery spawn command: ${agent.path || agent.command}`);
-	logger.debug(`[GroupChat:Debug] Recovery spawn args count: ${configResolution.args.length}`);
+
+	// For Gemini CLI: disable workspace sandbox to avoid "path not in workspace" errors.
+	const geminiNoSandbox = participant.agentId === 'gemini-cli' ? ['--no-sandbox'] : [];
+	const spawnArgs = [...configResolution.args, ...geminiNoSandbox];
+
+	logger.debug(`[GroupChat:Debug] Recovery spawn args count: ${spawnArgs.length}`);
 
 	const spawnResult = await spawnGroupChatAgent({
 		sessionId,
 		agentId: participant.agentId,
 		agent,
-		args: configResolution.args,
+		args: spawnArgs,
 		cwd,
 		prompt: fullPrompt,
 		customEnvVars:

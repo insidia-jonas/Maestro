@@ -1,0 +1,1464 @@
+From 442defca0be4fc0da43185f5bb445fd0ae5bf001 Mon Sep 17 00:00:00 2001
+From: "Jonas (via Claude)" <jonas@insidia.de>
+Date: Wed, 27 May 2026 07:23:53 +0000
+Subject: [PATCH 1/2] feat: add Grok Build agent support (xAI CLI)
+
+Adds grok-build as a new agent provider in Maestro's pluggable architecture.
+
+Scaffolding (CI-gated, agent-completeness test passes):
+- Agent ID 'grok-build' in AGENT_IDS tuple
+- AgentConfig with -p prompt delivery, streaming-json output, permission modes
+- 25 capability flags (batch, streaming, resume, model selection, group chat)
+- Display name, PLAN_MODE_AGENTS, BETA_AGENTS registration
+- Default context window 131k (configurable up to 2M for Grok 4 Heavy)
+
+Output parser (grok-build-output-parser.ts, 31 tests):
+- Handles init, text delta, thinking/reasoning, tool use, result events
+- Usage stats with reasoning token tracking (Grok 4 Heavy)
+- Flexible field fallbacks (delta/content/text) for schema resilience
+
+Error patterns (6 categories):
+- auth_expired, token_exhaustion, rate_limited, network_error
+- agent_crashed, permission_denied (incl. sandbox-specific messages)
+
+Config options:
+- Model selection (grok-4.3, grok-4-heavy, etc.)
+- Context window override
+- Sandbox profile (workspace/off/strict) for OSINT network egress
+
+NOTE: Event type constants in the parser are best-effort pending real
+streaming-json output verification. Run:
+  grok -p "say hello" --output-format streaming-json 2>&1 | head -50
+Then update constants in grok-build-output-parser.ts (grep TODO).
+---
+ docs/GROK-BUILD-INTEGRATION.md                | 440 ++++++++++++++++++
+ .../parsers/grok-build-output-parser.test.ts  | 312 +++++++++++++
+ src/main/agents/capabilities.ts               |  39 ++
+ src/main/agents/definitions.ts                |  90 ++++
+ src/main/parsers/error-patterns.ts            | 100 ++++
+ src/main/parsers/grok-build-output-parser.ts  | 289 ++++++++++++
+ src/main/parsers/index.ts                     |   3 +
+ src/shared/agentConstants.ts                  |   1 +
+ src/shared/agentIds.ts                        |   1 +
+ src/shared/agentMetadata.ts                   |   8 +-
+ 10 files changed, 1282 insertions(+), 1 deletion(-)
+ create mode 100644 docs/GROK-BUILD-INTEGRATION.md
+ create mode 100644 src/__tests__/main/parsers/grok-build-output-parser.test.ts
+ create mode 100644 src/main/parsers/grok-build-output-parser.ts
+
+diff --git a/docs/GROK-BUILD-INTEGRATION.md b/docs/GROK-BUILD-INTEGRATION.md
+new file mode 100644
+index 0000000..cc2cb18
+--- /dev/null
++++ b/docs/GROK-BUILD-INTEGRATION.md
+@@ -0,0 +1,440 @@
++# Grok Build Agent Integration — Implementierungsdokumentation
++
++**Datum:** 2026-05-27
++**Branch:** `feat/grok-build-agent`
++**Basis:** `rc` (Fork von RunMaestro/Maestro)
++**Commit:** `feat: add Grok Build agent support (xAI CLI)`
++**Status:** Phase 1 abgeschlossen — Scaffolding + Stub-Parser, CI-Gate grün
++
++---
++
++## 1. Ziel
++
++Grok Build (xAI's offizielles agentic CLI, Beta seit 14.05.2026) als
++vollwertigen Agent-Provider in Maestro integrieren. Grok Build wird
++damit der sechste Provider neben Claude Code, Codex, OpenCode,
++Factory Droid und Copilot-CLI.
++
++## 2. Architektur-Grundlage
++
++Maestro hat eine dokumentierte pluggable Provider-Architektur
++(`AGENT_SUPPORT.md`). Ein neuer Agent erfordert:
++
++1. Agent-ID in der Single-Source-of-Truth (`agentIds.ts`)
++2. Agent-Definition mit CLI-Flags (`definitions.ts`)
++3. Capability-Flags für UI-Gating (`capabilities.ts`)
++4. Display-Metadata (`agentMetadata.ts`, `agentConstants.ts`)
++5. Output-Parser für das Streaming-Format (`parsers/`)
++6. Error-Patterns für Fehler-Erkennung (`error-patterns.ts`)
++7. Optional: Session-Storage für Session-Browser (`storage/`)
++
++Ein CI-Gate (`agent-completeness.test.ts`, 48 Tests) erzwingt
++Konsistenz über alle Komponenten.
++
++## 3. Geänderte Dateien
++
++### 3.1 `src/shared/agentIds.ts`
++
++**Änderung:** `'grok-build'` in `AGENT_IDS`-Tuple eingefügt.
++
++**Begründung:** Single Source of Truth — der `AgentId`-Union-Type
++wird aus diesem Array abgeleitet. TypeScript erzwingt dann Updates
++in allen abhängigen Dateien.
++
++**Entscheidung Agent-ID-Name:** `grok-build` (nicht `grok`, nicht
++`grok-cli`). Begründung: `grok` wäre zu generisch (es gibt mehrere
++Grok-CLIs), `grok-cli` kollidiert mit dem Community-Tool
++`@vibe-kit/grok-cli`. `grok-build` ist der offizielle Produktname.
++
++**Critic-Prüfpunkt:** Ist `grok-build` konsistent mit dem Binary-
++Namen? Das Binary heißt `grok` (nicht `grok-build`). Die Konvention
++im Repo ist gemischt: `claude-code` → Binary `claude`,
++`factory-droid` → Binary `droid`. ID ≠ Binary ist also akzeptiert.
++
++---
++
++### 3.2 `src/main/agents/definitions.ts`
++
++**Änderung:** Neuer `AgentConfig`-Eintrag am Ende des
++`AGENT_DEFINITIONS`-Arrays (91 Zeilen).
++
++**Konfiguration im Detail:**
++
++| Feld                  | Wert                                         | Begründung                                                                                |
++| --------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------- |
++| `id`                  | `'grok-build'`                               | Konsistent mit agentIds.ts                                                                |
++| `binaryName`          | `'grok'`                                     | Offizielles Binary via `curl -fsSL https://x.ai/cli/install.sh`                           |
++| `command`             | `'grok'`                                     | Spawn-Kommando                                                                            |
++| `args`                | `[]`                                         | Keine statischen Base-Args; alles über Builder-Funktionen                                 |
++| `promptArgs`          | `(prompt) => ['-p', prompt]`                 | Headless-Mode: `grok -p "prompt"`. Analogie zu Copilot-CLI (gleiche Signatur).            |
++| `noPromptSeparator`   | `true`                                       | Kein `--` vor dem Prompt (Grok akzeptiert das nicht).                                     |
++| `jsonOutputArgs`      | `['--output-format', 'streaming-json']`      | Dokumentierter Flag für strukturierten JSONL-Output.                                      |
++| `batchModeArgs`       | `['--permission-mode', 'bypassPermissions']` | Auto-Approval in Batch. Wird bei `readOnlyMode` übersprungen (Logik in `buildAgentArgs`). |
++| `readOnlyArgs`        | `['--permission-mode', 'plan']`              | Plan-Mode analog zu Claude Codes `--permission-mode plan`.                                |
++| `readOnlyCliEnforced` | `true`                                       | CLI erzwingt Read-Only; kein Prompt-only-Fallback nötig.                                  |
++| `yoloModeArgs`        | `['--permission-mode', 'bypassPermissions']` | Vollzugriff.                                                                              |
++| `resumeArgs`          | `(id) => ['--resume', id]`                   | **⚠️ ANNAHME** — Flag-Name nicht verifiziert.                                             |
++| `modelArgs`           | `(id) => ['--model', id]`                    | Model-Auswahl (grok-4.3, grok-4-heavy etc.)                                               |
++| `configOptions`       | Model, Context Window, Sandbox Profile       | Drei konfigurierbare Felder in den Session-Settings.                                      |
++
++**Annahmen (TODO-markiert im Code):**
++
++- `--resume <session-id>` ist der korrekte Resume-Flag.
++  **Verifizierung:** `grok --help | grep -i "resume\|session\|continue"`
++- `--permission-mode plan` existiert als Grok-Flag.
++  **Verifizierung:** `grok --help | grep -i "permission"`
++- `--sandbox workspace` ist ein gültiges Profil.
++  **Verifizierung:** `grok --help | grep -i "sandbox"`
++
++**Sandbox-configOption Begründung:** Grok Build sandboxt per
++Landlock (Linux 5.13+). Im `strict`-Profil blockiert seccomp-BPF
++Child-Prozess-Netzwerkzugriff. OSINT-Recon-Pipelines (Shodan,
++Censys, Leak-DBs, DNS) machen legitimerweise externe Calls. Default
++ist daher `workspace`, nicht `strict`. Als `configOption` umgesetzt,
++damit pro Session überschreibbar.
++
++**Critic-Prüfpunkte:**
++
++- Stimmt die `promptArgs`-Signatur? Wird der Prompt korrekt an
++  `grok -p "..."` übergeben, oder erwartet Grok den Prompt via
++  stdin?
++- Gibt es einen `workingDirArgs`-Flag (z.B. `-C dir`)? Aktuell
++  nicht gesetzt — wir verlassen uns auf ProcessManagers `cwd`.
++- Sollte `batchModePrefix` gesetzt sein (wie Codex `['exec']`)?
++  Grok Build scheint keinen Subcommand für Batch zu haben.
++
++---
++
++### 3.3 `src/main/agents/capabilities.ts`
++
++**Änderung:** Neuer Eintrag in `AGENT_CAPABILITIES` Record mit
++25 Bool-Feldern (23 Standard + `supportsAppendSystemPrompt` +
++`supportsProjectMemory`).
++
++**Capability-Entscheidungen:**
++
++| Capability                    | Wert    | Begründung                                     |
++| ----------------------------- | ------- | ---------------------------------------------- |
++| `supportsResume`              | `true`  | Grok Build dokumentiert Session-Wiederaufnahme |
++| `supportsReadOnlyMode`        | `true`  | `--permission-mode plan`                       |
++| `supportsJsonOutput`          | `true`  | `--output-format streaming-json`               |
++| `supportsSessionId`           | `true`  | Sessions haben IDs (Feldname TBD)              |
++| `supportsImageInput`          | `false` | Nicht bestätigt; konservativ                   |
++| `supportsImageInputOnResume`  | `false` | Nicht bestätigt                                |
++| `supportsSlashCommands`       | `false` | Nicht relevant im Batch-Mode                   |
++| `supportsStreamJsonInput`     | `false` | Kein `--input-format stream-json`              |
++| `supportsSessionStorage`      | `false` | Deferred — kein Storage implementiert          |
++| `supportsCostTracking`        | `false` | Nicht bestätigt, ob costUsd im Output          |
++| `supportsUsageStats`          | `true`  | Heavy-Modell reportet Tokens                   |
++| `supportsBatchMode`           | `true`  | `-p` Flag                                      |
++| `requiresPromptToStart`       | `true`  | Kein Eager Spawn ohne Prompt                   |
++| `supportsStreaming`           | `true`  | Streaming JSONL                                |
++| `supportsModelSelection`      | `true`  | `--model` Flag                                 |
++| `supportsResultMessages`      | `true`  | Result-Event am Turn-Ende                      |
++| `supportsThinkingDisplay`     | `true`  | Grok 4 Heavy Reasoning                         |
++| `supportsContextMerge`        | `false` | Nicht implementiert                            |
++| `supportsContextExport`       | `false` | Nicht implementiert                            |
++| `supportsWizard`              | `false` | Nicht getestet                                 |
++| `supportsGroupChatModeration` | `true`  | Für Group-Chat-Moderator-Einsatz               |
++| `supportsAppendSystemPrompt`  | `false` | Kein `--append-system-prompt`-Pendant          |
++| `supportsProjectMemory`       | `false` | Kein Project-Memory-Mechanismus                |
++| `usesJsonLineOutput`          | `true`  | Streaming-JSON = JSONL                         |
++| `usesCombinedContextWindow`   | `false` | Separate Input/Output-Limits                   |
++
++**Critic-Prüfpunkte:**
++
++- `supportsGroupChatModeration: true` — Ist das korrekt? Kann
++  Grok Build als Moderator funktionieren, obwohl es kein
++  `--append-system-prompt` hat? Wie wird der Moderator-System-Prompt
++  injiziert? Prüfung: `group-chat-router.ts` — wie übergibt es den
++  System-Prompt an Agents ohne `supportsAppendSystemPrompt`?
++- `supportsImageInput: false` — Sollte getestet werden. Falls
++  Grok `-i <path>` akzeptiert, wäre `true` korrekt und
++  `imageArgs` in der Definition nötig.
++- `supportsCostTracking: false` — Wenn das streaming-json-Output
++  ein `cost_usd`-Feld enthält, sollte auf `true` gesetzt werden.
++
++---
++
++### 3.4 `src/shared/agentMetadata.ts`
++
++**Änderungen:**
++
++1. `AGENT_DISPLAY_NAMES`: `'grok-build': 'Grok Build'`
++2. `PLAN_MODE_AGENTS`: `'grok-build'` hinzugefügt
++3. `BETA_AGENTS`: `'grok-build'` hinzugefügt
++
++**Begründung PLAN_MODE_AGENTS:** Grok Build nutzt
++`--permission-mode plan` (wie Claude Code), nicht ein echtes
++Read-Only-Dateisystem. Das UI-Label zeigt daher „Plan-Mode" statt
++„Read-Only". Analogie: Claude Code und OpenCode sind ebenfalls in
++dieser Set.
++
++**Begründung BETA_AGENTS:** Grok Build ist explizit als Beta
++gelauncht (Mai 2026). Schnittstellen können sich noch ändern.
++„(Beta)"-Badge im UI warnt den User.
++
++---
++
++### 3.5 `src/shared/agentConstants.ts`
++
++**Änderung:** `DEFAULT_CONTEXT_WINDOWS['grok-build'] = 131072`
++
++**Begründung:** 131k ist ein konservativer Default. Grok 4 Heavy
++unterstützt bis zu 2.000.000 Tokens, aber der Default sollte nicht
++das UI-Context-Widget mit einem unrealistisch großen Balken
++verzerren. User überschreiben per `configOption contextWindow`.
++
++**Critic-Prüfpunkt:** Ist 131k der richtige Default? Grok 4.3
++(das Standard-Modell) hat möglicherweise ein anderes Limit.
++Verifizieren mit `grok --help` oder xAI-Dokumentation.
++
++---
++
++### 3.6 `src/main/parsers/grok-build-output-parser.ts`
++
++**Neue Datei** — 296 Zeilen, implementiert `AgentOutputParser`.
++
++**Event-Mapping (alles Annahmen, TODO-markiert):**
++
++| Grok-Event-Konstante | ParsedEvent-Type             | Status         |
++| -------------------- | ---------------------------- | -------------- |
++| `session_start`      | `init`                       | ⚠️ Annahme     |
++| `content_delta`      | `text` (partial)             | ⚠️ Annahme     |
++| `thinking_delta`     | `text` (partial, reasoning)  | ⚠️ Annahme     |
++| `tool_use`           | `tool_use`                   | ⚠️ Annahme     |
++| `tool_result`        | `system`                     | ⚠️ Annahme     |
++| `turn_complete`      | `result` + usage             | ⚠️ Annahme     |
++| `usage`              | `usage`                      | ⚠️ Annahme     |
++| unbekannt            | `system` (graceful fallback) | ✅ Absichtlich |
++
++**Design-Entscheidungen:**
++
++1. **Event-Typ-Konstanten als benannte Variablen (`EV_INIT`,
++   `EV_TEXT_DELTA` etc.):** Wenn das reale Schema anders ist,
++   müssen nur die Konstanten am Dateianfang geändert werden, nicht
++   die Parser-Logik. Das minimiert den Aufwand in Phase 2.
++
++2. **Mehrfeld-Fallback bei Text-Events:** Der Parser prüft
++   `delta ?? content ?? text` — deckt ab, falls Grok den Text
++   in unterschiedlichen Feldern liefert. Motivation: Jeder
++   bestehende Agent hat ein eigenes Schema (Claude `content`,
++   Codex `text`, OpenCode `text`).
++
++3. **Session-ID-Feld:** `session_id` (snake_case) als Annahme.
++   Claude nutzt `session_id`, Codex `thread_id`, OpenCode
++   `sessionID`. Muss verifiziert werden.
++
++4. **Usage-Feld Resilience:** Prüft sowohl `event.usage.input_tokens`
++   als auch `event.input_tokens` (Top-Level). Manche Agents
++   nesten Usage, andere nicht.
++
++5. **Reasoning-Tokens:** Direkt auf `ParsedEvent.usage.reasoningTokens`
++   gemappt. Grok 4 Heavy ist ein Reasoning-Modell (16 Sub-Modelle
++   - Router). Das Feld existiert bereits in ParsedEvent wegen
++     Codex/o-Modellen.
++
++6. **`detectErrorFromLine` + `detectErrorFromParsed`:** Implementiert
++   die korrekte Interface-Signatur von `AgentOutputParser` (nicht
++   `detectError`, das war der Bug im ersten Anlauf).
++
++**Verifizierungs-Befehl für Phase 2:**
++
++```bash
++grok -p "say hello" --output-format streaming-json 2>&1 | head -50
++```
++
++Output an Integrator geben → Konstanten-Update, fertig.
++
++**Critic-Prüfpunkte:**
++
++- Sind die Fallback-Ketten (delta/content/text) korrekt, oder
++  erzeugen sie False Positives bei unerwarteten Event-Shapes?
++- Sollte `thinking_delta` als separater Event-Typ statt als
++  `text` behandelt werden? Claude Parser unterscheidet
++  `thinking`-Blocks als eigenen Content-Type.
++- Wird `tool_result` korrekt als `system` (nicht user-facing)
++  klassifiziert?
++
++---
++
++### 3.7 `src/main/parsers/index.ts`
++
++**Änderungen:**
++
++1. Import: `import { GrokBuildOutputParser } from './grok-build-output-parser'`
++2. Registration: `registerOutputParser(new GrokBuildOutputParser())`
++3. Re-Export: `export { GrokBuildOutputParser } from './grok-build-output-parser'`
++
++**Begründung:** Standard-Pattern — identisch zu den anderen fünf
++Parser-Registrierungen in derselben Datei.
++
++---
++
++### 3.8 `src/main/parsers/error-patterns.ts`
++
++**Änderung:** `GROK_BUILD_ERROR_PATTERNS`-Konstante (101 Zeilen)
++mit 6 Kategorien, registriert in `patternRegistry`.
++
++**Kategorien:**
++
++| Kategorie           | Patterns                                                            | Recoverable        |
++| ------------------- | ------------------------------------------------------------------- | ------------------ |
++| `auth_expired`      | authentication failed, invalid api key, please log in, unauthorized | true               |
++| `token_exhaustion`  | context length/limit exceeded, too many tokens                      | false              |
++| `rate_limited`      | rate limit, too many requests, quota exceeded                       | true (außer quota) |
++| `network_error`     | network error, connection refused, ECONNREFUSED/ETIMEDOUT/ENOTFOUND | true               |
++| `agent_crashed`     | fatal error                                                         | false              |
++| `permission_denied` | permission denied, sandbox blocked                                  | false              |
++
++**Design-Entscheidung `sandbox blocked`:** Ein Grok-Build-
++spezifisches Pattern. Wenn die Landlock-Sandbox Netzwerkzugriff
++blockiert, gibt die Error-Message einen Hinweis auf die Sandbox-
++Profile-Einstellung. Relevant für OSINT-Recon-Pipelines.
++
++**Critic-Prüfpunkte:**
++
++- Alle Patterns sind Regex-basiert und case-insensitive. Stimmen
++  die Patterns mit echten Grok-Build-Fehlermeldungen überein?
++  Verifizierung erst in Phase 2 möglich.
++- `quota exceeded` ist als `rate_limited` mit `recoverable: false`
++  klassifiziert. Ist das die richtige Kategorie? Oder sollte es
++  eine eigene Kategorie sein?
++- Fehlen Patterns für Grok-spezifische Fehler (z.B. SuperGrok-
++  Subscription abgelaufen)?
++
++---
++
++### 3.9 `src/__tests__/main/parsers/grok-build-output-parser.test.ts`
++
++**Neue Datei** — 312 Zeilen, 31 Tests.
++
++**Test-Abdeckung:**
++
++| Bereich                      | Tests | Abgedeckt                                      |
++| ---------------------------- | ----- | ---------------------------------------------- |
++| agentId                      | 1     | Identifikation als 'grok-build'                |
++| parseJsonLine: empty/invalid | 3     | Leere Zeile, Non-JSON, JSON ohne type          |
++| Init-Events                  | 2     | Mit/ohne session_id                            |
++| Text-Delta-Events            | 4     | delta/content/text-Fallback, leerer Content    |
++| Thinking-Events              | 1     | Reasoning-Content als partial text             |
++| Tool-Use-Events              | 3     | tool/name-Fallback, fehlender Name             |
++| Tool-Result-Events           | 1     | Als system-Event klassifiziert                 |
++| Result-Events                | 3     | Mit Usage-Block, Top-Level-Tokens, leerer Text |
++| Usage-Events                 | 1     | Standalone usage mit reasoning tokens          |
++| Unknown Events               | 1     | Graceful fallback zu system                    |
++| isResultMessage              | 1     | Result vs. non-result                          |
++| extractSessionId             | 2     | Vorhanden vs. fehlend                          |
++| Error Detection              | 7     | Alle 6 Kategorien + benign output              |
++| Raw-Field                    | 1     | Preservation für Debugging                     |
++
++**Critic-Prüfpunkt:** Die Tests testen gegen die angenommenen
++Event-Typ-Namen. Wenn Phase 2 andere Namen ergibt, müssen die
++Tests aktualisiert werden. Die Struktur (was getestet wird) bleibt
++gleich.
++
++---
++
++## 4. Nicht geänderte Dateien
++
++Folgende Dateien wurden bewusst **nicht** angefasst:
++
++| Datei                                              | Grund                                                                        |
++| -------------------------------------------------- | ---------------------------------------------------------------------------- |
++| `src/renderer/hooks/agent/useAgentCapabilities.ts` | Kein neues Capability-Feld eingeführt; `AgentCapabilities`-Shape unverändert |
++| `src/renderer/types/index.ts`                      | Ditto                                                                        |
++| `src/renderer/global.d.ts`                         | Ditto                                                                        |
++| `src/main/storage/*`                               | Session-Storage deferred (`supportsSessionStorage: false`)                   |
++| `AGENT_SUPPORT.md`                                 | Doku-Update erst nach Phase-2-Verifizierung                                  |
++| `README.md`                                        | Ditto                                                                        |
++| `symphony-registry.json`                           | Kein Preset für Grok-Gruppen definiert                                       |
++
++**Critic-Prüfpunkt:** Stimmt es, dass die Renderer-Interfaces
++kein Update brauchen? Der `AgentCapabilities`-Type wird laut
++`AGENT_SUPPORT.md` an 4 Stellen dupliziert. Wenn die Renderer-
++Kopie `Record<AgentId, ...>` oder ähnlich streng typisiert ist,
++könnte TypeScript dort einen Fehler werfen. Der aktuelle
++`npx tsc --noEmit` zeigt keine Fehler — aber der Renderer nutzt
++möglicherweise ein anderes tsconfig.
++
++---
++
++## 5. Gesamtbilanz
++
++| Metrik            | Wert                                    |
++| ----------------- | --------------------------------------- |
++| Geänderte Dateien | 9                                       |
++| Neue Dateien      | 2 (Parser + Tests)                      |
++| Eingefügte Zeilen | 842                                     |
++| Gelöschte Zeilen  | 1                                       |
++| Tests gesamt      | 79 (31 Parser + 48 Completeness)        |
++| TypeScript-Fehler | 0 (neue; pre-existing TS6133 ignoriert) |
++| Lint/Prettier     | Bestanden via lint-staged               |
++
++---
++
++## 6. Offene Annahmen — Verifizierung in Phase 2
++
++Jede Annahme ist im Code mit `// TODO: verify` markiert.
++`grep -rn "TODO" src/main/parsers/grok-build-output-parser.ts src/main/agents/definitions.ts`
++listet alle auf.
++
++| #   | Annahme                                    | Verifizierungs-Kommando             | Auswirkung bei Abweichung              |
++| --- | ------------------------------------------ | ----------------------------------- | -------------------------------------- |
++| A1  | Resume-Flag ist `--resume <id>`            | `grok --help \| grep -i resume`     | Änderung in `resumeArgs`               |
++| A2  | Session-ID-Feld heißt `session_id`         | Streaming-JSON-Sample prüfen        | Änderung im Parser `extractSessionId`  |
++| A3  | Event-Typ `session_start` für Init         | Streaming-JSON-Sample prüfen        | Konstante `EV_INIT` ändern             |
++| A4  | Event-Typ `content_delta` für Text         | Streaming-JSON-Sample prüfen        | Konstante `EV_TEXT_DELTA` ändern       |
++| A5  | Event-Typ `tool_use` für Tools             | Streaming-JSON-Sample prüfen        | Konstante `EV_TOOL_USE` ändern         |
++| A6  | Event-Typ `turn_complete` für Result       | Streaming-JSON-Sample prüfen        | Konstante `EV_RESULT` ändern           |
++| A7  | `--permission-mode plan` existiert         | `grok --help \| grep -i permission` | Änderung `readOnlyArgs`                |
++| A8  | `--sandbox workspace` existiert            | `grok --help \| grep -i sandbox`    | Änderung `configOption sandboxProfile` |
++| A9  | `--model <id>` existiert                   | `grok --help \| grep -i model`      | Änderung `modelArgs`                   |
++| A10 | Kein `workingDirArgs`-Flag nötig           | `grok --help \| grep -i directory`  | Ggf. `workingDirArgs` hinzufügen       |
++| A11 | Error-Pattern-Strings matchen echte Fehler | Echte Fehler provozieren            | Patterns anpassen                      |
++
++---
++
++## 7. Upstream-Kompatibilität
++
++**Branch-Strategie:** Alle Änderungen auf `feat/grok-build-agent`,
++`rc` bleibt Upstream-sauber.
++
++**Konfliktrisioko:** Gering — die 9 Dateien sind entweder neue
++Dateien (Parser, Tests) oder Erweiterungen an Array-/Record-Enden.
++Upstream-Änderungen an `agentIds.ts`, `capabilities.ts` etc.
++betreffen typischerweise andere Agents und erzeugen triviale
++Merge-Konflikte (Einfügung am gleichen Array-Ende).
++
++**Sync-Kommando:**
++
++```bash
++git checkout rc && git pull upstream rc
++git checkout feat/grok-build-agent && git rebase rc
++```
++
++---
++
++## 8. Verifizierungs-Checkliste für Critic
++
++```
++[ ] agentIds.ts: 'grok-build' ist der letzte Eintrag im AGENT_IDS-Array
++[ ] definitions.ts: Der AgentConfig-Block sitzt INNERHALB des AGENT_DEFINITIONS-Arrays (vor `];`)
++[ ] definitions.ts: Alle Flag-Builder (promptArgs, resumeArgs, modelArgs) haben korrekte Signaturen
++[ ] definitions.ts: configOptions haben argBuilder-Funktionen wo nötig
++[ ] capabilities.ts: Alle 25 Felder sind gesetzt, keine fehlenden
++[ ] capabilities.ts: supportsGroupChatModeration=true ist begründet
++[ ] agentMetadata.ts: In AGENT_DISPLAY_NAMES, PLAN_MODE_AGENTS, BETA_AGENTS
++[ ] agentConstants.ts: DEFAULT_CONTEXT_WINDOWS hat einen Eintrag
++[ ] error-patterns.ts: GROK_BUILD_ERROR_PATTERNS ist in patternRegistry registriert
++[ ] parsers/index.ts: GrokBuildOutputParser importiert, registriert, exportiert
++[ ] grok-build-output-parser.ts: Implementiert AgentOutputParser-Interface vollständig
++[ ] grok-build-output-parser.ts: detectErrorFromLine + detectErrorFromParsed (nicht detectError)
++[ ] grok-build-output-parser.ts: agentId === 'grok-build'
++[ ] Tests: 31/31 grün
++[ ] agent-completeness: 48/48 grün
++[ ] TypeScript: 0 neue Fehler
++[ ] Lint/Prettier: Bestanden
++[ ] Kein package-lock.json im Commit
++[ ] Branch: feat/grok-build-agent, nicht rc
++```
+diff --git a/src/__tests__/main/parsers/grok-build-output-parser.test.ts b/src/__tests__/main/parsers/grok-build-output-parser.test.ts
+new file mode 100644
+index 0000000..f96313c
+--- /dev/null
++++ b/src/__tests__/main/parsers/grok-build-output-parser.test.ts
+@@ -0,0 +1,312 @@
++/**
++ * Unit tests for GrokBuildOutputParser
++ *
++ * ⚠️  SCHEMA NOTE: Event type constants in the parser (EV_INIT, EV_TEXT_DELTA, etc.)
++ * are best-effort guesses pending a real `grok -p "..." --output-format streaming-json` run.
++ * If tests fail after you obtain a real sample, update the constants in
++ * `src/main/parsers/grok-build-output-parser.ts` — all tests should then pass.
++ *
++ * To get a real sample:
++ *   grok -p "say hello" --output-format streaming-json 2>&1 | head -50
++ */
++
++import { describe, it, expect, beforeEach } from 'vitest';
++import { GrokBuildOutputParser } from '../../../main/parsers/grok-build-output-parser';
++import type { ParsedEvent } from '../../../main/parsers/agent-output-parser';
++
++describe('GrokBuildOutputParser', () => {
++	let parser: GrokBuildOutputParser;
++
++	beforeEach(() => {
++		parser = new GrokBuildOutputParser();
++	});
++
++	// ---- agentId ----
++
++	it('identifies as grok-build', () => {
++		expect(parser.agentId).toBe('grok-build');
++	});
++
++	// ---- parseJsonLine: empty / invalid ----
++
++	it('returns null for empty line', () => {
++		expect(parser.parseJsonLine('')).toBeNull();
++		expect(parser.parseJsonLine('   ')).toBeNull();
++	});
++
++	it('returns raw text event for non-JSON line', () => {
++		const event = parser.parseJsonLine('Grok Build v1.0.0 starting...');
++		expect(event).not.toBeNull();
++		expect(event?.type).toBe('text');
++		expect(event?.text).toBe('Grok Build v1.0.0 starting...');
++	});
++
++	it('returns null for JSON without type field', () => {
++		const event = parser.parseJsonLine('{"session_id": "abc", "model": "grok-4.3"}');
++		expect(event).toBeNull();
++	});
++
++	// ---- Init / session_start ----
++
++	it('parses session_start (init) event and extracts session ID', () => {
++		const line = JSON.stringify({
++			type: 'session_start',
++			session_id: 'grok-sess-001',
++			model: 'grok-4.3',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('init');
++		expect(event?.sessionId).toBe('grok-sess-001');
++	});
++
++	it('handles init event without session_id gracefully', () => {
++		const line = JSON.stringify({ type: 'session_start', model: 'grok-4.3' });
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('init');
++		expect(event?.sessionId).toBeUndefined();
++	});
++
++	// ---- Text delta ----
++
++	it('parses content_delta event with delta field', () => {
++		const line = JSON.stringify({
++			type: 'content_delta',
++			session_id: 'sess-1',
++			delta: 'Hello, world!',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('text');
++		expect(event?.text).toBe('Hello, world!');
++		expect(event?.sessionId).toBe('sess-1');
++		expect(event?.isPartial).toBe(true);
++	});
++
++	it('parses content_delta event with content field (fallback)', () => {
++		const line = JSON.stringify({
++			type: 'content_delta',
++			content: 'Hello via content field',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('text');
++		expect(event?.text).toBe('Hello via content field');
++	});
++
++	it('parses content_delta event with text field (fallback)', () => {
++		const line = JSON.stringify({
++			type: 'content_delta',
++			text: 'Hello via text field',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('text');
++		expect(event?.text).toBe('Hello via text field');
++	});
++
++	it('returns null for content_delta with no text content', () => {
++		const line = JSON.stringify({ type: 'content_delta', session_id: 'x' });
++		expect(parser.parseJsonLine(line)).toBeNull();
++	});
++
++	// ---- Thinking / reasoning (Grok 4 Heavy) ----
++
++	it('parses thinking_delta as partial text event', () => {
++		const line = JSON.stringify({
++			type: 'thinking_delta',
++			session_id: 'sess-1',
++			delta: 'Let me think about this...',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('text');
++		expect(event?.text).toBe('Let me think about this...');
++		expect(event?.isPartial).toBe(true);
++	});
++
++	// ---- Tool use ----
++
++	it('parses tool_use event with tool field', () => {
++		const line = JSON.stringify({
++			type: 'tool_use',
++			session_id: 'sess-1',
++			tool: 'bash',
++			id: 'call-123',
++			input: { command: 'ls -la' },
++			state: 'running',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('tool_use');
++		expect(event?.toolName).toBe('bash');
++		expect(event?.sessionId).toBe('sess-1');
++	});
++
++	it('parses tool_use event with name field (fallback)', () => {
++		const line = JSON.stringify({
++			type: 'tool_use',
++			name: 'read_file',
++			state: 'complete',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('tool_use');
++		expect(event?.toolName).toBe('read_file');
++	});
++
++	it('falls back to unknown_tool for tool_use without name', () => {
++		const line = JSON.stringify({ type: 'tool_use', state: 'running' });
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('tool_use');
++		expect(event?.toolName).toBe('unknown_tool');
++	});
++
++	// ---- Tool result ----
++
++	it('parses tool_result as system event', () => {
++		const line = JSON.stringify({
++			type: 'tool_result',
++			id: 'call-123',
++			output: 'file.ts\nindex.ts',
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('system');
++	});
++
++	// ---- Final result ----
++
++	it('parses turn_complete event as result with usage', () => {
++		const line = JSON.stringify({
++			type: 'turn_complete',
++			session_id: 'sess-1',
++			result: 'Done! I have completed the task.',
++			usage: {
++				input_tokens: 1500,
++				output_tokens: 300,
++				reasoning_tokens: 100,
++				cost_usd: 0.0042,
++			},
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('result');
++		expect(event?.text).toBe('Done! I have completed the task.');
++		expect(event?.sessionId).toBe('sess-1');
++		expect(event?.usage?.inputTokens).toBe(1500);
++		expect(event?.usage?.outputTokens).toBe(300);
++		expect(event?.usage?.reasoningTokens).toBe(100);
++		expect(event?.usage?.costUsd).toBe(0.0042);
++	});
++
++	it('parses turn_complete with top-level token fields (no usage block)', () => {
++		const line = JSON.stringify({
++			type: 'turn_complete',
++			session_id: 'sess-1',
++			text: 'Result text',
++			input_tokens: 800,
++			output_tokens: 120,
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('result');
++		expect(event?.text).toBe('Result text');
++		expect(event?.usage?.inputTokens).toBe(800);
++		expect(event?.usage?.outputTokens).toBe(120);
++	});
++
++	it('handles turn_complete with empty result text gracefully', () => {
++		const line = JSON.stringify({
++			type: 'turn_complete',
++			usage: { input_tokens: 100, output_tokens: 10 },
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('result');
++		expect(event?.text).toBe('');
++	});
++
++	// ---- Standalone usage event ----
++
++	it('parses standalone usage event', () => {
++		const line = JSON.stringify({
++			type: 'usage',
++			input_tokens: 500,
++			output_tokens: 80,
++			reasoning_tokens: 30,
++		});
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('usage');
++		expect(event?.usage?.inputTokens).toBe(500);
++		expect(event?.usage?.outputTokens).toBe(80);
++		expect(event?.usage?.reasoningTokens).toBe(30);
++	});
++
++	// ---- Unknown event type ----
++
++	it('returns system event for unknown event type', () => {
++		const line = JSON.stringify({ type: 'some_future_event', data: 'xyz' });
++		const event = parser.parseJsonLine(line);
++		expect(event?.type).toBe('system');
++	});
++
++	// ---- isResultMessage ----
++
++	it('identifies result events correctly', () => {
++		const resultEvent: ParsedEvent = { type: 'result', text: 'done' };
++		const textEvent: ParsedEvent = { type: 'text', text: 'partial' };
++		expect(parser.isResultMessage(resultEvent)).toBe(true);
++		expect(parser.isResultMessage(textEvent)).toBe(false);
++	});
++
++	// ---- extractSessionId ----
++
++	it('extracts session ID from parsed event', () => {
++		const event: ParsedEvent = { type: 'init', sessionId: 'sess-42' };
++		expect(parser.extractSessionId(event)).toBe('sess-42');
++	});
++
++	it('returns null when no session ID', () => {
++		const event: ParsedEvent = { type: 'text', text: 'hello' };
++		expect(parser.extractSessionId(event)).toBeNull();
++	});
++
++	// ---- Error detection ----
++
++	it('detects auth expired error', () => {
++		const error = parser.detectErrorFromLine('Error: authentication failed for user');
++		expect(error?.type).toBe('auth_expired');
++		expect(error?.recoverable).toBe(true);
++	});
++
++	it('detects invalid API key error', () => {
++		const error = parser.detectErrorFromLine('Error: invalid api key provided');
++		expect(error?.type).toBe('auth_expired');
++	});
++
++	it('detects rate limit error', () => {
++		const error = parser.detectErrorFromLine('rate limit exceeded, please wait');
++		expect(error?.type).toBe('rate_limited');
++		expect(error?.recoverable).toBe(true);
++	});
++
++	it('detects token exhaustion', () => {
++		const error = parser.detectErrorFromLine('context length exceeded for this model');
++		expect(error?.type).toBe('token_exhaustion');
++		expect(error?.recoverable).toBe(false);
++	});
++
++	it('detects network error', () => {
++		const error = parser.detectErrorFromLine('ECONNREFUSED connecting to x.ai');
++		expect(error?.type).toBe('network_error');
++	});
++
++	it('detects sandbox permission denied', () => {
++		const error = parser.detectErrorFromLine('sandbox blocked network access');
++		expect(error?.type).toBe('permission_denied');
++	});
++
++	it('returns null for benign output', () => {
++		expect(parser.detectErrorFromLine('Successfully read 3 files.')).toBeNull();
++		expect(parser.detectErrorFromLine('Writing output...')).toBeNull();
++	});
++
++	// ---- raw field preservation ----
++
++	it('preserves raw field for debugging', () => {
++		const raw = { type: 'content_delta', delta: 'hi', session_id: 'x' };
++		const line = JSON.stringify(raw);
++		const event = parser.parseJsonLine(line);
++		expect(event?.raw).toEqual(raw);
++	});
++});
+diff --git a/src/main/agents/capabilities.ts b/src/main/agents/capabilities.ts
+index dd96eeb..27a4589 100644
+--- a/src/main/agents/capabilities.ts
++++ b/src/main/agents/capabilities.ts
+@@ -302,6 +302,45 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
+ 		usesJsonLineOutput: true, // --output-format json produces JSONL
+ 		usesCombinedContextWindow: false, // Default Copilot model is Claude Sonnet; model-specific behavior varies
+ 	},
++
++	/**
++	 * Grok Build — xAI official agentic coding CLI (Beta, May 2026)
++	 * https://x.ai/news/grok-build-cli
++	 *
++	 * Capabilities are based on documented Grok Build features.
++	 * TODO: Review after first real streaming-json sample run:
++	 *   - supportsSessionId: verify session_id field name in init event
++	 *   - supportsCostTracking: enable once cost field confirmed in output
++	 *   - supportsImageInput: test with `grok -p "..." -i /path/to/img`
++	 *   - supportsSessionStorage: implement if ~/.grok/sessions/ is browsable
++	 */
++	'grok-build': {
++		supportsResume: true, // --resume <session-id> (flag TBD — see definitions.ts TODO)
++		supportsReadOnlyMode: true, // --permission-mode plan
++		supportsJsonOutput: true, // --output-format streaming-json
++		supportsSessionId: true, // Session ID emitted in init event
++		supportsImageInput: false, // Unknown — conservative default; enable after testing
++		supportsImageInputOnResume: false, // Unknown — enable if image-on-resume confirmed
++		supportsSlashCommands: false, // Not applicable in batch mode
++		supportsStreamJsonInput: false, // Does not use --input-format stream-json stdin path
++		supportsSessionStorage: false, // Defer: implement storage once ~/.grok layout confirmed
++		supportsCostTracking: false, // TODO: enable once costUsd field confirmed in streaming-json output
++		supportsUsageStats: true, // Token usage expected in result event (Grok Heavy reports tokens)
++		supportsBatchMode: true, // -p "prompt" headless mode
++		requiresPromptToStart: true, // No eager spawn — needs prompt to start
++		supportsStreaming: true, // Streaming JSONL output
++		supportsModelSelection: true, // --model <id> flag
++		supportsResultMessages: true, // Distinct result event at end of turn
++		supportsThinkingDisplay: true, // Grok 4 Heavy emits reasoning/thinking content
++		supportsContextMerge: false, // Not implemented
++		supportsContextExport: false, // Not implemented (no session storage yet)
++		supportsWizard: false, // Not tested
++		supportsGroupChatModeration: true, // Can serve as group chat moderator via batch mode
++		supportsAppendSystemPrompt: false, // No --append-system-prompt equivalent (uses AGENTS.md)
++		supportsProjectMemory: false, // No project memory mechanism equivalent
++		usesJsonLineOutput: true, // streaming-json is newline-delimited JSONL
++		usesCombinedContextWindow: false, // Separate input/output limits
++	},
+ };
+ 
+ /**
+diff --git a/src/main/agents/definitions.ts b/src/main/agents/definitions.ts
+index b167413..6fa7916 100644
+--- a/src/main/agents/definitions.ts
++++ b/src/main/agents/definitions.ts
+@@ -568,6 +568,96 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
+ 			},
+ 		],
+ 	},
++
++	/**
++	 * Grok Build — xAI's official agentic coding CLI.
++	 * https://x.ai/news/grok-build-cli
++	 *
++	 * Batch mode: grok -p "prompt" --output-format streaming-json
++	 *   [--permission-mode bypassPermissions] [--model <id>] [--resume <session-id>]
++	 *
++	 * NOTE: Session resume flag (--resume / --session / --continue) and working-dir
++	 * flag must be verified against actual CLI once beta matures.
++	 * Run: grok --help | grep -i "resume\|session\|continue\|directory"
++	 *
++	 * NOTE: Sandbox profile defaults to "workspace" to allow child-process network
++	 * egress (required for OSINT recon pipelines). Adjust via configOptions.
++	 *
++	 * Auth: pre-authenticate with `grok auth login` (device-code flow) on each
++	 * remote host, or set GROK_CODE_XAI_API_KEY env var for unattended SSH agents.
++	 */
++	{
++		id: 'grok-build',
++		name: 'Grok Build',
++		binaryName: 'grok',
++		command: 'grok',
++		args: [],
++
++		// Prompt delivery: grok -p "prompt text"
++		promptArgs: (prompt: string) => ['-p', prompt],
++		noPromptSeparator: true,
++
++		// JSON streaming output
++		jsonOutputArgs: ['--output-format', 'streaming-json'],
++
++		// Permission / read-only modes
++		// TODO: verify --permission-mode flag names with `grok --help`
++		batchModeArgs: ['--permission-mode', 'bypassPermissions'],
++		readOnlyArgs: ['--permission-mode', 'plan'],
++		readOnlyCliEnforced: true,
++		yoloModeArgs: ['--permission-mode', 'bypassPermissions'],
++
++		// Session resume
++		// TODO: verify resume flag — `grok --resume <id>` is a best-effort guess
++		resumeArgs: (sessionId: string) => ['--resume', sessionId],
++
++		// Model selection
++		modelArgs: (modelId: string) => ['--model', modelId],
++
++		// Runtime (set by binary detection at startup)
++		available: false,
++		path: undefined,
++
++		configOptions: [
++			{
++				key: 'model',
++				type: 'text',
++				label: 'Model',
++				description: 'Grok model to use (e.g. grok-4.3, grok-4-heavy). Leave empty for default.',
++				default: '',
++				argBuilder: (value: string) => {
++					if (value && value.trim()) {
++						return ['--model', value.trim()];
++					}
++					return [];
++				},
++			},
++			{
++				key: 'contextWindow',
++				type: 'number',
++				label: 'Context Window Size',
++				description:
++					'Maximum context window size in tokens. Grok 4.3 supports up to 2,000,000 tokens.',
++				default: 131072, // Conservative default; override for Grok 4 Heavy (2M)
++			},
++			{
++				key: 'sandboxProfile',
++				type: 'select',
++				label: 'Sandbox Profile',
++				description:
++					'Grok Build sandbox level. Use "workspace" to allow network egress from child processes ' +
++					'(required for OSINT/recon pipelines). "strict" blocks child network via seccomp-BPF (Linux only).',
++				options: ['workspace', 'off', 'strict'],
++				default: 'workspace',
++				argBuilder: (value: string) => {
++					if (value && value !== 'off') {
++						return ['--sandbox', value];
++					}
++					return [];
++				},
++			},
++		],
++	},
+ ];
+ 
+ /**
+diff --git a/src/main/parsers/error-patterns.ts b/src/main/parsers/error-patterns.ts
+index 339cb19..947acc2 100644
+--- a/src/main/parsers/error-patterns.ts
++++ b/src/main/parsers/error-patterns.ts
+@@ -983,6 +983,105 @@ const COPILOT_ERROR_PATTERNS: AgentErrorPatterns = {
+ 	],
+ };
+ 
++// ============================================================================
++// Grok Build Error Patterns (xAI Grok Build CLI — Beta May 2026)
++// ============================================================================
++// TODO: Verify exact error message strings after first real Grok Build runs.
++// Run: grok -p "..." --output-format streaming-json 2>&1 | grep -i "error\|auth\|rate"
++
++const GROK_BUILD_ERROR_PATTERNS: AgentErrorPatterns = {
++	auth_expired: [
++		{
++			pattern: /authentication.*failed/i,
++			message: 'Grok Build authentication failed. Run `grok auth login` to re-authenticate.',
++			recoverable: true,
++		},
++		{
++			pattern: /invalid.*api.*key/i,
++			message:
++				'Invalid Grok API key. Check GROK_CODE_XAI_API_KEY env var or run `grok auth login`.',
++			recoverable: true,
++		},
++		{
++			pattern: /please.*log.*in/i,
++			message: 'Grok Build session expired. Run `grok auth login`.',
++			recoverable: true,
++		},
++		{
++			pattern: /unauthorized/i,
++			message: 'Grok Build unauthorized. Check your SuperGrok subscription and API key.',
++			recoverable: true,
++		},
++	],
++	token_exhaustion: [
++		{
++			pattern: /context.*(?:length|limit|exceeded)/i,
++			message: 'Grok Build context window exceeded. Start a new session.',
++			recoverable: false,
++		},
++		{
++			pattern: /too many tokens/i,
++			message: 'Grok Build token limit exceeded.',
++			recoverable: false,
++		},
++	],
++	rate_limited: [
++		{
++			pattern: /rate.?limit/i,
++			message: 'Grok Build rate limit hit. Maestro will retry automatically.',
++			recoverable: true,
++		},
++		{
++			pattern: /too many requests/i,
++			message: 'Grok Build too many requests. Backing off.',
++			recoverable: true,
++		},
++		{
++			pattern: /quota.*exceeded/i,
++			message: 'Grok Build quota exceeded. Check your SuperGrok plan limits.',
++			recoverable: false,
++		},
++	],
++	network_error: [
++		{
++			pattern: /network.*error/i,
++			message: 'Grok Build network error. Check connectivity to x.ai.',
++			recoverable: true,
++		},
++		{
++			pattern: /connection.*refused/i,
++			message: 'Grok Build connection refused.',
++			recoverable: true,
++		},
++		{
++			pattern: /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,
++			message: 'Grok Build network timeout or DNS failure.',
++			recoverable: true,
++		},
++	],
++	agent_crashed: [
++		{
++			pattern: /fatal error/i,
++			message: 'Grok Build crashed with a fatal error.',
++			recoverable: false,
++		},
++	],
++	permission_denied: [
++		{
++			pattern: /permission.*denied/i,
++			message: 'Grok Build permission denied. Check sandbox profile and file permissions.',
++			recoverable: false,
++		},
++		{
++			pattern: /sandbox.*blocked/i,
++			message:
++				'Grok Build sandbox blocked this operation. ' +
++				'If this is an OSINT/recon network call, change sandbox profile to "workspace" in session settings.',
++			recoverable: false,
++		},
++	],
++};
++
+ // ============================================================================
+ // Pattern Registry
+ // ============================================================================
+@@ -993,6 +1092,7 @@ const patternRegistry = new Map<ToolType, AgentErrorPatterns>([
+ 	['codex', CODEX_ERROR_PATTERNS],
+ 	['factory-droid', FACTORY_DROID_ERROR_PATTERNS],
+ 	['copilot-cli', COPILOT_ERROR_PATTERNS],
++	['grok-build', GROK_BUILD_ERROR_PATTERNS],
+ ]);
+ 
+ /**
+diff --git a/src/main/parsers/grok-build-output-parser.ts b/src/main/parsers/grok-build-output-parser.ts
+new file mode 100644
+index 0000000..47bf27a
+--- /dev/null
++++ b/src/main/parsers/grok-build-output-parser.ts
+@@ -0,0 +1,289 @@
++/**
++ * Grok Build Output Parser
++ *
++ * Parses --output-format streaming-json output from xAI's Grok Build CLI.
++ * Grok Build outputs JSONL (newline-delimited JSON) with streaming events.
++ *
++ * ⚠️  SCHEMA STATUS: Based on documented Grok Build behavior (May 2026 beta).
++ *    Event type names must be verified with a real `grok -p "..." --output-format streaming-json` run.
++ *    Grep TODOs in this file to find fields that need confirmation.
++ *
++ * To verify event types, run:
++ *   grok -p "say hello" --output-format streaming-json 2>&1 | head -50
++ *   grok --help | grep -i "resume\|session\|continue"
++ *
++ * Known Grok Build streaming-json contract (from xAI docs):
++ *   - Structured events: files modified, commands run, final results
++ *   - Session ID for resume support
++ *   - Token usage statistics (input/output/reasoning)
++ *   - JSONL format (one event per line)
++ *
++ * @see https://x.ai/news/grok-build-cli
++ */
++
++import type { ToolType, AgentError } from '../../shared/types';
++import type { AgentOutputParser, ParsedEvent } from './agent-output-parser';
++import { getErrorPatterns, matchErrorPattern } from './error-patterns';
++
++// ---------------------------------------------------------------------------
++// TODO: Verify these event type constants against real Grok Build output.
++// Run: grok -p "say hello" --output-format streaming-json 2>&1
++// If Grok uses a different event name, update only the constant here.
++// ---------------------------------------------------------------------------
++
++/** Init / session-start event — emitted once at the start of a turn. */
++const EV_INIT = 'session_start'; // TODO: verify — may be 'init', 'start', 'message_start'
++
++/** Streaming text delta event. */
++const EV_TEXT_DELTA = 'content_delta'; // TODO: verify — may be 'text', 'assistant', 'text_delta'
++
++/** Tool/command execution event. */
++const EV_TOOL_USE = 'tool_use'; // TODO: verify — may be 'tool_call', 'command', 'action'
++
++/** Tool execution result event. */
++const EV_TOOL_RESULT = 'tool_result'; // TODO: verify — may be 'tool_output', 'command_result'
++
++/** Reasoning / thinking delta (Grok 4 Heavy extended thinking). */
++const EV_THINKING = 'thinking_delta'; // TODO: verify — may be 'reasoning', 'thinking'
++
++/** Final result event — emitted at the end of a turn with usage stats. */
++const EV_RESULT = 'turn_complete'; // TODO: verify — may be 'result', 'done', 'message_stop', 'finish'
++
++/** Usage-only event (may be embedded in EV_RESULT instead of separate). */
++const EV_USAGE = 'usage'; // TODO: verify — may not exist as separate event
++
++// ---------------------------------------------------------------------------
++// Raw shape interfaces (best-effort based on xAI documentation)
++// ---------------------------------------------------------------------------
++
++interface GrokInitEvent {
++	type: typeof EV_INIT;
++	session_id?: string; // TODO: verify field name — may be 'sessionId', 'id', 'conversation_id'
++	model?: string;
++}
++
++interface GrokTextDeltaEvent {
++	type: typeof EV_TEXT_DELTA;
++	session_id?: string;
++	delta?: string; // TODO: verify — may be nested as {content: '...'} or {text: '...'}
++	content?: string;
++	text?: string;
++	is_partial?: boolean;
++}
++
++interface GrokThinkingEvent {
++	type: typeof EV_THINKING;
++	session_id?: string;
++	delta?: string;
++	thinking?: string;
++	text?: string;
++}
++
++interface GrokToolUseEvent {
++	type: typeof EV_TOOL_USE;
++	session_id?: string;
++	tool?: string; // TODO: verify — may be 'name', 'tool_name', 'command'
++	name?: string;
++	id?: string;
++	input?: unknown;
++	state?: string; // 'running' | 'complete' | 'error'
++}
++
++interface GrokResultEvent {
++	type: typeof EV_RESULT;
++	session_id?: string;
++	result?: string;
++	text?: string;
++	usage?: GrokUsage;
++	// Usage may be at the top level
++	input_tokens?: number;
++	output_tokens?: number;
++	reasoning_tokens?: number;
++	total_cost?: number; // TODO: verify field name
++	cost_usd?: number;
++}
++
++interface GrokUsage {
++	input_tokens?: number;
++	output_tokens?: number;
++	reasoning_tokens?: number; // Grok 4 Heavy extended thinking
++	total_cost?: number;
++	cost_usd?: number;
++}
++
++// ---------------------------------------------------------------------------
++// Parser
++// ---------------------------------------------------------------------------
++
++export class GrokBuildOutputParser implements AgentOutputParser {
++	readonly agentId: ToolType = 'grok-build';
++
++	parseJsonLine(line: string): ParsedEvent | null {
++		if (!line.trim()) {
++			return null;
++		}
++
++		try {
++			const event = JSON.parse(line) as Record<string, unknown>;
++			return this.parseEvent(event);
++		} catch {
++			// Non-JSON line — surface as raw text (e.g. startup messages, warnings)
++			return {
++				type: 'text',
++				text: line,
++				raw: line,
++			};
++		}
++	}
++
++	private parseEvent(event: Record<string, unknown>): ParsedEvent | null {
++		const type = event.type as string | undefined;
++
++		if (!type) {
++			return null;
++		}
++
++		// ---- Init / session start ----
++		if (type === EV_INIT) {
++			const e = event as unknown as GrokInitEvent;
++			return {
++				type: 'init',
++				sessionId: e.session_id,
++				raw: event,
++			};
++		}
++
++		// ---- Streaming text delta ----
++		if (type === EV_TEXT_DELTA) {
++			const e = event as unknown as GrokTextDeltaEvent;
++			// Grok may nest the text in delta, content, or text field
++			const text = e.delta ?? e.content ?? e.text ?? '';
++			if (!text) return null;
++			return {
++				type: 'text',
++				sessionId: e.session_id,
++				text,
++				isPartial: e.is_partial !== false, // default to partial for streaming deltas
++				raw: event,
++			};
++		}
++
++		// ---- Extended thinking / reasoning (Grok 4 Heavy) ----
++		if (type === EV_THINKING) {
++			const e = event as unknown as GrokThinkingEvent;
++			const text = e.delta ?? e.thinking ?? e.text ?? '';
++			if (!text) return null;
++			return {
++				type: 'text',
++				sessionId: e.session_id,
++				text,
++				isPartial: true,
++				raw: event,
++			};
++		}
++
++		// ---- Tool use ----
++		if (type === EV_TOOL_USE) {
++			const e = event as unknown as GrokToolUseEvent;
++			const toolName = e.tool ?? e.name ?? 'unknown_tool';
++			return {
++				type: 'tool_use',
++				sessionId: e.session_id,
++				toolName,
++				toolState: e.state ?? e.input,
++				raw: event,
++			};
++		}
++
++		// ---- Tool result ----
++		if (type === EV_TOOL_RESULT) {
++			// Surface as system event — tool results are context, not user-facing text
++			return {
++				type: 'system',
++				raw: event,
++			};
++		}
++
++		// ---- Final result with usage ----
++		if (type === EV_RESULT) {
++			const e = event as unknown as GrokResultEvent;
++			const text = e.result ?? e.text ?? '';
++			const usageBlock = e.usage ?? {};
++
++			const inputTokens = usageBlock.input_tokens ?? e.input_tokens ?? 0;
++			const outputTokens = usageBlock.output_tokens ?? e.output_tokens ?? 0;
++			const reasoningTokens = usageBlock.reasoning_tokens ?? e.reasoning_tokens;
++			const costUsd = usageBlock.cost_usd ?? usageBlock.total_cost ?? e.cost_usd ?? e.total_cost;
++
++			return {
++				type: 'result',
++				sessionId: e.session_id,
++				text,
++				usage: {
++					inputTokens,
++					outputTokens,
++					reasoningTokens,
++					costUsd,
++				},
++				raw: event,
++			};
++		}
++
++		// ---- Standalone usage event ----
++		if (type === EV_USAGE) {
++			const e = event as { usage?: GrokUsage } & GrokUsage;
++			const u = e.usage ?? e;
++			return {
++				type: 'usage',
++				usage: {
++					inputTokens: u.input_tokens ?? 0,
++					outputTokens: u.output_tokens ?? 0,
++					reasoningTokens: u.reasoning_tokens,
++					costUsd: u.cost_usd ?? u.total_cost,
++				},
++				raw: event,
++			};
++		}
++
++		// ---- Unknown event type — surface as system ----
++		// This ensures unknown events are visible in debug but don't pollute the UI.
++		return {
++			type: 'system',
++			raw: event,
++		};
++	}
++
++	isResultMessage(event: ParsedEvent): boolean {
++		return event.type === 'result';
++	}
++
++	extractSessionId(event: ParsedEvent): string | null {
++		return event.sessionId ?? null;
++	}
++
++	detectErrorFromLine(line: string): AgentError | null {
++		if (!line.trim()) return null;
++		const patterns = getErrorPatterns('grok-build');
++		if (!patterns) return null;
++		const match = matchErrorPattern(patterns, line);
++		if (!match) return null;
++		return {
++			...match,
++			agentId: 'grok-build',
++			timestamp: Date.now(),
++			raw: { errorLine: line },
++		};
++	}
++
++	detectErrorFromParsed(parsed: unknown): AgentError | null {
++		if (!parsed || typeof parsed !== 'object') return null;
++		// Extract the most informative text from the parsed object for pattern matching
++		const obj = parsed as Record<string, unknown>;
++		const errorText =
++			(typeof obj.message === 'string' ? obj.message : null) ??
++			(typeof obj.error === 'string' ? obj.error : null) ??
++			(typeof obj.text === 'string' ? obj.text : null) ??
++			JSON.stringify(parsed);
++		return this.detectErrorFromLine(errorText);
++	}
++}
+diff --git a/src/main/parsers/index.ts b/src/main/parsers/index.ts
+index 6b2f029..be48b04 100644
+--- a/src/main/parsers/index.ts
++++ b/src/main/parsers/index.ts
+@@ -58,6 +58,7 @@ import { OpenCodeOutputParser } from './opencode-output-parser';
+ import { CodexOutputParser } from './codex-output-parser';
+ import { FactoryDroidOutputParser } from './factory-droid-output-parser';
+ import { CopilotOutputParser } from './copilot-output-parser';
++import { GrokBuildOutputParser } from './grok-build-output-parser';
+ import {
+ 	registerOutputParser,
+ 	clearParserRegistry,
+@@ -70,6 +71,7 @@ export { ClaudeOutputParser } from './claude-output-parser';
+ export { OpenCodeOutputParser } from './opencode-output-parser';
+ export { CodexOutputParser } from './codex-output-parser';
+ export { FactoryDroidOutputParser } from './factory-droid-output-parser';
++export { GrokBuildOutputParser } from './grok-build-output-parser';
+ export { CopilotOutputParser } from './copilot-output-parser';
+ 
+ const LOG_CONTEXT = '[OutputParsers]';
+@@ -88,6 +90,7 @@ export function initializeOutputParsers(): void {
+ 	registerOutputParser(new CodexOutputParser());
+ 	registerOutputParser(new FactoryDroidOutputParser());
+ 	registerOutputParser(new CopilotOutputParser());
++	registerOutputParser(new GrokBuildOutputParser());
+ 
+ 	// Log registered parsers for debugging
+ 	const registeredParsers = getAllOutputParsers().map((p) => p.agentId);
+diff --git a/src/shared/agentConstants.ts b/src/shared/agentConstants.ts
+index 008b396..5679e73 100644
+--- a/src/shared/agentConstants.ts
++++ b/src/shared/agentConstants.ts
+@@ -20,6 +20,7 @@ export const DEFAULT_CONTEXT_WINDOWS: Partial<Record<AgentId, number>> = {
+ 	opencode: 128000, // OpenCode (depends on model, 128k is conservative default)
+ 	'factory-droid': 200000, // Factory Droid (varies by model, defaults to Claude Opus)
+ 	'copilot-cli': 200000, // Copilot-CLI (varies by model, defaults to Claude Sonnet)
++	'grok-build': 131072, // Grok Build conservative default; Grok 4 Heavy supports up to 2,000,000
+ 	terminal: 0, // Terminal has no context window
+ };
+ 
+diff --git a/src/shared/agentIds.ts b/src/shared/agentIds.ts
+index e137545..5d64240 100644
+--- a/src/shared/agentIds.ts
++++ b/src/shared/agentIds.ts
+@@ -22,6 +22,7 @@ export const AGENT_IDS = [
+ 	'opencode',
+ 	'factory-droid',
+ 	'copilot-cli',
++	'grok-build',
+ ] as const;
+ 
+ /**
+diff --git a/src/shared/agentMetadata.ts b/src/shared/agentMetadata.ts
+index e94c9cc..dda946f 100644
+--- a/src/shared/agentMetadata.ts
++++ b/src/shared/agentMetadata.ts
+@@ -23,6 +23,7 @@ export const AGENT_DISPLAY_NAMES: Record<AgentId, string> = {
+ 	opencode: 'OpenCode',
+ 	'factory-droid': 'Factory Droid',
+ 	'copilot-cli': 'Copilot-CLI',
++	'grok-build': 'Grok Build',
+ };
+ 
+ /**
+@@ -42,7 +43,11 @@ export function getAgentDisplayName(agentId: AgentId | string): string {
+  * These agents can still read files but the CLI calls it "plan mode".
+  * Other agents (Codex, Factory Droid) have true read-only enforcement.
+  */
+-const PLAN_MODE_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>(['claude-code', 'opencode']);
++const PLAN_MODE_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>([
++	'claude-code',
++	'opencode',
++	'grok-build',
++]);
+ 
+ /**
+  * Get the UI label for the read-only mode pill based on the agent.
+@@ -72,6 +77,7 @@ export const BETA_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>([
+ 	'opencode',
+ 	'factory-droid',
+ 	'copilot-cli',
++	'grok-build', // xAI Grok Build is in public beta (May 2026)
+ ]);
+ 
+ /**
+-- 
+2.43.0
+

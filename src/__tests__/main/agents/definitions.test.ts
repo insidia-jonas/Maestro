@@ -214,7 +214,7 @@ describe('agent-definitions', () => {
 			const gemini = getAgentDefinition('gemini-cli');
 			expect(gemini?.resumeArgs).toBeUndefined();
 			expect(gemini?.promptArgs).toBeUndefined();
-			expect(gemini?.batchModeArgs).toEqual(['--approval-mode', 'plan', '-p', '']);
+			expect(gemini?.batchModeArgs).toEqual(['-y', '-p', '']);
 			expect(gemini?.readOnlyArgs).toEqual(['-p', '', '--approval-mode', 'plan']);
 		});
 

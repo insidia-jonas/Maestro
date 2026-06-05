@@ -46,5 +46,14 @@ export function setupErrorListener(
 				agentError.sshRemoteId
 			);
 		}
+
+		// Gemini CLI uses Gaxios which retries 429s with exponential backoff endlessly.
+		// To prevent 30-minute hangs in group chats, we must terminate the process.
+		if (agentError.type === 'rate_limited' && agentError.agentId === 'gemini-cli') {
+			logger.warn(`Killing Gemini process to break Gaxios retry loop`, 'ProcessListener', {
+				sessionId,
+			});
+			processManager.kill(sessionId);
+		}
 	});
 }

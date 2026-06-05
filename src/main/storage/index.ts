@@ -11,6 +11,7 @@ export { CodexSessionStorage } from './codex-session-storage';
 export { FactoryDroidSessionStorage } from './factory-droid-session-storage';
 export { CopilotSessionStorage } from './copilot-session-storage';
 export { GeminiCliSessionStorage } from './gemini-cli-session-storage';
+export { GrokBuildSessionStorage } from './grok-build-session-storage';
 
 import Store from 'electron-store';
 import { registerSessionStorage } from '../agents';
@@ -20,6 +21,7 @@ import { CodexSessionStorage } from './codex-session-storage';
 import { FactoryDroidSessionStorage } from './factory-droid-session-storage';
 import { CopilotSessionStorage } from './copilot-session-storage';
 import { GeminiCliSessionStorage } from './gemini-cli-session-storage';
+import { GrokBuildSessionStorage } from './grok-build-session-storage';
 
 /**
  * Options for initializing session storages
@@ -42,4 +44,5 @@ export function initializeSessionStorages(options?: InitializeSessionStoragesOpt
 	registerSessionStorage(new FactoryDroidSessionStorage());
 	registerSessionStorage(new CopilotSessionStorage());
 	registerSessionStorage(new GeminiCliSessionStorage());
+	registerSessionStorage(new GrokBuildSessionStorage());
 }
