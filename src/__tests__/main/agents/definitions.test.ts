@@ -214,8 +214,9 @@ describe('agent-definitions', () => {
 			const gemini = getAgentDefinition('gemini-cli');
 			expect(gemini?.resumeArgs).toBeUndefined();
 			expect(gemini?.promptArgs).toBeUndefined();
-			expect(gemini?.batchModeArgs).toEqual(['-y', '-p', '']);
+			expect(gemini?.batchModeArgs).toEqual(['--approval-mode', 'yolo', '-p', '']);
 			expect(gemini?.readOnlyArgs).toEqual(['-p', '', '--approval-mode', 'plan']);
+			expect(gemini?.yoloModeArgs).toEqual(['-y']);
 		});
 
 		it('should have modelArgs function for opencode', () => {

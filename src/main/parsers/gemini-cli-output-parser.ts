@@ -170,10 +170,13 @@ export class GeminiCliOutputParser implements AgentOutputParser {
 
 			case 'tool_use': {
 				const toolName = (data as any).tool_name || 'unknown_tool';
+				// Emit as 'system' (not 'text') so that group-chat batch extraction
+				// (which collects only 'text' + 'result' events for the final participant/moderator
+				// response log) does not pollute the visible answer with transient tool progress notes.
+				// Live peek in group chat uses raw stdout chunks (which still contain the JSON),
+				// and normal single-agent UIs render tool events via the toolName/toolState fields.
 				return {
-					type: 'text', // Emitting as text so Group Chat users can see progress
-					text: `\n*[Gemini is using tool: ${toolName}]*\n`,
-					isPartial: true,
+					type: 'system',
 					toolName: toolName,
 					toolState: (data as any).parameters,
 					toolCallId: (data as any).tool_id,
