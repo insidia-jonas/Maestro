@@ -32,7 +32,7 @@ import { getErrorPatterns, matchErrorPattern } from './error-patterns';
  * Raw event structure from Gemini CLI stream-json output
  */
 interface GeminiStreamEvent {
-	type: 'init' | 'message' | 'result';
+	type: 'init' | 'message' | 'result' | 'tool_use' | 'tool_result' | 'tool_error';
 	timestamp?: string;
 	// Init fields
 	session_id?: string;
@@ -70,7 +70,10 @@ interface GeminiStreamEvent {
 function isGeminiStreamEvent(data: unknown): data is GeminiStreamEvent {
 	if (typeof data !== 'object' || data === null) return false;
 	const obj = data as Record<string, unknown>;
-	return typeof obj.type === 'string' && ['init', 'message', 'result'].includes(obj.type);
+	return (
+		typeof obj.type === 'string' &&
+		['init', 'message', 'result', 'tool_use', 'tool_result', 'tool_error'].includes(obj.type)
+	);
 }
 
 /**
@@ -88,18 +91,22 @@ export class GeminiCliOutputParser implements AgentOutputParser {
 	parseJsonLine(line: string): ParsedEvent | null {
 		if (!line.trim()) return null;
 
+		// Suppress YOLO mode warnings and other non-JSON noise from Gemini CLI
+		if (line.includes('YOLO mode is enabled')) {
+			return { type: 'system', raw: line };
+		}
+
 		try {
 			const parsed: unknown = JSON.parse(line);
 			return (
 				this.parseJsonObject(parsed) ?? {
-					type: 'text' as const,
-					text: line,
-					isPartial: true,
+					type: 'system' as const,
 					raw: parsed,
 				}
 			);
 		} catch {
 			if (line.trim()) {
+				// Non-JSON line — treat as text but mark partial
 				return { type: 'text', text: line, isPartial: true, raw: line };
 			}
 			return null;
@@ -128,6 +135,12 @@ export class GeminiCliOutputParser implements AgentOutputParser {
 
 			case 'result':
 				return this.parseResultEvent(data);
+
+			case 'tool_use':
+			case 'tool_result':
+			case 'tool_error':
+				// Gemini's internal tool usage should not leak as text
+				return { type: 'system', raw: data };
 
 			default:
 				return { type: 'system', raw: data };

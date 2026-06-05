@@ -539,8 +539,7 @@ export class ChildProcessSpawner {
 					sessionId,
 					promptLength: effectivePrompt.length,
 				});
-				childProcess.stdin?.write(effectivePrompt);
-				childProcess.stdin?.end();
+				childProcess.stdin?.end(effectivePrompt + '\n');
 			} else if (isStreamJsonMode && effectivePrompt && !promptAddedToArgs) {
 				// Stream-json mode: send the message via stdin as JSON.
 				// Only write when prompt was NOT already added to CLI args.
