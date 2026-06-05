@@ -152,10 +152,18 @@ export class ExitHandler {
 
 		// Check for errors using the parser (if not already emitted)
 		if (outputParser && !managedProcess.errorEmitted) {
+			// For agents with structured output parsers, prefer raw stdout/stderr buffers
+			// to avoid false positives from assistant content in streamedText.
+			// Only include streamedText as a fallback for agents that don't emit
+			// their own authoritative result events.
+			const useStreamedTextAsFallback = toolType !== 'gemini-cli' && toolType !== 'claude-code';
+
 			const agentError = outputParser.detectErrorFromExit(
 				code,
 				managedProcess.stderrBuffer || '',
-				managedProcess.stdoutBuffer || ''
+				managedProcess.stdoutBuffer ||
+					(useStreamedTextAsFallback ? managedProcess.streamedText : '') ||
+					''
 			);
 			if (agentError) {
 				managedProcess.errorEmitted = true;

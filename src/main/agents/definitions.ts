@@ -291,11 +291,11 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		name: 'Gemini CLI',
 		binaryName: 'gemini',
 		command: 'gemini',
-		args: ['--output-format', 'stream-json', '--skip-trust', '--no-sandbox'],
+		args: ['--output-format', 'stream-json', '--skip-trust'],
 		batchModePrefix: [],
 		// Keep Gemini in headless mode without passing the prompt as a long -p arg.
 		// The prompt body is sent via raw stdin by ChildProcessSpawner.
-		batchModeArgs: ['--approval-mode', 'yolo', '-p', ''],
+		batchModeArgs: ['-y', '-p', ''],
 		jsonOutputArgs: ['--output-format', 'stream-json'],
 		// resumeArgs disabled: Gemini CLI's --resume hangs on sessions from
 		// killed/crashed processes, causing zombie accumulation and OOM crashes.

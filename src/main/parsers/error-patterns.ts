@@ -1100,9 +1100,8 @@ const GEMINI_CLI_ERROR_PATTERNS: AgentErrorPatterns = {
 	],
 	rate_limited: [
 		{
-			// Broadened to catch various Gemini error formats while using word boundaries.
 			pattern:
-				/\b(?:rate_limited|quota_exceeded|resource_exhausted|429)\b|\brate\s?limit\b.*\b(?:exceeded|reached|hit)\b|\bquota\s?.*\bexceeded\b/i,
+				/\b(?:rate_limited|quota_exceeded|resource_exhausted|429)\b|\brate\s?limit\b.*\b(?:exceeded|reached|hit)\b/i,
 			message: 'Gemini API rate limit hit. Wait a moment and try again.',
 			recoverable: true,
 		},
@@ -1110,7 +1109,7 @@ const GEMINI_CLI_ERROR_PATTERNS: AgentErrorPatterns = {
 	token_exhaustion: [
 		{
 			pattern:
-				/\b(?:context_window_exceeded|input_too_large)\b|\bcontext\b.*\b(?:length|limit|window)\b.*\bexceeded\b|\binput\b.*\btoo\b.*\b(?:long|large)\b/i,
+				/\b(?:context_window_exceeded|input_too_large)\b|\bcontext\b.*(?:length|limit|window).*\bexceeded\b/i,
 			message: 'Gemini context window exceeded. Start a new session.',
 			recoverable: false,
 		},
@@ -1135,7 +1134,7 @@ const GEMINI_CLI_ERROR_PATTERNS: AgentErrorPatterns = {
 			recoverable: true,
 		},
 		{
-			pattern: /\b(?:SIGKILL|SIGTERM)\b|\bGemini\s?CLI\s?process\s?was\s?killed\b/i,
+			pattern: /\b(?:SIGKILL|SIGTERM)\b|\bprocess\s?was\s?killed\b/i,
 			message: 'Gemini CLI process was terminated.',
 			recoverable: true,
 		},
