@@ -96,6 +96,24 @@ export class GeminiCliOutputParser implements AgentOutputParser {
 			return { type: 'system', raw: line };
 		}
 
+		// Intercept Gaxios/retry error dumps which can be massive and contain the full prompt
+		if (
+			line.includes('Attempt') &&
+			line.includes('failed with status') &&
+			(line.includes('429') || line.includes('503'))
+		) {
+			return {
+				type: 'text',
+				text: '\n[Gemini API rate limit hit. Retrying with backoff...]\n',
+				isPartial: true,
+				raw: line,
+			};
+		}
+
+		if (line.includes('_GaxiosError') || line.includes('rateLimitExceeded')) {
+			return { type: 'system', raw: line };
+		}
+
 		try {
 			const parsed: unknown = JSON.parse(line);
 			return (
@@ -105,7 +123,18 @@ export class GeminiCliOutputParser implements AgentOutputParser {
 				}
 			);
 		} catch {
-			if (line.trim()) {
+			const trimmed = line.trim();
+			if (trimmed) {
+				// Suppress lines that look like part of a Node.js error dump
+				if (
+					trimmed.startsWith('at ') ||
+					trimmed.startsWith('config: {') ||
+					trimmed.startsWith('url: ') ||
+					trimmed.startsWith('method: ')
+				) {
+					return { type: 'system', raw: line };
+				}
+
 				// Non-JSON line — treat as text but mark partial
 				return { type: 'text', text: line, isPartial: true, raw: line };
 			}
@@ -136,10 +165,22 @@ export class GeminiCliOutputParser implements AgentOutputParser {
 			case 'result':
 				return this.parseResultEvent(data);
 
-			case 'tool_use':
+			case 'tool_use': {
+				const toolName = (data as any).tool_name || 'unknown_tool';
+				return {
+					type: 'text', // Emitting as text so Group Chat users can see progress
+					text: `\n*[Gemini is using tool: ${toolName}]*\n`,
+					isPartial: true,
+					toolName: toolName,
+					toolState: (data as any).parameters,
+					toolCallId: (data as any).tool_id,
+					sessionId: data.session_id,
+					raw: data,
+				};
+			}
 			case 'tool_result':
 			case 'tool_error':
-				// Gemini's internal tool usage should not leak as text
+				// We don't need to display the result body as text, but it's part of the tool lifecycle
 				return { type: 'system', raw: data };
 
 			default:
