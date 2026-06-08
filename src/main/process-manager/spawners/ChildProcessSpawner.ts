@@ -89,12 +89,10 @@ export class ChildProcessSpawner {
 		const argsHaveInputStreamJson = args.some(
 			(arg, i) => arg === 'stream-json' && i > 0 && args[i - 1] === '--input-format'
 		);
-		const forceRawPromptViaStdin = toolType === 'gemini-cli' && !!prompt && !config.sshStdinScript;
-		const promptViaStdin =
-			sendPromptViaStdin ||
-			sendPromptViaStdinRaw ||
-			forceRawPromptViaStdin ||
-			argsHaveInputStreamJson;
+		// Gemini no longer forced into raw-stdin. With promptArgs restored, it now follows the normal
+		// argument-based delivery path used by all other working agents (grok-build, claude-code, etc.).
+		// The previous forceRawPromptViaStdin experiment (introduced to "fix" Gemini) proved to be the source of the hang in this environment.
+		const promptViaStdin = sendPromptViaStdin || sendPromptViaStdinRaw || argsHaveInputStreamJson;
 
 		// Build final args based on batch mode and images
 		// Track whether the prompt was added to CLI args (used later to decide stdin behavior)
@@ -529,18 +527,38 @@ export class ChildProcessSpawner {
 				});
 				childProcess.stdin?.write(config.sshStdinScript);
 				childProcess.stdin?.end();
-			} else if ((sendPromptViaStdinRaw || forceRawPromptViaStdin) && effectivePrompt) {
-				// Raw stdin mode: send prompt as literal text (Windows raw stdin and Gemini CLI).
-				// Gemini CLI hangs on long -p arguments through Node's execve; using
-				// `-p ""` plus raw stdin follows the CLI's documented "stdin + prompt" path.
-				// Note: When sending via stdin, PowerShell treats the input as literal text,
-				// NOT as code to parse. No escaping is needed for special characters.
-				logger.debug('[ProcessManager] Sending raw prompt via stdin', 'ProcessManager', {
+			} else if (sendPromptViaStdinRaw && effectivePrompt) {
+				// Raw stdin mode: send prompt as literal text (primarily for Windows compatibility with certain agents).
+				const stdin = childProcess.stdin;
+				logger.info('[ProcessManager] Raw stdin delivery preflight', 'ProcessManager', {
 					sessionId,
 					promptLength: effectivePrompt.length,
+					hasStdin: !!stdin,
+					writable: stdin?.writable ?? false,
+					destroyed: stdin?.destroyed ?? false,
+					writableEnded: stdin?.writableEnded ?? false,
 				});
-				childProcess.stdin?.write(effectivePrompt);
-				childProcess.stdin?.end('\n');
+				if (stdin && stdin.writable && !stdin.destroyed) {
+					stdin.on('error', (err) => {
+						logger.error('[ProcessManager] stdin write error', 'ProcessManager', {
+							sessionId,
+							error: String(err),
+						});
+					});
+					stdin.end(effectivePrompt + '\n', () => {
+						logger.info('[ProcessManager] stdin delivery confirmed', 'ProcessManager', {
+							sessionId,
+							bytesWritten: effectivePrompt.length + 1,
+						});
+					});
+				} else {
+					logger.error('[ProcessManager] stdin NOT writable — prompt lost', 'ProcessManager', {
+						sessionId,
+						hasStdin: !!stdin,
+						writable: stdin?.writable ?? false,
+						destroyed: stdin?.destroyed ?? false,
+					});
+				}
 			} else if (isStreamJsonMode && effectivePrompt && !promptAddedToArgs) {
 				// Stream-json mode: send the message via stdin as JSON.
 				// Only write when prompt was NOT already added to CLI args.

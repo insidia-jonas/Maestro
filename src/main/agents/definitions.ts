@@ -293,9 +293,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		command: 'gemini',
 		args: ['--output-format', 'stream-json', '--skip-trust'],
 		batchModePrefix: [],
-		// Keep Gemini in headless mode without passing the prompt as a long -p arg.
-		// The prompt body is sent via raw stdin by ChildProcessSpawner.
-		batchModeArgs: ['--approval-mode', 'yolo', '-p', ''],
+		batchModeArgs: ['--approval-mode', 'yolo'],
 		jsonOutputArgs: ['--output-format', 'stream-json'],
 		// resumeArgs disabled: Gemini CLI's --resume hangs on sessions from
 		// killed/crashed processes, causing zombie accumulation and OOM crashes.
@@ -303,7 +301,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		resumeArgs: undefined,
 		// Gemini CLI supports --approval-mode plan for read-only mode (verified v0.44.1).
 		// This restricts the agent to read-only operations at the CLI level.
-		readOnlyArgs: ['-p', '', '--approval-mode', 'plan'],
+		readOnlyArgs: ['--approval-mode', 'plan'],
 		readOnlyCliEnforced: true, // CLI enforces read-only via --approval-mode plan
 		yoloModeArgs: ['-y'],
 		// Gemini CLI uses cwd (set by the spawner) as its workspace.
@@ -312,7 +310,13 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		workingDirArgs: undefined,
 		imageArgs: undefined,
 		modelArgs: (modelId: string) => ['-m', modelId],
-		promptArgs: undefined,
+		// Prompt via standard -p argument (same path used by grok-build, claude-code, codex, etc.).
+		// All other agents deliver the prompt as a CLI argument and work reliably in this Electron process.
+		// The previous experiment (forceRawPromptViaStdin + promptArgs: undefined + -p '') moved Gemini onto a unique
+		// raw-stdin path that proved unreliable here (prompt bytes written but never registered as user message by Gemini).
+		// Control evidence: grok-build successfully handles multi-KB prompts (including embedded diffs) via its -p path
+		// in the exact same running process. Re-aligning Gemini to the proven argument path.
+		promptArgs: (prompt: string) => ['-p', prompt],
 		configOptions: [
 			{
 				key: 'model',
