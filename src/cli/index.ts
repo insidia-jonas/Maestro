@@ -32,6 +32,7 @@ import {
 } from './commands/cue-pipeline';
 import { createAgent } from './commands/create-agent';
 import { removeAgent } from './commands/remove-agent';
+import { updateAgent } from './commands/update-agent';
 import { listSshRemotes } from './commands/list-ssh-remotes';
 import { createSshRemote } from './commands/create-ssh-remote';
 import { removeSshRemote } from './commands/remove-ssh-remote';
@@ -51,6 +52,7 @@ import { promptsGet, promptsList } from './commands/prompts-get';
 import { gistCreate } from './commands/gist';
 import { notifyToast } from './commands/notify-toast';
 import { notifyFlash } from './commands/notify-flash';
+import { stats, statsQuery } from './commands/stats';
 
 // Injected at build time by scripts/build-cli.mjs via esbuild `define`.
 // The typeof guard keeps non-esbuild execution paths (ts-node, plain tsc output) from
@@ -405,6 +407,23 @@ program
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(removeAgent);
 
+// Update agent command - mutate an existing agent's group and/or working
+// directory in place. Pass `--group none` to ungroup. Cwd updates are
+// refused while the agent process is alive (PTY cwd is fixed at spawn time).
+program
+	.command('update-agent <agent-id>')
+	.description("Update an existing agent's group and/or working directory")
+	.option(
+		'-g, --group <id>',
+		'Move the agent to this group (use "none" to ungroup; supports partial IDs)'
+	)
+	.option(
+		'-d, --cwd <path>',
+		"Change the agent's working directory (resolved to absolute; agent must be stopped)"
+	)
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(updateAgent);
+
 // Create SSH remote command - add a new SSH remote configuration
 program
 	.command('create-ssh-remote <name>')
@@ -551,6 +570,10 @@ notify
 	)
 	.option('-a, --agent <id>', 'Associate with an agent so clicking jumps to it')
 	.option(
+		'--source-agent <label>',
+		'Label shown in the toast header identifying which agent/pipeline fired it. Store-independent, so it shows even for cron/watchdog toasts. Wins over the name resolved from --agent; pair with --agent to also get click-to-jump'
+	)
+	.option(
 		'--tab <id>',
 		'AI tab ID within the agent — clicking jumps to that tab (requires --agent)'
 	)
@@ -578,6 +601,27 @@ notify
 	.option('-t, --timeout <seconds>', 'Auto-dismiss after N seconds (range: (0, 5]; default 1.5)')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(notifyFlash);
+
+// Stats commands - introspect the Usage Dashboard's SQLite store (requires the
+// running Maestro desktop app, which owns the open database).
+program
+	.command('stats')
+	.description('Show aggregated Usage Dashboard metrics for a time range')
+	.option('-r, --range <range>', 'Time range: day, week, month, quarter, year, all (default: week)')
+	.option('--json', 'Output the full aggregation object as JSON')
+	.action(stats);
+
+program
+	.command('stats-query <sql>')
+	.description('Run a read-only SQL query against the stats database (SELECT / read PRAGMA only)')
+	.option(
+		'-p, --param <value>',
+		'Bind a value to a positional ? placeholder (repeatable, in order)',
+		(value: string, prev: string[]) => [...prev, value],
+		[] as string[]
+	)
+	.option('--json', 'Output rows as JSON instead of a tab-separated table')
+	.action(statsQuery);
 
 // Commander auto-switches to from: 'electron' when process.versions.electron is
 // set, which is still true under ELECTRON_RUN_AS_NODE=1. In that mode Commander

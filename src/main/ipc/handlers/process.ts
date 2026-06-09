@@ -9,14 +9,12 @@ import * as path from 'path';
 import { ProcessManager } from '../../process-manager';
 import { AgentDetector } from '../../agents';
 import type { InteractiveReplayController } from '../../agents/claude-interactive-replay';
+import { stripThinkingFromTranscript } from '../../agents/claude-transcript-sanitizer';
 import type { ProcessConfig as ProcessSpawnConfig } from '../../process-manager/types';
 import { logger } from '../../utils/logger';
-import { selectMode } from '../../agents/claude-mode-selector';
-import { getMaestroPBinPath, isMaestroPBinaryPath } from '../../agents/claude-usage-startup';
-import {
-	getSnapshot as getUsageSnapshot,
-	resolveConfigDirKey,
-} from '../../stores/claudeUsageStore';
+import { resolveClaudeSpawnMode } from '../../agents/resolveClaudeSpawnMode';
+import { getClaudeTokenMode } from '../../../shared/claudeTokenMode';
+import { resolveConfigDirKey } from '../../stores/claudeUsageStore';
 import { isWindows } from '../../../shared/platformDetection';
 import { getChildProcesses } from '../../process-manager/utils/childProcessInfo';
 import { addBreadcrumb, captureException } from '../../utils/sentry';
@@ -33,11 +31,12 @@ import {
 	CreateHandlerOptions,
 } from '../../utils/ipcHandler';
 import { getSshRemoteConfig, createSshRemoteStoreAdapter } from '../../utils/ssh-remote-resolver';
+import { getPrompt } from '../../prompt-manager';
 import { shellEscape } from '../../utils/shell-escape';
 import { buildSshCommandWithStdin } from '../../utils/ssh-command-builder';
 import { buildStreamJsonMessage } from '../../process-manager/utils/streamJsonBuilder';
 import { getWindowsShellForAgentExecution } from '../../process-manager/utils/shellEscape';
-import { buildExpandedEnv } from '../../../shared/pathUtils';
+import { buildExpandedEnv, encodeClaudeProjectPath } from '../../../shared/pathUtils';
 import { resolveSshPath } from '../../utils/cliDetection';
 import type { SshRemoteConfig } from '../../../shared/types';
 import { powerManager } from '../../power-manager';
@@ -57,6 +56,48 @@ const handlerOpts = (
 	operation,
 	...extra,
 });
+
+/**
+ * Strip subscription-account thinking blocks from a Claude Code transcript before
+ * an API-mode `--resume` re-sends them.
+ *
+ * Interactive (maestro-p) turns persist thinking as signature-only shells bound
+ * to the Max-plan subscription account. Resuming them under the API token source
+ * trips Anthropic's "thinking blocks cannot be modified" 400 and poisons the
+ * conversation for every later `--resume`. Stripping is benign (thinking is
+ * ephemeral reasoning) and the only thing that resumes cleanly across the mode
+ * switch. Best-effort: a failure here just means the resume might still hit the
+ * 400, so it must never abort the spawn.
+ */
+function sanitizeClaudeTranscriptBeforeApiResume(args: {
+	configDirKey: string;
+	cwd: string;
+	agentSessionId: string;
+	sessionId: string;
+}): void {
+	const { configDirKey, cwd, agentSessionId, sessionId } = args;
+	try {
+		const transcriptPath = path.join(
+			configDirKey,
+			'projects',
+			encodeClaudeProjectPath(cwd),
+			`${agentSessionId}.jsonl`
+		);
+		const result = stripThinkingFromTranscript(transcriptPath);
+		if (result.sanitized) {
+			logger.info('Sanitized transcript thinking blocks before API resume', LOG_CONTEXT, {
+				sessionId,
+				droppedRows: result.droppedRows,
+				strippedBlocks: result.strippedBlocks,
+			});
+		}
+	} catch (err) {
+		logger.warn('Failed to sanitize transcript before API resume; continuing', LOG_CONTEXT, {
+			sessionId,
+			error: (err as Error).message,
+		});
+	}
+}
 
 // AgentConfigsData imported from stores/types
 
@@ -152,8 +193,13 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 				// the spawner picks between maestro-p (Time Limits / Max plan) and
 				// claude --print (API Limits) based on the latest usage snapshot.
 				enableMaestroP?: boolean;
+				// Refines the Adaptive opt-in: 'interactive' always drives the maestro-p
+				// TUI, 'dynamic' (default) auto-switches to API when over the usage
+				// limit. Authoritative value is read from the persisted session; this is
+				// only a fallback for callers that pass it inline.
+				maestroPMode?: 'interactive' | 'dynamic';
 				// Optional override for the maestro-p binary path. When unset/empty, the
-				// spawner falls back to the bundled `getMaestroPBinPath()` script.
+				// spawner falls back to the bundled maestro-p script.
 				maestroPPath?: string;
 				// System prompt delivery (separate from user message for token efficiency)
 				appendSystemPrompt?: string; // System prompt to pass via --append-system-prompt or embed in prompt
@@ -212,106 +258,62 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 				let claudeResolvedReason: 'auto' | 'limit' = 'auto';
 				let resolvedMaestroPBinPath: string | null = null;
 				let resolvedConfigDirKey: string | undefined;
+				// The real claude binary maestro-p should drive, as decided by the
+				// resolver. Consumed by the interactive command swap below.
+				let claudeDecisionRealBinPath: string | undefined;
 				const isClaudeCode =
 					agent?.id === 'claude-code' &&
 					!!agent?.interactiveCommand &&
 					!!agent?.interactiveModeArgs;
 				const isSshEnabled = !!config.sessionSshRemoteConfig?.enabled;
-				if (isClaudeCode && config.enableMaestroP && !isSshEnabled) {
-					const candidate =
-						(config.maestroPPath && config.maestroPPath.trim()) || getMaestroPBinPath();
-					if (candidate && fs.existsSync(candidate)) {
-						resolvedMaestroPBinPath = candidate;
-
-						// Look up the per-session usage snapshot under its CLAUDE_CONFIG_DIR.
-						// Build a minimal env that mirrors the spawn env precedence
-						// (session > agent defaults > process.env).
-						const claudeEnvForKey: NodeJS.ProcessEnv = {
-							...(process.env as NodeJS.ProcessEnv),
-							...(agent?.defaultEnvVars ?? {}),
-							...(config.sessionCustomEnvVars ?? {}),
-						};
-						resolvedConfigDirKey = resolveConfigDirKey(claudeEnvForKey);
-						const snapshot = getUsageSnapshot(resolvedConfigDirKey);
-
-						const persistedSessions = deps.sessionsStore.get('sessions', []) as Array<{
+				// Resolve the Claude token source (maestro-p TUI vs `claude --print`)
+				// through the shared resolver. Token-mode fields are read from the
+				// persisted session record (authoritative) with the spawn payload as
+				// a fallback, so every desktop spawn surface that reaches this handler
+				// (main turn, Auto Run, background synopsis) honors the per-agent
+				// selection. The resolver folds in the former three branches:
+				// dynamic/interactive selection, the direct-maestro-p-Path power-user
+				// case, and stale `claudeInteractive` cleanup.
+				if (isClaudeCode) {
+					const persistedSession = (
+						deps.sessionsStore.get('sessions', []) as Array<{
 							id?: string;
+							enableMaestroP?: boolean;
+							maestroPMode?: 'interactive' | 'dynamic';
+							maestroPPath?: string;
 							claudeInteractive?: {
 								mode?: 'interactive' | 'api';
 								modeReason?: 'auto' | 'limit';
 							};
-						}>;
-						const perTab = persistedSessions.find(
-							(s) => s?.id === config.sessionId
-						)?.claudeInteractive;
-						const decision = selectMode({
-							perTabReason: perTab?.modeReason === 'limit' ? 'limit' : 'auto',
-							usageSnapshot: snapshot,
-							now: new Date(),
-						});
-						claudeResolvedMode = decision.mode;
-						claudeResolvedReason = decision.reason;
-					} else {
-						logger.warn(
-							'Batch Mode enabled but no maestro-p binary found — falling back to API mode',
-							LOG_CONTEXT,
-							{ sessionId: config.sessionId, override: config.maestroPPath }
-						);
-					}
-				} else if (
-					isClaudeCode &&
-					!isSshEnabled &&
-					isMaestroPBinaryPath(config.sessionCustomPath)
-				) {
-					// Power-user setup: the agent's `Path` field points directly at a
-					// maestro-p binary instead of `claude`. Adaptive Mode's auto-resolver
-					// is off (we'd have taken the branch above), but maestro-p is what
-					// will actually run — so reflect that in the resolved mode so the
-					// TUI/API pill and the streamed renderStyle tag match reality. The
-					// spawn itself is left alone: the user opted in by pointing at the
-					// binary directly, so we don't wrap through `process.execPath` or
-					// thread `MAESTRO_CLAUDE_BIN` like the toggled-on path does.
-					claudeResolvedMode = 'interactive';
-					claudeResolvedReason = 'auto';
-					const claudeEnvForKey: NodeJS.ProcessEnv = {
-						...(process.env as NodeJS.ProcessEnv),
-						...(agent?.defaultEnvVars ?? {}),
-						...(config.sessionCustomEnvVars ?? {}),
-					};
-					resolvedConfigDirKey = resolveConfigDirKey(claudeEnvForKey);
-					logger.debug(
-						'Detected maestro-p binary in session custom path — tagging as interactive',
-						LOG_CONTEXT,
-						{ sessionId: config.sessionId, customPath: config.sessionCustomPath }
-					);
-				} else if (isClaudeCode && !isSshEnabled) {
-					// Stale-state cleanup. Neither Adaptive Mode nor a direct maestro-p
-					// Path applies, but this session may still carry `claudeInteractive
-					// .mode === 'interactive'` persisted from a prior turn (toggle was
-					// later flipped off, or the Path was switched back to vanilla
-					// claude). The renderer's renderStyle tagger reads that field
-					// every batch — leaving the stale value there would tag this
-					// API-mode spawn's output as TUI. Compute the config-dir key so
-					// the persistence/emit block downstream can write 'api' back.
-					const persistedSessions = deps.sessionsStore.get('sessions', []) as Array<{
-						id?: string;
-						claudeInteractive?: { mode?: 'interactive' | 'api' };
-					}>;
-					const persistedMode = persistedSessions.find((s) => s?.id === config.sessionId)
-						?.claudeInteractive?.mode;
-					if (persistedMode === 'interactive') {
-						const claudeEnvForKey: NodeJS.ProcessEnv = {
-							...(process.env as NodeJS.ProcessEnv),
-							...(agent?.defaultEnvVars ?? {}),
-							...(config.sessionCustomEnvVars ?? {}),
-						};
-						resolvedConfigDirKey = resolveConfigDirKey(claudeEnvForKey);
-						logger.debug(
-							'Clearing stale claudeInteractive=interactive — neither Adaptive Mode nor maestro-p Path active',
-							LOG_CONTEXT,
-							{ sessionId: config.sessionId }
-						);
-					}
+						}>
+					).find((s) => s?.id === config.sessionId);
+
+					const tokenMode = getClaudeTokenMode({
+						enableMaestroP: persistedSession?.enableMaestroP ?? config.enableMaestroP,
+						// Fall back to the inline config when the persisted lookup misses
+						// (e.g. background synopsis spawns under a synthetic sessionId that
+						// won't match any persisted session, so they forward the token-mode
+						// fields explicitly on the spawn payload).
+						maestroPMode: persistedSession?.maestroPMode ?? config.maestroPMode,
+					});
+
+					const decision = resolveClaudeSpawnMode({
+						agent,
+						tokenMode,
+						sshEnabled: isSshEnabled,
+						command: config.command,
+						sessionCustomPath: config.sessionCustomPath,
+						sessionCustomEnvVars: config.sessionCustomEnvVars,
+						maestroPPath: persistedSession?.maestroPPath ?? config.maestroPPath,
+						persisted: persistedSession?.claudeInteractive,
+						now: new Date(),
+					});
+
+					claudeResolvedMode = decision.mode;
+					claudeResolvedReason = decision.reason;
+					resolvedMaestroPBinPath = decision.maestroPBinPath;
+					resolvedConfigDirKey = decision.configDirKey;
+					claudeDecisionRealBinPath = decision.claudeRealBinPath;
 				}
 
 				// Pick the binary and arg list based on the resolved mode. Interactive
@@ -328,7 +330,8 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					agent?.interactiveModeArgs
 				) {
 					// Preserve the original claude path so maestro-p can find the TUI binary.
-					claudeRealBinPath = config.sessionCustomPath || config.command;
+					claudeRealBinPath =
+						claudeDecisionRealBinPath ?? config.sessionCustomPath ?? config.command;
 					effectiveCommand = process.execPath;
 					effectiveSessionCustomPath = undefined;
 					baseArgsForSpawn = [resolvedMaestroPBinPath, ...agent.interactiveModeArgs];
@@ -337,6 +340,36 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 						maestroPBin: resolvedMaestroPBinPath,
 						claudeRealBin: claudeRealBinPath,
 						configDirKey: resolvedConfigDirKey,
+					});
+				}
+
+				// Resuming a Claude Code conversation under the API token source? Strip
+				// any subscription-account thinking shells first. The sanitizer is
+				// narrowly scoped to empty-thinking blocks (maestro-p's signature-only
+				// shells); validly-signed API thinking blocks always carry non-empty
+				// reasoning text and are preserved, so this is safe to run on any
+				// transcript - including pure-API sessions that never touched
+				// Adaptive Mode. If `resolvedConfigDirKey` wasn't already computed
+				// (Batch Mode currently off, no maestro-p Path, no stale interactive
+				// state), compute it now so we can locate the transcript on disk.
+				if (
+					claudeResolvedMode === 'api' &&
+					config.agentSessionId &&
+					isClaudeCode &&
+					!isSshEnabled
+				) {
+					const configDirKey =
+						resolvedConfigDirKey ??
+						resolveConfigDirKey({
+							...(process.env as NodeJS.ProcessEnv),
+							...(agent?.defaultEnvVars ?? {}),
+							...(config.sessionCustomEnvVars ?? {}),
+						});
+					sanitizeClaudeTranscriptBeforeApiResume({
+						configDirKey,
+						cwd: config.cwd,
+						agentSessionId: config.agentSessionId,
+						sessionId: config.sessionId,
 					});
 				}
 
@@ -493,6 +526,42 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 								systemPromptLength: config.appendSystemPrompt.length,
 							}
 						);
+					}
+				}
+
+				// Copilot-CLI batch-mode preamble.
+				//
+				// Copilot's `-p` mode auto-flips into autopilot, where the model ends
+				// each run by calling the `task_complete` tool. The built-in autopilot
+				// system prompt biases the model toward calling that tool *early*,
+				// which manifests in Maestro as "the turn came back to me but the
+				// task wasn't actually done". The remedy isn't a CLI flag — it's a
+				// user-message preamble injected on every batch invocation that
+				// pushes back on premature completion and instructs the model to
+				// put its real conclusion in `task_complete.summary` (which is what
+				// CopilotShutdownWaiter.readCopilotFinalAnswer surfaces to the user).
+				//
+				// Repeated every turn intentionally: each batch spawn is a fresh
+				// Copilot process with its own system prompt reload, and the
+				// preamble has to ride in the user prompt to be in-context for
+				// that turn's reasoning. The text is user-editable via Maestro
+				// Prompts (`copilot-preamble`); an empty customization disables it.
+				if (agent?.id === 'copilot-cli' && effectivePrompt) {
+					try {
+						const preamble = getPrompt('copilot-preamble').trim();
+						if (preamble) {
+							effectivePrompt = `${preamble}\n\n${effectivePrompt}`;
+							logger.debug('Prepended copilot-preamble to user prompt', LOG_CONTEXT, {
+								preambleLength: preamble.length,
+							});
+						}
+					} catch (err) {
+						// Prompt not loaded yet (initializePrompts not called) — skip silently.
+						// This path is hit by tests that stub the IPC handler without bootstrapping
+						// prompts. Production code always runs initializePrompts() at app start.
+						logger.debug('copilot-preamble unavailable; skipping injection', LOG_CONTEXT, {
+							error: String(err),
+						});
 					}
 				}
 
@@ -1012,6 +1081,18 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 								}
 							} catch {
 								// Best-effort: stale agentSessionId is fine; resume will fall back to a new session.
+							}
+
+							// Sanitize the transcript we're about to `--resume` before the API
+							// turn re-sends it (see helper for the full thinking-block 400
+							// rationale). Best-effort: a failure must not abort the replay.
+							if (freshAgentSessionId) {
+								sanitizeClaudeTranscriptBeforeApiResume({
+									configDirKey: resolvedConfigDirKey,
+									cwd: originalConfig.cwd,
+									agentSessionId: freshAgentSessionId,
+									sessionId: originalConfig.sessionId,
+								});
 							}
 
 							const apiArgs = buildAgentArgs(originalAgent, {

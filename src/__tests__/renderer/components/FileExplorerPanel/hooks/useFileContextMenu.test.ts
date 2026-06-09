@@ -74,6 +74,7 @@ const defaultArgs = {
 	openRenameModal: vi.fn(),
 	openDeleteModal: vi.fn().mockResolvedValue(undefined),
 	openNewFileModal: vi.fn(),
+	openNewFolderModal: vi.fn(),
 	setSelectedFileIndex: vi.fn(),
 	selectedPathsRef: { current: new Set<string>() },
 	setSelectedPaths: vi.fn(),
@@ -290,6 +291,24 @@ describe('useFileContextMenu', () => {
 			result.current.handleOpenNewFile();
 		});
 		expect(openNewFileModal).toHaveBeenCalledWith('docs', '/project/docs');
+	});
+
+	it('handleOpenNewFolder dispatches to openNewFolderModal for folder', () => {
+		const openNewFolderModal = vi.fn();
+		const { result } = renderHook(() => useFileContextMenu({ ...defaultArgs, openNewFolderModal }));
+		const e = {
+			clientX: 10,
+			clientY: 10,
+			preventDefault: vi.fn(),
+			stopPropagation: vi.fn(),
+		} as unknown as React.MouseEvent;
+		act(() => {
+			result.current.openContextMenu(e, folderNode, 'docs', 0);
+		});
+		act(() => {
+			result.current.handleOpenNewFolder();
+		});
+		expect(openNewFolderModal).toHaveBeenCalledWith('docs', '/project/docs');
 	});
 
 	it('handleOpenInMaestroBrowser encodes the file:// URL', () => {

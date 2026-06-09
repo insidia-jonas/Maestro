@@ -1,5 +1,15 @@
 import React, { useState, useCallback, useRef, memo } from 'react';
-import { X, ChevronDown, ChevronUp, GripVertical, Copy, Check, Hammer } from 'lucide-react';
+import {
+	X,
+	ChevronDown,
+	ChevronUp,
+	GripVertical,
+	Copy,
+	Check,
+	Hammer,
+	Pause,
+	Play,
+} from 'lucide-react';
 import type { Theme, QueuedItem } from '../types';
 import { safeClipboardWrite } from '../utils/clipboard';
 import { Modal, ModalFooter } from './ui/Modal';
@@ -19,6 +29,7 @@ interface QueuedItemsListProps {
 	executionQueue: QueuedItem[];
 	theme: Theme;
 	onRemoveQueuedItem?: (itemId: string) => void;
+	onTogglePauseQueuedItem?: (itemId: string) => void;
 	onReorderItems?: (fromIndex: number, toIndex: number) => void;
 	activeTabId?: string; // If provided, only show queued items for this tab
 	// Force Send support: when forcedParallelExecution is enabled, allow the user
@@ -49,6 +60,7 @@ export const QueuedItemsList = memo(
 		executionQueue,
 		theme,
 		onRemoveQueuedItem,
+		onTogglePauseQueuedItem,
 		onReorderItems,
 		activeTabId,
 		forcedParallelEnabled = false,
@@ -212,6 +224,7 @@ export const QueuedItemsList = memo(
 					const isQueuedExpanded = expandedQueuedMessages.has(item.id);
 					const isDragging = dragIndex === index;
 					const isDropTarget = dropIndex === index;
+					const isPaused = !!item.paused;
 
 					// Force Send visibility: setting enabled, item not already forceParallel,
 					// a handler is wired, the target tab is idle (force-parallel only helps
@@ -239,18 +252,12 @@ export const QueuedItemsList = memo(
 							onDragLeave={handleDragLeave}
 							className="mx-6 mb-2 p-3 rounded-lg relative group transition-all flex flex-col"
 							style={{
-								// Reserve enough vertical room for the stacked top-right
-								// Remove (X) and Copy buttons, plus the bottom-right Force
-								// Send button when shown, without overlap.
-								// X+Copy stack: 8 + 24 + 4 + 22 = 58px from top.
-								// Force Send (pushed to bottom via mt-auto): ~28px button.
-								minHeight: showForceSendButton ? '7rem' : '4.25rem',
 								backgroundColor:
 									item.type === 'command'
 										? theme.colors.success + '20'
 										: theme.colors.accent + '20',
 								borderLeft: `3px solid ${item.type === 'command' ? theme.colors.success : theme.colors.accent}`,
-								opacity: isDragging ? 0.4 : 0.6,
+								opacity: isDragging ? 0.4 : isPaused ? 0.35 : 0.6,
 								transform: isDropTarget ? 'translateY(4px)' : 'none',
 								boxShadow: isDropTarget ? `0 -2px 0 0 ${theme.colors.accent}` : 'none',
 								cursor: canDrag ? 'grab' : 'default',
@@ -266,35 +273,24 @@ export const QueuedItemsList = memo(
 								</div>
 							)}
 
-							{/* Top-right: Remove button */}
-							<button
-								onClick={() => setQueueRemoveConfirmId(item.id)}
-								className="absolute top-2 right-2 p-1 rounded hover:bg-black/20 transition-colors opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-								style={{ color: theme.colors.textDim }}
-								title="Remove from queue"
-							>
-								<X className="w-4 h-4" />
-							</button>
-
-							{/* Copy button - directly under the Remove (X) button */}
-							<button
-								onClick={() => handleCopy(item)}
-								className="absolute top-9 right-2 p-1 rounded hover:bg-black/20 transition-colors opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-								style={{
-									color: copiedItemId === item.id ? theme.colors.success : theme.colors.textDim,
-								}}
-								title="Copy to clipboard"
-							>
-								{copiedItemId === item.id ? (
-									<Check className="w-3.5 h-3.5" />
-								) : (
-									<Copy className="w-3.5 h-3.5" />
-								)}
-							</button>
+							{/* HELD badge for paused items */}
+							{isPaused && (
+								<div className={canDrag ? 'pl-4 mb-1.5' : 'mb-1.5'}>
+									<span
+										className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider"
+										style={{
+											backgroundColor: theme.colors.warning + '33',
+											color: theme.colors.warning,
+										}}
+									>
+										HELD
+									</span>
+								</div>
+							)}
 
 							{/* Item content */}
 							<div
-								className={`text-sm pr-8 whitespace-pre-wrap break-words ${canDrag ? 'pl-4' : ''}`}
+								className={`text-sm whitespace-pre-wrap break-words ${canDrag ? 'pl-4' : ''}`}
 								style={{ color: theme.colors.textMain }}
 							>
 								{item.type === 'command' && (
@@ -352,9 +348,11 @@ export const QueuedItemsList = memo(
 								</div>
 							)}
 
-							{/* Bottom-right: Force Send button (mt-auto pushes to bottom of flex column) */}
-							{showForceSendButton && (
-								<div className="mt-auto pt-2 flex justify-end">
+							{/* Bottom footer: Force Send anchored bottom-left, control
+							    buttons anchored bottom-right (always visible). mt-auto
+							    pushes the row to the bottom of the flex column. */}
+							<div className="mt-auto pt-2 flex items-center gap-2">
+								{showForceSendButton && (
 									<button
 										onClick={() => setForceSendConfirmId(item.id)}
 										className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity"
@@ -367,8 +365,56 @@ export const QueuedItemsList = memo(
 										<Hammer className="w-3.5 h-3.5" />
 										Force Send
 									</button>
+								)}
+
+								<div className="ml-auto flex items-center gap-1">
+									{/* Copy button */}
+									<button
+										onClick={() => handleCopy(item)}
+										className="p-1 rounded hover:bg-black/20 transition-colors"
+										style={{
+											color: copiedItemId === item.id ? theme.colors.success : theme.colors.textDim,
+										}}
+										title="Copy to clipboard"
+									>
+										{copiedItemId === item.id ? (
+											<Check className="w-3.5 h-3.5" />
+										) : (
+											<Copy className="w-3.5 h-3.5" />
+										)}
+									</button>
+
+									{/* Hold/Resume button */}
+									{onTogglePauseQueuedItem && (
+										<button
+											onClick={() => onTogglePauseQueuedItem(item.id)}
+											className="p-1 rounded hover:bg-black/20 transition-colors"
+											style={{ color: isPaused ? theme.colors.warning : theme.colors.textDim }}
+											title={
+												isPaused
+													? 'Resume this message (let it run when its turn comes)'
+													: 'Hold this message (skip it until you resume)'
+											}
+										>
+											{isPaused ? (
+												<Play className="w-3.5 h-3.5" />
+											) : (
+												<Pause className="w-3.5 h-3.5" />
+											)}
+										</button>
+									)}
+
+									{/* Remove button */}
+									<button
+										onClick={() => setQueueRemoveConfirmId(item.id)}
+										className="p-1 rounded hover:bg-black/20 transition-colors"
+										style={{ color: theme.colors.textDim }}
+										title="Remove from queue"
+									>
+										<X className="w-4 h-4" />
+									</button>
 								</div>
-							)}
+							</div>
 						</div>
 					);
 				})}

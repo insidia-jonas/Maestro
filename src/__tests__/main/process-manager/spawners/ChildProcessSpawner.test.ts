@@ -90,6 +90,13 @@ vi.mock('../../../../main/process-manager/utils/shellEscape', () => ({
 	isPowerShellShell: vi.fn(() => false),
 }));
 
+// Default to non-Windows; individual tests opt into Windows via mockReturnValue(true).
+vi.mock('../../../../shared/platformDetection', () => ({
+	isWindows: vi.fn(() => false),
+	isMacOS: vi.fn(() => false),
+	isLinux: vi.fn(() => false),
+}));
+
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import { ChildProcessSpawner } from '../../../../main/process-manager/spawners/ChildProcessSpawner';
@@ -99,6 +106,7 @@ import { buildChildProcessEnv } from '../../../../main/process-manager/utils/env
 import { buildStreamJsonMessage } from '../../../../main/process-manager/utils/streamJsonBuilder';
 import { saveImageToTempFile } from '../../../../main/process-manager/utils/imageUtils';
 import { createOutputParser } from '../../../../main/parsers';
+import { isWindows } from '../../../../shared/platformDetection';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

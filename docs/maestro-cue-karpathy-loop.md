@@ -1,10 +1,10 @@
 ---
 title: 'Case Study: The Karpathy Loop'
-description: Build a self-improving agent on top of Cue — score every run, detect drift, propose program edits, apply on approval.
+description: Build a self-improving agent on top of Cue - score every run, detect drift, propose program edits, apply on approval.
 icon: brain
 ---
 
-This is a case study, not a built-in feature. It shows how to assemble a self-improving agent — sometimes called a **Karpathy Loop**, after Andrej Karpathy's [AutoResearch](https://github.com/karpathy/autoresearch) project — using nothing but existing Cue primitives: `agent.completed` chains, `time.scheduled` triggers, `file.changed` watches, and an agent that can edit markdown files.
+This is a case study, not a built-in feature. It shows how to assemble a self-improving agent - sometimes called a **Karpathy Loop**, after Andrej Karpathy's [AutoResearch](https://github.com/karpathy/autoresearch) project - using nothing but existing Cue primitives: `agent.completed` chains, `time.scheduled` triggers, `file.changed` watches, and an agent that can edit markdown files.
 
 The result: an agent guided by a `program.md` file that states its objective and evaluation criteria, evaluated after every run, with periodic trend analysis that drafts proposed program edits for you to approve.
 
@@ -24,10 +24,10 @@ you approve → applier edits program.md → loop
 
 The substrate Cue gives you for free:
 
-- **Score every run** — an `agent.completed` chain fires an evaluator after each run.
-- **Detect drift** — a weekly `time.scheduled` chain reads the score history and drafts proposals.
-- **Approval gate** — a `file.changed` watch on the proposals folder fires when you check the approval box.
-- **Self-modification** — the applier is just another agent; agents can edit files.
+- **Score every run** - an `agent.completed` chain fires an evaluator after each run.
+- **Detect drift** - a weekly `time.scheduled` chain reads the score history and drafts proposals.
+- **Approval gate** - a `file.changed` watch on the proposals folder fires when you check the approval box.
+- **Self-modification** - the applier is just another agent; agents can edit files.
 
 What you give up vs. a purpose-built system: no SQLite query layer, no dashboard for trends, and you have to work around the 5000-char `{{CUE_SOURCE_OUTPUT}}` cap. Workarounds are below.
 
@@ -56,10 +56,10 @@ Monitor the competitive landscape and surface actionable intelligence for Acme R
 
 ## Evaluation Criteria
 
-- **Signal quality (0.0–1.0):** Are insights specific and sourced?
-- **Actionability (0.0–1.0):** Does each insight suggest a concrete next step?
-- **Coverage (0.0–1.0):** Are all tracked competitors represented?
-- **Timeliness (0.0–1.0):** Are signals surfaced within 24 hours of the event?
+- **Signal quality (0.0-1.0):** Are insights specific and sourced?
+- **Actionability (0.0-1.0):** Does each insight suggest a concrete next step?
+- **Coverage (0.0-1.0):** Are all tracked competitors represented?
+- **Timeliness (0.0-1.0):** Are signals surfaced within 24 hours of the event?
 
 ## Improvement Loop
 
@@ -68,14 +68,14 @@ Monitor the competitive landscape and surface actionable intelligence for Acme R
 - If signal quality drops, tighten sourcing requirements.
 ```
 
-The **Evaluation Criteria** and **Improvement Loop** sections are what drive the loop. Be specific — vague criteria produce vague evaluations and meaningless trend lines.
+The **Evaluation Criteria** and **Improvement Loop** sections are what drive the loop. Be specific - vague criteria produce vague evaluations and meaningless trend lines.
 
 ## The Pipeline
 
-Three chains in one pipeline. Replace `<remy-agent-id>`, `<evaluator-agent-id>`, `<analyst-agent-id>`, and `<applier-agent-id>` with real agent UUIDs (`maestro-cli list agents`). The four agents can be the same model — they just need separate sessions so their contexts stay clean.
+Three chains in one pipeline. Replace `<remy-agent-id>`, `<evaluator-agent-id>`, `<analyst-agent-id>`, and `<applier-agent-id>` with real agent UUIDs (`maestro-cli list agents`). The four agents can be the same model - they just need separate sessions so their contexts stay clean.
 
 ```yaml
-# Pipeline: Karpathy Loop — Remy (color: #f59e0b)
+# Pipeline: Karpathy Loop - Remy (color: #f59e0b)
 
 subscriptions:
   # ────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ subscriptions:
   # Chain 2: score every run
   # ────────────────────────────────────────────────────────────
   - name: evaluate-remy-run
-    pipeline_name: Karpathy Loop — Remy
+    pipeline_name: Karpathy Loop - Remy
     event: agent.completed
     source_session: remy
     agent_id: <evaluator-agent-id>
@@ -102,7 +102,7 @@ subscriptions:
         - ./program.md  (focus on the "Evaluation Criteria" section)
         - ./runs/{{CUE_RUN_ID}}.md  (the full transcript remy wrote at end-of-run)
 
-      Score each criterion in program.md on a 0.0–1.0 scale. Justify
+      Score each criterion in program.md on a 0.0-1.0 scale. Justify
       each score in one sentence, citing the transcript.
 
       Append exactly one JSON line to ./evaluations.jsonl with this shape:
@@ -122,7 +122,7 @@ subscriptions:
   # Chain 3: weekly drift analysis → draft a proposal
   # ────────────────────────────────────────────────────────────
   - name: detect-drift-remy
-    pipeline_name: Karpathy Loop — Remy
+    pipeline_name: Karpathy Loop - Remy
     event: time.scheduled
     schedule_times: ['09:00']
     schedule_days: [mon]
@@ -138,7 +138,7 @@ subscriptions:
         - Any criterion whose 7-day avg is consistently below 0.6.
         - Any criterion the evaluator's "notes" repeatedly flag.
 
-      If nothing notable, do nothing — exit quietly.
+      If nothing notable, do nothing - exit quietly.
 
       If something is notable, draft a proposal at
       ./proposals/{{DATE}}-<short-slug>.md with this exact template:
@@ -171,11 +171,11 @@ subscriptions:
   # ────────────────────────────────────────────────────────────
   # Chain 4: apply an approved proposal
   # ────────────────────────────────────────────────────────────
-  # task.pending fires on UNCHECKED tasks — we want the transition
+  # task.pending fires on UNCHECKED tasks - we want the transition
   # from unchecked to checked, so we watch the file for changes and
   # the applier inspects the checkbox state itself.
   - name: apply-approved-proposal
-    pipeline_name: Karpathy Loop — Remy
+    pipeline_name: Karpathy Loop - Remy
     event: file.changed
     watch: 'proposals/*.md'
     agent_id: <applier-agent-id>
@@ -250,7 +250,7 @@ Chain 2 fires after every run. If Remy runs hourly and your evaluator costs ~$0.
 
 ```yaml
 - name: sample-gate-remy
-  pipeline_name: Karpathy Loop — Remy
+  pipeline_name: Karpathy Loop - Remy
   event: agent.completed
   source_session: remy
   action: command
@@ -268,7 +268,7 @@ Then change the evaluator's trigger to chain off the gate node (set `source_sub:
 
 This pattern is a faithful implementation of the loop concept, but a few things a dedicated platform would give you are missing:
 
-- **No SQLite-backed query layer.** `evaluations.jsonl` is fine for one agent; at fleet scale you'd want indexed queries. The analyst handles this by reading the whole file each run — workable up to a few thousand entries.
+- **No SQLite-backed query layer.** `evaluations.jsonl` is fine for one agent; at fleet scale you'd want indexed queries. The analyst handles this by reading the whole file each run - workable up to a few thousand entries.
 - **No dashboard.** Trends live in the analyst's weekly report. Maestro's Document Graph can help you navigate proposals + evaluations via `[[wiki]]` links if you author the markdown that way.
 - **No program inheritance.** Sentinel models org → team → agent program inheritance. This pattern is single-agent.
 - **No automated alignment checks.** The "is the agent actually following program.md" question is implicitly handled by the evaluator scoring against criteria. A dedicated alignment-checker pass (its own chain) is straightforward to add if you want one.
@@ -277,17 +277,17 @@ This pattern is a faithful implementation of the loop concept, but a few things 
 
 The case study uses a research agent ("Remy"), but the loop is the same shape for any agent whose quality is measurable:
 
-- **Code review agent** — criteria: false-positive rate, severity calibration, fix actionability.
-- **Daily briefing agent** — criteria: relevance, signal-to-noise, brevity.
-- **Triage agent** — criteria: label accuracy, reviewer-suggestion fit, response time.
+- **Code review agent** - criteria: false-positive rate, severity calibration, fix actionability.
+- **Daily briefing agent** - criteria: relevance, signal-to-noise, brevity.
+- **Triage agent** - criteria: label accuracy, reviewer-suggestion fit, response time.
 
 Swap the evaluator's prompt to reference the new agent's `program.md` and you're done. The analyst and applier are agent-agnostic.
 
 ## See Also
 
-- [Case Study: Maestro Marketing Pipeline](/maestro-cue-marketing-example) — what this pattern looks like in production, with eight chains driving the @RunMaestroAI X account.
-- [Cue Configuration](/maestro-cue-configuration) — full subscription schema.
-- [Cue Advanced Patterns](/maestro-cue-advanced) — fan-in, fan-out, command nodes, template variables.
-- [Cue Examples](/maestro-cue-examples) — copy-paste-ready pipelines for common workflows.
-- Karpathy's [AutoResearch](https://github.com/karpathy/autoresearch) — the original inspiration.
-- [Sentinel](https://github.com/stephanchenette/sentinel) — a standalone implementation of the same idea with a built-in dashboard and SQLite-backed eval store.
+- [Case Study: Maestro Marketing Pipeline](/maestro-cue-marketing-example) - what this pattern looks like in production, with eight chains driving the @RunMaestroAI X account.
+- [Cue Configuration](/maestro-cue-configuration) - full subscription schema.
+- [Cue Advanced Patterns](/maestro-cue-advanced) - fan-in, fan-out, command nodes, template variables.
+- [Cue Examples](/maestro-cue-examples) - copy-paste-ready pipelines for common workflows.
+- Karpathy's [AutoResearch](https://github.com/karpathy/autoresearch) - the original inspiration.
+- [Sentinel](https://github.com/stephanchenette/sentinel) - a standalone implementation of the same idea with a built-in dashboard and SQLite-backed eval store.

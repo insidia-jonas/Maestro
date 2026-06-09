@@ -1178,6 +1178,31 @@ export function createProcessApi() {
 		},
 
 		/**
+		 * Subscribe to remote update session cwd from CLI/web.
+		 * Uses request-response pattern with a unique responseChannel; the
+		 * renderer responds with { success, error? } so the caller can surface
+		 * the reason a cwd change was refused (e.g. agent still running).
+		 */
+		onRemoteUpdateSessionCwd: (
+			callback: (sessionId: string, newCwd: string, responseChannel: string) => void
+		): (() => void) => {
+			const handler = (_: unknown, sessionId: string, newCwd: string, responseChannel: string) =>
+				callback(sessionId, newCwd, responseChannel);
+			ipcRenderer.on('remote:updateSessionCwd', handler);
+			return () => ipcRenderer.removeListener('remote:updateSessionCwd', handler);
+		},
+
+		/**
+		 * Send response for remote update session cwd
+		 */
+		sendRemoteUpdateSessionCwdResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		): void => {
+			ipcRenderer.send(responseChannel, result);
+		},
+
+		/**
 		 * Subscribe to remote create group from web interface
 		 * Uses request-response pattern with a unique responseChannel
 		 */

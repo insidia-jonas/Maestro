@@ -622,7 +622,7 @@ describe('AutoRunExpandedModal', () => {
 				toggleAutoRunExpanded: {
 					id: 'toggleAutoRunExpanded',
 					name: 'Auto Run Expanded Preview',
-					keys: ['Meta', 'Shift', '2'],
+					keys: ['Meta', 'Shift', 'e'],
 				},
 			};
 
@@ -632,7 +632,7 @@ describe('AutoRunExpandedModal', () => {
 			const collapseButton = screen.getByRole('button', { name: /collapse/i });
 			expect(collapseButton).toHaveAttribute(
 				'title',
-				`Collapse (${formatShortcutKeys(['Meta', 'Shift', '2'])})`
+				`Collapse (${formatShortcutKeys(['Meta', 'Shift', 'e'])})`
 			);
 		});
 

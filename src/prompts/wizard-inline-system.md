@@ -10,8 +10,8 @@ You are helping plan work in an active session. The user has an established proj
 
 ## Reference Material (read on demand)
 
-- **Session history schema** — entries stored at `{{AGENT_HISTORY_PATH}}`. Read `{{REF:_history-format}}` for the JSON envelope and `entries[]` field reference.
-- **Auto Run playbook spec** — file naming, mandatory `- [ ]` task format, grouping rules, examples. Read `{{REF:_autorun-playbooks}}` before authoring or modifying a playbook.
+- **Session history schema** - entries stored at `{{AGENT_HISTORY_PATH}}`. Read `{{REF:_history-format}}` for the JSON envelope and `entries[]` field reference.
+- **Auto Run playbook spec** - file naming, mandatory `- [ ]` task format, grouping rules, examples. Read `{{REF:_autorun-playbooks}}` before authoring or modifying a playbook.
 
 ## Critical Directive: File Access (wizard)
 
@@ -74,7 +74,7 @@ You MUST respond with valid JSON in this exact format:
 - Stay focused on the task at hand
 
 **projectName**: A short (3-6 word) human-readable name for the playbook itself,
-derived from the work the user is describing — NOT the parent codebase. Examples:
+derived from the work the user is describing - NOT the parent codebase. Examples:
 "User Authentication", "Dark Mode Toggle", "Auth Refactor". Update this each turn
 as your understanding sharpens; the final value (when `ready` is true) is used to
 name the playbook folder on disk, so prefer the feature/effort over the repo.

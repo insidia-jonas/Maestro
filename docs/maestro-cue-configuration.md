@@ -20,13 +20,13 @@ your-project/
 Maestro discovers this file automatically when the Cue Encore Feature is enabled. Each agent that has a `.maestro/cue.yaml` in its project root gets its own independent Cue engine instance.
 
 <Note>
-**One cue.yaml per agent project root.** The engine reads ONLY `<projectRoot>/.maestro/cue.yaml` for each agent — it does not walk parent directories and does not fall back to any ancestor or workspace-wide config. If your fleet has agents at multiple project roots, you maintain one cue.yaml per root. See [Multi-root pipelines](#multi-root-pipelines-agents-in-different-project-roots) below.
+**One cue.yaml per agent project root.** The engine reads ONLY `<projectRoot>/.maestro/cue.yaml` for each agent - it does not walk parent directories and does not fall back to any ancestor or workspace-wide config. If your fleet has agents at multiple project roots, you maintain one cue.yaml per root. See [Multi-root pipelines](#multi-root-pipelines-agents-in-different-project-roots) below.
 </Note>
 
 ## Full Schema
 
 ```yaml
-# Pipeline comment — groups subscriptions into a named pipeline in the UI
+# Pipeline comment - groups subscriptions into a named pipeline in the UI
 # Pipeline: My Pipeline (color: #06b6d4)
 
 # Subscriptions define trigger-prompt pairings
@@ -47,15 +47,15 @@ subscriptions:
     schedule_days: list # Optional for time.scheduled (mon, tue, wed, thu, fri, sat, sun)
     watch: string # Required for file.changed, task.pending (glob pattern)
     source_session: string | list # Required for agent.completed (display name or list of names)
-    source_session_ids: string | list # Optional companion to source_session — agent UUID(s). Preferred at runtime; survives renames
-    source_sub: string | list # Optional. Upstream subscription name(s) — required when action is "command". Aligns positionally with source_session arrays
+    source_session_ids: string | list # Optional companion to source_session - agent UUID(s). Preferred at runtime; survives renames
+    source_sub: string | list # Optional. Upstream subscription name(s) - required when action is "command". Aligns positionally with source_session arrays
     fan_out: list # Optional. Target agent display names for fan-out
-    fan_out_ids: list # Optional companion to fan_out — agent UUIDs (parallel array). Preferred at runtime; survives renames
+    fan_out_ids: list # Optional companion to fan_out - agent UUIDs (parallel array). Preferred at runtime; survives renames
     filter: object # Optional. Payload field conditions
     repo: string # Optional for github.* (auto-detected if omitted)
     poll_minutes: number # Optional for github.*, task.pending
 
-# Global settings (all optional — sensible defaults applied)
+# Global settings (all optional - sensible defaults applied)
 settings:
   timeout_minutes: number # Default: 30. Max run duration before timeout
   timeout_on_fail: string # Default: 'break'. What to do on timeout: 'break' or 'continue'
@@ -68,19 +68,19 @@ settings:
 
 When two or more agents are registered against the same project directory (for example, one agent using Opus and another using Sonnet, both pointing at the same vault), every _unowned_ subscription (one without an explicit `agent_id`) would otherwise fire once per agent. Maestro resolves this as follows:
 
-- **`settings.owner_agent_id` set and matched by some agent in the root** — that agent is the owner; other agents in the same root skip unowned subscriptions.
-- **`settings.owner_agent_id` set but matched by nobody** — the config is dead. Every agent in that project root skips unowned subscriptions, and each row in the Cue dashboard is flagged with a red warning linking to this setting.
-- **`settings.owner_agent_id` unset and multiple agents share the root** — the first agent in the session list wins. Non-winner rows in the Cue dashboard are flagged with a red warning naming the winner and pointing to `owner_agent_id` as the override.
+- **`settings.owner_agent_id` set and matched by some agent in the root** - that agent is the owner; other agents in the same root skip unowned subscriptions.
+- **`settings.owner_agent_id` set but matched by nobody** - the config is dead. Every agent in that project root skips unowned subscriptions, and each row in the Cue dashboard is flagged with a red warning linking to this setting.
+- **`settings.owner_agent_id` unset and multiple agents share the root** - the first agent in the session list wins. Non-winner rows in the Cue dashboard are flagged with a red warning naming the winner and pointing to `owner_agent_id` as the override.
 
 Accepted values for `owner_agent_id`: the agent's internal id (UUID) **or** its display name (e.g. `Obsidian`).
 
-Subscriptions with an explicit `agent_id` continue to fan out independently of ownership — useful when a single shared config intentionally targets multiple agents in the same workspace.
+Subscriptions with an explicit `agent_id` continue to fan out independently of ownership - useful when a single shared config intentionally targets multiple agents in the same workspace.
 
 ## Multi-root pipelines (agents in different project roots)
 
-When a pipeline spans agents that live in **different** project roots, it is physically multiple cue.yaml files — one per participating agent's project root. The engine never aggregates yaml across roots, so a "single root cue.yaml" is not a reliable pattern for a multi-root agent fleet.
+When a pipeline spans agents that live in **different** project roots, it is physically multiple cue.yaml files - one per participating agent's project root. The engine never aggregates yaml across roots, so a "single root cue.yaml" is not a reliable pattern for a multi-root agent fleet.
 
-**The rule:** Each subscription lives in the `.maestro/cue.yaml` of the agent that owns it. "Owning agent" = the agent whose `agent_id` matches the subscription's `agent_id` field. Cross-agent chains between subscriptions in different files are stitched at runtime via the standard `source_session` / `fan_out` fields plus their UUID-keyed companions (`source_session_ids` / `fan_out_ids`) — no shared file required.
+**The rule:** Each subscription lives in the `.maestro/cue.yaml` of the agent that owns it. "Owning agent" = the agent whose `agent_id` matches the subscription's `agent_id` field. Cross-agent chains between subscriptions in different files are stitched at runtime via the standard `source_session` / `fan_out` fields plus their UUID-keyed companions (`source_session_ids` / `fan_out_ids`) - no shared file required.
 
 Where each role lives:
 
@@ -92,9 +92,9 @@ Where each role lives:
 | Fan-in synthesis where upstreams are A, B, C and downstream is Z       | Agent Z's project root (set `source_session` + `source_session_ids` to [A, B, C]) |
 | Command node (`action: command`) attached to agent W's session         | Agent W's project root (it shares W's session and cwd)                            |
 
-**Orchestration "at the root."** If you have an orchestrator agent whose project root sits above the worker agents in the filesystem, the orchestrator's own `.maestro/cue.yaml` is naturally where fan-in / synthesis subscriptions land — because it owns those subscriptions, not because it is "the root." Workers' triggers still live in each worker's own cue.yaml.
+**Orchestration "at the root."** If you have an orchestrator agent whose project root sits above the worker agents in the filesystem, the orchestrator's own `.maestro/cue.yaml` is naturally where fan-in / synthesis subscriptions land - because it owns those subscriptions, not because it is "the root." Workers' triggers still live in each worker's own cue.yaml.
 
-**Always set `source_session` / `fan_out`; add the `_ids` companions for rename stability.** The validator requires `source_session` on every `agent.completed` subscription, and `fan_out` is the canonical field for fan-out targets. **Additionally** populate the parallel UUID arrays — `source_session_ids: [<agent-uuid>]` next to `source_session: <agent-name>`, `fan_out_ids: [<uuid>, ...]` next to `fan_out: [<name>, ...]`. The dispatcher prefers ids at lookup time and falls back to names, so cross-root edges survive an upstream agent rename. Omitting the ids works but silently breaks on rename.
+**Always set `source_session` / `fan_out`; add the `_ids` companions for rename stability.** The validator requires `source_session` on every `agent.completed` subscription, and `fan_out` is the canonical field for fan-out targets. **Additionally** populate the parallel UUID arrays - `source_session_ids: [<agent-uuid>]` next to `source_session: <agent-name>`, `fan_out_ids: [<uuid>, ...]` next to `fan_out: [<name>, ...]`. The dispatcher prefers ids at lookup time and falls back to names, so cross-root edges survive an upstream agent rename. Omitting the ids works but silently breaks on rename.
 
 **Pipeline grouping across files.** A pipeline that spans roots still appears as one card in the Cue dashboard / Pipeline Editor as long as every participating subscription carries the same `pipeline_name` (and same `# Pipeline: Name (color: #hex)` comment header in each file). The visual editor handles this automatically; if you hand-author, keep the values consistent across every file.
 
@@ -121,23 +121,23 @@ Either `prompt` or `prompt_file` must be provided. If both are present, `prompt_
 | Field                | Type            | Default | Description                                                                                                                                                                                                                               |
 | -------------------- | --------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`            | boolean         | `true`  | Set to `false` to pause a subscription without removing it                                                                                                                                                                                |
-| `agent_id`           | string (UUID)   | —       | UUID of the target agent. Auto-assigned by the Pipeline Editor                                                                                                                                                                            |
-| `prompt_file`        | string          | —       | Path to a `.md` file containing the prompt (alternative to inline `prompt`)                                                                                                                                                               |
-| `interval_minutes`   | number          | —       | Timer interval. Required for `time.heartbeat`                                                                                                                                                                                             |
-| `schedule_times`     | list of strings | —       | Times in `HH:MM` format. Required for `time.scheduled`                                                                                                                                                                                    |
-| `schedule_days`      | list of strings | —       | Days of week (`mon`–`sun`). Optional for `time.scheduled`                                                                                                                                                                                 |
-| `watch`              | string (glob)   | —       | File glob pattern. Required for `file.changed`, `task.pending`                                                                                                                                                                            |
-| `source_session`     | string or list  | —       | Source agent display name(s). Required for `agent.completed`                                                                                                                                                                              |
-| `source_session_ids` | string or list  | —       | Companion UUID(s) for `source_session`. Same shape (string ↔ string, list ↔ list). Preferred by the dispatcher at lookup time; falls back to `source_session` names when absent. Set this alongside `source_session` for rename stability |
-| `source_sub`         | string or list  | —       | Upstream subscription name(s) that narrow chain matching. **Required** when `action: command` on `agent.completed`. When `source_session` is an array, `source_sub` must be a same-length array (positional pairing)                      |
-| `fan_out`            | list of strings | —       | Target agent display names to fan out to                                                                                                                                                                                                  |
-| `fan_out_ids`        | list of strings | —       | Companion UUID array for `fan_out` (one entry per fan-out target). Preferred by the dispatcher at lookup time; falls back to `fan_out` names when absent. Set this alongside `fan_out` for rename stability                               |
-| `filter`             | object          | —       | Payload conditions (see [Filtering](./maestro-cue-advanced#filtering))                                                                                                                                                                    |
-| `repo`               | string          | —       | GitHub repo (`owner/repo`). Auto-detected from git remote                                                                                                                                                                                 |
+| `agent_id`           | string (UUID)   | -       | UUID of the target agent. Auto-assigned by the Pipeline Editor                                                                                                                                                                            |
+| `prompt_file`        | string          | -       | Path to a `.md` file containing the prompt (alternative to inline `prompt`)                                                                                                                                                               |
+| `interval_minutes`   | number          | -       | Timer interval. Required for `time.heartbeat`                                                                                                                                                                                             |
+| `schedule_times`     | list of strings | -       | Times in `HH:MM` format. Required for `time.scheduled`                                                                                                                                                                                    |
+| `schedule_days`      | list of strings | -       | Days of week (`mon`-`sun`). Optional for `time.scheduled`                                                                                                                                                                                 |
+| `watch`              | string (glob)   | -       | File glob pattern. Required for `file.changed`, `task.pending`                                                                                                                                                                            |
+| `source_session`     | string or list  | -       | Source agent display name(s). Required for `agent.completed`                                                                                                                                                                              |
+| `source_session_ids` | string or list  | -       | Companion UUID(s) for `source_session`. Same shape (string ↔ string, list ↔ list). Preferred by the dispatcher at lookup time; falls back to `source_session` names when absent. Set this alongside `source_session` for rename stability |
+| `source_sub`         | string or list  | -       | Upstream subscription name(s) that narrow chain matching. **Required** when `action: command` on `agent.completed`. When `source_session` is an array, `source_sub` must be a same-length array (positional pairing)                      |
+| `fan_out`            | list of strings | -       | Target agent display names to fan out to                                                                                                                                                                                                  |
+| `fan_out_ids`        | list of strings | -       | Companion UUID array for `fan_out` (one entry per fan-out target). Preferred by the dispatcher at lookup time; falls back to `fan_out` names when absent. Set this alongside `fan_out` for rename stability                               |
+| `filter`             | object          | -       | Payload conditions (see [Filtering](./maestro-cue-advanced#filtering))                                                                                                                                                                    |
+| `repo`               | string          | -       | GitHub repo (`owner/repo`). Auto-detected from git remote                                                                                                                                                                                 |
 | `poll_minutes`       | number          | varies  | Poll interval for `github.*` (default 5) and `task.pending` (default 1)                                                                                                                                                                   |
-| `output_prompt`      | string          | —       | Follow-up prompt sent after the main run completes successfully                                                                                                                                                                           |
-| `output_prompt_file` | string          | —       | Path to a `.md` file for the output prompt (alternative to inline)                                                                                                                                                                        |
-| `label`              | string          | —       | Human-readable label displayed in the Cue dashboard and pipeline editor                                                                                                                                                                   |
+| `output_prompt`      | string          | -       | Follow-up prompt sent after the main run completes successfully                                                                                                                                                                           |
+| `output_prompt_file` | string          | -       | Path to a `.md` file for the output prompt (alternative to inline)                                                                                                                                                                        |
+| `label`              | string          | -       | Human-readable label displayed in the Cue dashboard and pipeline editor                                                                                                                                                                   |
 
 ### Prompt Field
 
@@ -156,11 +156,11 @@ prompt: |
 prompt_file: .maestro/prompts/my-prompt.md
 ```
 
-File paths are resolved relative to the project root. Prompt files support the same `{{VARIABLE}}` template syntax as inline prompts. Using `prompt_file` keeps your `cue.yaml` clean when prompts are long or complex — the Pipeline Editor uses this approach by default, storing prompt files in `.maestro/prompts/`.
+File paths are resolved relative to the project root. Prompt files support the same `{{VARIABLE}}` template syntax as inline prompts. Using `prompt_file` keeps your `cue.yaml` clean when prompts are long or complex - the Pipeline Editor uses this approach by default, storing prompt files in `.maestro/prompts/`.
 
 ### Output Prompt (Two-Phase Runs)
 
-The `output_prompt` field enables a two-phase execution pattern. When the main `prompt` completes successfully, Cue automatically sends the `output_prompt` as a follow-up — with the first run's output included as context.
+The `output_prompt` field enables a two-phase execution pattern. When the main `prompt` completes successfully, Cue automatically sends the `output_prompt` as a follow-up - with the first run's output included as context.
 
 This is useful for workflows where one phase generates data and a second phase acts on it:
 
@@ -226,11 +226,11 @@ subscriptions:
 **Notes:**
 
 - The `color` in the comment sets the pipeline's dot color in the UI (any valid hex color)
-- Each subscription in a pipeline can have its own event type, schedule, and prompt — they don't need to share configuration
+- Each subscription in a pipeline can have its own event type, schedule, and prompt - they don't need to share configuration
 - Use the `label` field to give each line a descriptive name (e.g., "Daily Analysis", "Weekly Review")
 - The Pipeline Editor creates this structure automatically when you use the visual editor
 
-**Visual-node identity (`target_node_key`, `fan_out_node_keys`):** When you save from the Pipeline Editor, you may see UUID-valued `target_node_key` / `fan_out_node_keys` fields on subscriptions. These are renderer-only — the Cue engine ignores them. They let the editor distinguish "two visual nodes that happen to point at the same agent" (different keys → two nodes on the canvas) from "one shared node with multiple inputs" (same key → explicit fan-in onto a single node). If you hand-edit YAML and want two separate visual instances of the same agent for the same trigger, give each sub a different `target_node_key`; if you want them to merge into one fan-in target, give them the same key. Leave the keys alone when round-tripping through the editor — clearing them silently re-merges your visual nodes by `agent_id` on the next reload.
+**Visual-node identity (`target_node_key`, `fan_out_node_keys`):** When you save from the Pipeline Editor, you may see UUID-valued `target_node_key` / `fan_out_node_keys` fields on subscriptions. These are renderer-only - the Cue engine ignores them. They let the editor distinguish "two visual nodes that happen to point at the same agent" (different keys → two nodes on the canvas) from "one shared node with multiple inputs" (same key → explicit fan-in onto a single node). If you hand-edit YAML and want two separate visual instances of the same agent for the same trigger, give each sub a different `target_node_key`; if you want them to merge into one fan-in target, give them the same key. Leave the keys alone when round-tripping through the editor - clearing them silently re-merges your visual nodes by `agent_id` on the next reload.
 
 #### Agent-authored Trigger -> Command -> Agent YAML checklist
 
@@ -289,13 +289,13 @@ subscriptions:
   - name: nightly-report
     event: time.heartbeat
     interval_minutes: 1440
-    enabled: false # Paused — won't fire until re-enabled
+    enabled: false # Paused - won't fire until re-enabled
     prompt: Generate a daily summary report.
 ```
 
 ## Settings
 
-The optional `settings` block configures global engine behavior. All fields have sensible defaults — you only need to include settings you want to override.
+The optional `settings` block configures global engine behavior. All fields have sensible defaults - you only need to include settings you want to override.
 
 ### timeout_minutes
 
@@ -314,8 +314,8 @@ settings:
 
 What happens when a run times out:
 
-- **`break`** — Stop the run and mark it as failed. No further processing for this event.
-- **`continue`** — Stop the run but allow downstream subscriptions (in fan-in chains) to proceed with partial data.
+- **`break`** - Stop the run and mark it as failed. No further processing for this event.
+- **`continue`** - Stop the run but allow downstream subscriptions (in fan-in chains) to proceed with partial data.
 
 ```yaml
 settings:
@@ -324,7 +324,7 @@ settings:
 
 ### max_concurrent
 
-**Default:** `1` | **Type:** integer, 1–10
+**Default:** `1` | **Type:** integer, 1-10
 
 Maximum number of Cue-triggered runs that can execute simultaneously for this agent. Additional events are queued.
 
@@ -335,11 +335,11 @@ settings:
 
 ### queue_size
 
-**Default:** `512` | **Type:** integer, 0–10000
+**Default:** `512` | **Type:** integer, 0-10000
 
 Maximum number of events that can be queued when all concurrent slots are occupied. Events beyond this limit are dropped.
 
-Default is `512` — generous enough to absorb bursty triggers without surfacing overflow toasts. Lower it to backpressure faster; set to `0` to drop any event that can't run immediately.
+Default is `512` - generous enough to absorb bursty triggers without surfacing overflow toasts. Lower it to backpressure faster; set to `0` to drop any event that can't run immediately.
 
 ```yaml
 settings:

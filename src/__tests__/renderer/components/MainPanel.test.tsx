@@ -21,6 +21,23 @@ import {
 
 // Mock child components to simplify testing - must be before MainPanel import
 
+// LayerStack: MainPanelContent reads layerCount to blur the browser webview when a
+// modal/overlay is layered above it. These tests render MainPanel in isolation
+// without a LayerStackProvider, so stub the hook (no layers open => layerCount 0).
+vi.mock('../../../renderer/contexts/LayerStackContext', () => ({
+	useLayerStack: () => ({
+		registerLayer: vi.fn(() => 'layer-test'),
+		unregisterLayer: vi.fn(),
+		updateLayerHandler: vi.fn(),
+		getTopLayer: vi.fn(() => undefined),
+		closeTopLayer: vi.fn(async () => false),
+		getLayers: vi.fn(() => []),
+		hasOpenLayers: vi.fn(() => false),
+		hasOpenModal: vi.fn(() => false),
+		layerCount: 0,
+	}),
+}));
+
 // TerminalView: forwardRef stub that records render calls per session so we can
 // assert persistence (kept mounted) vs destruction (unmounted) across sessions.
 const terminalViewSessions: string[] = [];
@@ -2517,10 +2534,11 @@ describe('MainPanel', () => {
 			expect(screen.queryByText('Copied to Clipboard')).not.toBeInTheDocument();
 		});
 
-		it('should flash a notification when gitDiff has no content', async () => {
+		it('should flash a notification and re-poll git status when gitDiff has no content', async () => {
 			const { gitService } = await import('../../../renderer/services/git');
 			vi.mocked(gitService.getDiff).mockResolvedValue({ diff: '' });
 			useCenterFlashStore.getState().setActive(null);
+			mockRefreshGitStatus.mockClear();
 
 			const setGitDiffPreview = vi.fn();
 			const session = createSession({ isGitRepo: true });
@@ -2540,6 +2558,8 @@ describe('MainPanel', () => {
 				expect(setGitDiffPreview).not.toHaveBeenCalled();
 				// Should flash an informational message instead
 				expect(useCenterFlashStore.getState().active?.message).toBe('No diff to examine');
+				// And re-sync the polling cache so the stale widget clears
+				expect(mockRefreshGitStatus).toHaveBeenCalled();
 			});
 		});
 	});

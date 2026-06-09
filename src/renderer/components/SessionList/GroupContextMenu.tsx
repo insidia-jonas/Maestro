@@ -12,6 +12,8 @@ interface GroupContextMenuProps {
 	onRename: () => void;
 	onNewAgent: () => void;
 	onDelete?: () => void;
+	/** Override the delete button label; defaults based on memberCount. */
+	deleteLabel?: string;
 	onDismiss: () => void;
 }
 
@@ -24,6 +26,7 @@ export function GroupContextMenu({
 	onRename,
 	onNewAgent,
 	onDelete,
+	deleteLabel,
 	onDismiss,
 }: GroupContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
@@ -105,7 +108,7 @@ export function GroupContextMenu({
 						style={{ color: theme.colors.error }}
 					>
 						<Trash2 className="w-3.5 h-3.5" />
-						{memberCount > 0 ? 'Remove Group and Agents' : 'Delete Group'}
+						{deleteLabel ?? (memberCount > 0 ? 'Remove Group and Agents' : 'Delete Group')}
 					</button>
 				</>
 			)}

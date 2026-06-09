@@ -1,4 +1,13 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, {
+	useState,
+	useEffect,
+	useRef,
+	useMemo,
+	useCallback,
+	lazy,
+	Suspense,
+	type ReactNode,
+} from 'react';
 import { useFocusAfterRender } from './hooks/utils/useFocusAfterRender';
 // SettingsModal is now lazy-loaded inside AppStandaloneModals
 import { SessionList } from './components/SessionList';
@@ -125,6 +134,7 @@ import {
 	// Session switching callbacks (navigate to session/tab from various UI surfaces)
 	useSessionSwitchCallbacks,
 } from './hooks';
+import { useChatFileDropZone } from './hooks/ui/useChatFileDropZone';
 import { useMainPanelProps, useSessionListProps, useRightPanelProps } from './hooks/props';
 import { useAgentListeners } from './hooks/agent/useAgentListeners';
 import { useSessionRecovery } from './hooks/agent/useSessionRecovery';
@@ -154,6 +164,7 @@ import { useActiveSession } from './hooks/session/useActiveSession';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
 import { ToastContainer } from './components/Toast';
 import { CenterFlash } from './components/CenterFlash';
+import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 
 // Import services
 // gitService — now used in useModalHandlers (Tier 3C)
@@ -879,6 +890,40 @@ function MaestroConsoleInner() {
 		[setRenameTabId, setRenameTabInitialName, setRenameTabModalOpen]
 	);
 
+	// Opens the rename modal for a browser tab. Pre-fills with any existing
+	// user-assigned name (empty when the tab is still using the page-set title).
+	const handleRequestBrowserTabRename = useCallback(
+		(tabId: string) => {
+			const session = selectActiveSession(useSessionStore.getState());
+			if (!session) return;
+			const tab = session.browserTabs?.find((t) => t.id === tabId);
+			if (!tab) return;
+			setRenameTabId(tabId);
+			setRenameTabInitialName(tab.customTitle ?? '');
+			setRenameTabModalOpen(true);
+		},
+		[setRenameTabId, setRenameTabInitialName, setRenameTabModalOpen]
+	);
+
+	// Clears a browser tab's user-assigned name, letting the website set the
+	// tab title again on the next navigation/title update.
+	const handleResetBrowserTabName = useCallback((tabId: string) => {
+		const session = selectActiveSession(useSessionStore.getState());
+		if (!session) return;
+		useSessionStore.getState().setSessions((prev) =>
+			prev.map((s) =>
+				s.id === session.id
+					? {
+							...s,
+							browserTabs: (s.browserTabs || []).map((t) =>
+								t.id === tabId ? { ...t, customTitle: undefined } : t
+							),
+						}
+					: s
+			)
+		);
+	}, []);
+
 	// Opens the startup-command modal for a terminal tab. Captures sessionId at
 	// open time so the save action targets the correct session even if the user
 	// switches agents while the modal is up.
@@ -958,6 +1003,7 @@ function MaestroConsoleInner() {
 		handleCloseRenameTabModal,
 		handleConfirmQuit,
 		handleCancelQuit,
+		handleQuitWhenIdle,
 		onKeyboardMasteryLevelUp,
 		handleKeyboardMasteryCelebrationClose,
 		handleStandingOvationClose,
@@ -1028,11 +1074,13 @@ function MaestroConsoleInner() {
 	} = useWorktreeHandlers();
 
 	// --- APP HANDLERS (drag, file, folder operations) ---
+	// NOTE: file-drop attach is now scoped per-region (useChatFileDropZone for the
+	// main panel / group chat; the Files panel for tree imports). useAppHandlers
+	// still owns the document-level dragover/drop preventDefault that keeps the
+	// inert regions (left bar, History/Auto Run) from navigating to a file:// URL,
+	// plus session-drag lifecycle. setIsDraggingFile/dragCounterRef are still
+	// threaded into useInputHandlers' handleDrop for defensive reset.
 	const {
-		handleFileDragEnter,
-		handleFileDragLeave,
-		handleFileDragOver,
-		isDraggingFile,
 		setIsDraggingFile,
 		dragCounterRef,
 		handleFileClick,
@@ -1345,6 +1393,7 @@ function MaestroConsoleInner() {
 		handleProcessMonitorNavigateToSession,
 		handleToastSessionClick,
 		handleNamedSessionSelect,
+		handleJumpToStarredSession,
 		handleUtilityTabSelect,
 		handleUtilityFileTabSelect,
 	} = useSessionSwitchCallbacks({
@@ -1401,6 +1450,15 @@ function MaestroConsoleInner() {
 		}));
 	}, []);
 
+	const handleToggleQueuedItemPause = useCallback((itemId: string) => {
+		updateSessionWith(activeSessionIdRef.current, (s) => ({
+			...s,
+			executionQueue: s.executionQueue.map((item) =>
+				item.id === itemId ? { ...item, paused: !item.paused } : item
+			),
+		}));
+	}, []);
+
 	// toggleBookmark — provided by useSessionCrud hook
 
 	const handleFocusFileInGraph = useFileExplorerStore.getState().focusFileInGraph;
@@ -1439,6 +1497,7 @@ function MaestroConsoleInner() {
 		retryLastMessage: retryInlineWizardMessage,
 		generateDocuments: generateInlineWizardDocuments,
 		endWizard: endInlineWizard,
+		isWizardActiveForTab,
 	} = inlineWizardContext;
 
 	// --- WIZARD HANDLERS (extracted hook) ---
@@ -1613,6 +1672,9 @@ function MaestroConsoleInner() {
 	// Auto Run achievement tracking (progress intervals, peak usage stats)
 	useAutoRunAchievements({ activeBatchSessionIds });
 
+	// "Quit when idle" watcher - quits the app once all operations finish once armed
+	useQuitWhenIdle();
+
 	// Handler for switching to autorun tab - shows setup modal if no folder configured
 	const handleSetActiveRightTab = useCallback(
 		(tab: RightPanelTab) => {
@@ -1778,7 +1840,10 @@ function MaestroConsoleInner() {
 	// goToNextUnreadTab — jump to the next agent with unread tabs, clearing current agent's unreads
 	const goToNextUnreadTab = useCallback(() => {
 		const currentActiveId = useSessionStore.getState().activeSessionId;
-		const result = findNextUnreadSession(sortedSessions, currentActiveId);
+		// Treat a tab with an active inline wizard as a draft target: an unfinished
+		// wizard is meant to be completed into an Auto Run doc, so the navigation
+		// should stop on it just like any other draft.
+		const result = findNextUnreadSession(sortedSessions, currentActiveId, isWizardActiveForTab);
 
 		// Clear current agent's unread tabs
 		if (result.clearedCurrent) {
@@ -1807,7 +1872,7 @@ function MaestroConsoleInner() {
 		} else {
 			showSuccessFlash('No unread or draft tabs');
 		}
-	}, [sortedSessions, setSessions, setActiveSessionId, showSuccessFlash]);
+	}, [sortedSessions, setSessions, setActiveSessionId, showSuccessFlash, isWizardActiveForTab]);
 
 	// showConfirmation, performDeleteSession — provided by useSessionLifecycle hook (Phase 2H)
 	// deleteSession, deleteWorktreeGroup — provided by useSessionCrud hook
@@ -2078,8 +2143,12 @@ function MaestroConsoleInner() {
 	});
 
 	// Queue browser handlers — extracted to useQueueHandlers hook
-	const { handleRemoveQueueItem, handleSwitchQueueSession, handleReorderQueueItems } =
-		useQueueHandlers();
+	const {
+		handleRemoveQueueItem,
+		handleSwitchQueueSession,
+		handleReorderQueueItems,
+		handleTogglePauseQueueItem,
+	} = useQueueHandlers();
 
 	// Symphony contribution handler — extracted to useSymphonyContribution hook
 	const { handleStartContribution } = useSymphonyContribution({
@@ -2094,6 +2163,7 @@ function MaestroConsoleInner() {
 		shortcuts,
 		activeFocus,
 		activeRightTab,
+		handleOpenBatchRunner,
 		sessions,
 		selectedSidebarIndex,
 		activeSessionId,
@@ -2111,6 +2181,7 @@ function MaestroConsoleInner() {
 		activeSession,
 		fileTreeFilter,
 		fileTreeFilterOpen,
+		fileTreeFilterInputRef,
 		gitDiffPreview,
 		gitLogOpen,
 		lightboxImage,
@@ -2417,6 +2488,7 @@ function MaestroConsoleInner() {
 		handleStopBatchRun,
 		handleDeleteLog,
 		handleRemoveQueuedItem,
+		handleToggleQueuedItemPause,
 		handleForceSendQueuedItem,
 		forcedParallelEnabled: settings.forcedParallelExecution,
 		getForceSendContext,
@@ -2456,6 +2528,8 @@ function MaestroConsoleInner() {
 		handleNewBrowserTab,
 		handleBrowserTabSelect: handleSelectBrowserTab,
 		handleBrowserTabClose: handleCloseBrowserTab,
+		handleBrowserTabRename: handleRequestBrowserTabRename,
+		handleBrowserTabResetName: handleResetBrowserTabName,
 		handleBrowserTabUpdate: handleUpdateBrowserTab,
 
 		// Terminal tab callbacks (Phase 8)
@@ -2581,6 +2655,7 @@ function MaestroConsoleInner() {
 		handleDeleteWorktreeSession,
 		handleToggleWorktreeExpanded,
 		handleConfigureCue,
+		handleJumpToStarredSession,
 		openWizardModal,
 		handleOpenFeedbackModal,
 		handleStartTour,
@@ -2654,8 +2729,12 @@ function MaestroConsoleInner() {
 		handleOpenBrowserTabAt,
 	});
 
+	// Chat-attach drop zone for the group chat view (parity with the main panel).
+	// Scoped to the group chat container so only that region reacts.
+	const groupChatDropZone = useChatFileDropZone(theme, handleDrop);
+
 	return (
-		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+		<>
 			<div
 				className={`flex h-screen w-full font-mono overflow-hidden transition-colors duration-300 ${
 					isMobileLandscape || useNativeTitleBar ? 'pt-0' : 'pt-10'
@@ -2666,54 +2745,11 @@ function MaestroConsoleInner() {
 					fontFamily: fontFamily,
 					fontSize: `${fontSize}px`,
 				}}
-				onDragEnter={handleFileDragEnter}
-				onDragLeave={handleFileDragLeave}
-				onDragOver={handleFileDragOver}
-				onDrop={handleDrop}
 			>
-				{/* External File Drop Overlay */}
-				{isDraggingFile && (
-					<div
-						className="fixed inset-0 z-[9999] flex items-center justify-center cursor-pointer"
-						style={{ backgroundColor: `${theme.colors.accent}20` }}
-						onClick={() => {
-							// Escape hatch: if the overlay ever gets stuck (drag canceled in
-							// a way that didn't fire dragend or dragleave), clicking it
-							// resets the drag state.
-							dragCounterRef.current = 0;
-							setIsDraggingFile(false);
-						}}
-					>
-						<div
-							className="pointer-events-none rounded-xl border-2 border-dashed p-8 flex flex-col items-center gap-3"
-							style={{
-								borderColor: theme.colors.accent,
-								backgroundColor: `${theme.colors.bgMain}ee`,
-							}}
-						>
-							<svg
-								className="w-16 h-16"
-								style={{ color: theme.colors.accent }}
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-								/>
-							</svg>
-							<span className="text-lg font-medium" style={{ color: theme.colors.textMain }}>
-								Drop file or folder
-							</span>
-							<span className="text-sm" style={{ color: theme.colors.textDim }}>
-								Images attach as thumbnails. Anything else becomes an @reference.
-							</span>
-						</div>
-					</div>
-				)}
+				{/* External file drops are handled per-region, not globally: the main
+				    panel and group chat attach to the chat (see useChatFileDropZone),
+				    while the Files panel imports into the tree. The left bar and the
+				    History/Auto Run panel intentionally do nothing. */}
 
 				{/* --- DRAGGABLE TITLE BAR (hidden in mobile landscape or when using native title bar) --- */}
 				{!isMobileLandscape && !useNativeTitleBar && (
@@ -2804,6 +2840,7 @@ function MaestroConsoleInner() {
 					onCloseConfirmModal={handleCloseConfirmModal}
 					onConfirmQuit={handleConfirmQuit}
 					onCancelQuit={handleCancelQuit}
+					onQuitWhenIdle={handleQuitWhenIdle}
 					activeBatchSessionIds={activeBatchSessionIds}
 					// AppSessionModals props
 					onCloseNewInstanceModal={handleCloseNewInstanceModal}
@@ -2939,6 +2976,12 @@ function MaestroConsoleInner() {
 					onPublishGist={() => setGistPublishModalOpen(true)}
 					lastGraphFocusFile={lastGraphFocusFilePath}
 					onOpenLastDocumentGraph={handleOpenLastDocumentGraph}
+					currentGraphFile={
+						activeFileTab && /\.(md|markdown)$/i.test(activeFileTab.name)
+							? activeFileTab.name
+							: undefined
+					}
+					onOpenCurrentFileInGraph={mainPanelProps.onOpenInGraph}
 					lightboxImage={lightboxImage}
 					lightboxImages={lightboxImages}
 					stagedImages={stagedImages}
@@ -3025,9 +3068,12 @@ function MaestroConsoleInner() {
 					onQuickActionsNewBrowserTab={handleNewBrowserTab}
 					onQuickActionsNewTerminalTab={handleOpenTerminalTab}
 					onGoToNextUnread={goToNextUnreadTab}
+					onNavBack={handleNavBack}
+					onNavForward={handleNavForward}
 					onRemoveQueueItem={handleRemoveQueueItem}
 					onSwitchQueueSession={handleSwitchQueueSession}
 					onReorderQueueItems={handleReorderQueueItems}
+					onTogglePauseQueueItem={handleTogglePauseQueueItem}
 					// AppGroupChatModals props
 					onCloseNewGroupChatModal={handleCloseNewGroupChatModal}
 					onCreateGroupChat={handleCreateGroupChat}
@@ -3192,7 +3238,11 @@ function MaestroConsoleInner() {
 					activeGroupChatId &&
 					groupChats.find((c) => c.id === activeGroupChatId) && (
 						<>
-							<div className="flex-1 flex flex-col min-w-0">
+							<div
+								className="flex-1 flex flex-col min-w-0 relative"
+								{...groupChatDropZone.dragHandlers}
+							>
+								{groupChatDropZone.overlay}
 								<GroupChatPanel
 									theme={theme}
 									groupChat={groupChats.find((c) => c.id === activeGroupChatId)!}
@@ -3331,6 +3381,22 @@ function MaestroConsoleInner() {
 				{/* --- CENTER FLASH (single, app-wide; mounted via portal) --- */}
 				<CenterFlash theme={theme} />
 			</div>
+		</>
+	);
+}
+
+/**
+ * GitStatusProviderFromStore — reads sessions/activeSessionId from the store
+ * so GitStatusProvider can sit ABOVE MaestroConsoleInner. Required because
+ * useModalHandlers (called inside MaestroConsoleInner) consumes useGitDetail,
+ * and a context provider must wrap its consumer.
+ */
+function GitStatusProviderFromStore({ children }: { children: ReactNode }) {
+	const sessions = useSessionStore((s) => s.sessions);
+	const activeSessionId = useSessionStore((s) => s.activeSessionId);
+	return (
+		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+			{children}
 		</GitStatusProvider>
 	);
 }
@@ -3363,7 +3429,9 @@ export default function MaestroConsole() {
 	return (
 		<InlineWizardProvider>
 			<InputProvider>
-				<MaestroConsoleInner />
+				<GitStatusProviderFromStore>
+					<MaestroConsoleInner />
+				</GitStatusProviderFromStore>
 			</InputProvider>
 		</InlineWizardProvider>
 	);

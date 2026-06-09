@@ -10,6 +10,7 @@ import { safeClipboardWrite } from '../utils/clipboard';
 import { THEMES } from '../constants/themes';
 import { DebugPackageModal } from './DebugPackageModal';
 import { DebugApplicationStatsModal } from './DebugApplicationStatsModal';
+import { DebugAgentProbeModal } from './DebugAgentProbeModal';
 import { WindowsWarningModal } from './WindowsWarningModal';
 import { AppOverlays } from './AppOverlays';
 import { PlaygroundPanel } from './PlaygroundPanel';
@@ -225,6 +226,8 @@ function AppStandaloneModalsInner({
 		setDebugPackageModalOpen,
 		debugApplicationStatsOpen,
 		setDebugApplicationStatsOpen,
+		debugAgentProbeOpen,
+		setDebugAgentProbeOpen,
 		playgroundOpen,
 		setPlaygroundOpen,
 		debugWizardModalOpen,
@@ -316,6 +319,11 @@ function AppStandaloneModalsInner({
 					theme={theme}
 					onClose={() => setDebugApplicationStatsOpen(false)}
 				/>
+			)}
+
+			{/* --- DEBUG: RE-PROBE AGENTS --- */}
+			{debugAgentProbeOpen && (
+				<DebugAgentProbeModal theme={theme} onClose={() => setDebugAgentProbeOpen(false)} />
 			)}
 
 			{/* --- MARKETPLACE MODAL (lazy-loaded) --- */}
@@ -439,6 +447,11 @@ function AppStandaloneModalsInner({
 						}
 						// Copy the gist URL to clipboard
 						safeClipboardWrite(gistUrl);
+						// Record the published gist URL in the system logs
+						logger.info(
+							`${isPublic ? 'Public' : 'Secret'} gist published: ${gistUrl}`,
+							'GistPublish'
+						);
 						// Show a toast notification
 						notifyToast({
 							type: 'success',

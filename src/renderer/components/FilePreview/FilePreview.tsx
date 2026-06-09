@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { captureException } from '../../utils/sentry';
-import { safeClipboardWrite, safeClipboardWriteBlob } from '../../utils/clipboard';
+import { safeClipboardWrite, safeClipboardWriteImage } from '../../utils/clipboard';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { notifyToast } from '../../stores/notificationStore';
@@ -71,6 +71,9 @@ import { useFilePreviewSearch } from '../../hooks/file';
 import type { FilePreviewSearchAdapter } from './search/types';
 import { FilePreviewHeader } from './FilePreviewHeader';
 import { ImageViewer } from './ImageViewer';
+import { ImageSaveModal } from './ImageSaveModal';
+import { useImageAnnotatorStore } from '../ImageAnnotator/imageAnnotatorStore';
+import { getParentDir, getBasename } from '../../../shared/formatters';
 import { FilePreviewToc } from './FilePreviewToc';
 import { MarkdownEditor } from './markdownEditor';
 import type { MarkdownEditorHandle } from './markdownEditor';
@@ -160,6 +163,11 @@ export const FilePreview = React.memo(
 		);
 		const [isSaving, setIsSaving] = useState(false);
 		const [showUnsavedChangesModal, setShowUnsavedChangesModal] = useState(false);
+		// Image-edit save flow: holds the annotator's composited data URL while the
+		// user picks a save destination (overwrite vs new file). Null when idle.
+		const [imageSaveData, setImageSaveData] = useState<string | null>(null);
+		const [imageSaveBusy, setImageSaveBusy] = useState(false);
+		const openAnnotator = useImageAnnotatorStore((s) => s.openAnnotator);
 		const [searchMode, setSearchMode] = useState<'text' | 'jq'>('text');
 		const [showJqHelp, setShowJqHelp] = useState(false);
 		const [jqError, setJqError] = useState<string | null>(null);
@@ -200,17 +208,27 @@ export const FilePreview = React.memo(
 
 		// File change detection state
 		const [fileChangedOnDisk, setFileChangedOnDisk] = useState(false);
+		// True once the file can no longer be stat'd at its cached path (deleted, or
+		// moved/renamed elsewhere). Distinct from fileChangedOnDisk: there is nothing
+		// to reload, so the banner offers only Dismiss.
+		const [fileMissingOnDisk, setFileMissingOnDisk] = useState(false);
 		const lastModifiedRef = useRef(lastModified);
 
 		// Keep ref in sync with prop (reset when parent reloads content with new lastModified)
 		useEffect(() => {
 			lastModifiedRef.current = lastModified;
 			setFileChangedOnDisk(false);
+			setFileMissingOnDisk(false);
 		}, [lastModified]);
+
+		// Reset the missing banner when navigating to a different file.
+		useEffect(() => {
+			setFileMissingOnDisk(false);
+		}, [file?.path]);
 
 		// Poll file stat to detect external changes (every 3s for the active file)
 		useEffect(() => {
-			if (!file?.path || !lastModified || fileChangedOnDisk) return;
+			if (!file?.path || !lastModified || fileChangedOnDisk || fileMissingOnDisk) return;
 
 			const interval = setInterval(async () => {
 				try {
@@ -221,12 +239,15 @@ export const FilePreview = React.memo(
 						setFileChangedOnDisk(true);
 					}
 				} catch {
-					// Silently ignore — file may have been deleted or become inaccessible
+					// stat threw: the file no longer exists at this path. It was deleted
+					// or moved/renamed out from under the open tab. Surface it so the user
+					// knows their edits would no longer save in place.
+					setFileMissingOnDisk(true);
 				}
 			}, 3000);
 
 			return () => clearInterval(interval);
-		}, [file?.path, lastModified, sshRemoteId, fileChangedOnDisk]);
+		}, [file?.path, lastModified, sshRemoteId, fileChangedOnDisk, fileMissingOnDisk]);
 
 		// Handle reload click
 		const handleReloadFile = useCallback(() => {
@@ -617,11 +638,16 @@ export const FilePreview = React.memo(
 				window.maestro.fs
 					.stat(file.path, sshRemoteId)
 					.then((stats) =>
-						setFileStats({
-							size: stats.size,
-							createdAt: stats.createdAt,
-							modifiedAt: stats.modifiedAt,
-						})
+						// stat returns null for a missing path - clear stats like the catch.
+						setFileStats(
+							stats
+								? {
+										size: stats.size,
+										createdAt: stats.createdAt,
+										modifiedAt: stats.modifiedAt,
+									}
+								: null
+						)
 					)
 					.catch((err) => {
 						logger.error('Failed to get file stats:', undefined, err);
@@ -723,6 +749,119 @@ export const FilePreview = React.memo(
 				setIsSaving(false);
 			}
 		}, [file, onSave, hasChanges, isSaving, editContent, sshRemoteId]);
+
+		// Open the previewed image in the annotator. The annotator hands back a
+		// composited data URL via onSave; we stash it and let the user pick a save
+		// destination (overwrite vs new file) before writing to disk.
+		const handleEditImage = useCallback(() => {
+			if (!file || !isImage) return;
+			openAnnotator(file.content, (newDataUrl) => setImageSaveData(newDataUrl));
+		}, [file, isImage, openAnnotator]);
+
+		// Format the annotator exports, derived from its data URL mime
+		// (e.g. "data:image/png;base64,..." -> "png"). The annotator only ever
+		// produces PNG, but we read it from the payload to stay honest.
+		const editedImageExtension = useMemo(() => {
+			if (!imageSaveData) return 'png';
+			const match = /^data:image\/([a-z0-9.+-]+)/i.exec(imageSaveData);
+			const sub = match?.[1]?.toLowerCase();
+			if (!sub) return 'png';
+			if (sub === 'svg+xml') return 'svg';
+			if (sub === 'jpeg') return 'jpg';
+			return sub;
+		}, [imageSaveData]);
+
+		// Original file's normalized extension. Overwrite-in-place is only valid
+		// when it matches the editor's output format; otherwise we'd be writing
+		// (PNG) bytes under a misleading extension.
+		const originalImageExtension = useMemo(() => {
+			if (!file) return '';
+			const ext = (getBasename(file.name).split('.').pop() ?? '').toLowerCase();
+			return ext === 'jpeg' ? 'jpg' : ext;
+		}, [file]);
+
+		const canOverwriteImage = originalImageExtension === editedImageExtension;
+
+		// Sibling name used when the original format can't be reproduced
+		// (e.g. photo.jpg -> photo.png).
+		const imageFallbackName = useMemo(() => {
+			if (!file) return '';
+			const name = getBasename(file.name);
+			const dot = name.lastIndexOf('.');
+			const base = dot > 0 ? name.slice(0, dot) : name;
+			return `${base}.${editedImageExtension}`;
+		}, [file, editedImageExtension]);
+
+		// Build a path for a file sitting next to the previewed one, preserving
+		// the original path's separator style (Windows vs POSIX).
+		const siblingImagePath = useCallback(
+			(name: string): string => {
+				const basePath = file?.path ?? '';
+				const parent = getParentDir(basePath);
+				const sep = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/';
+				return `${parent}${sep}${name}`;
+			},
+			[file?.path]
+		);
+
+		const writeEditedImage = useCallback(
+			async (targetPath: string, reloadAfter: boolean, flashMessage = 'Image Saved') => {
+				if (!imageSaveData) return;
+				setImageSaveBusy(true);
+				try {
+					await window.maestro.fs.writeImageFile(targetPath, imageSaveData, sshRemoteId);
+					// Keep our own write from tripping the file-change poller.
+					try {
+						const stat = await window.maestro?.fs?.stat(targetPath, sshRemoteId);
+						if (stat?.modifiedAt && reloadAfter) {
+							lastModifiedRef.current = new Date(stat.modifiedAt).getTime();
+						}
+					} catch {
+						// Non-critical - worst case the change banner flashes briefly.
+					}
+					setImageSaveData(null);
+					notifyCenterFlash({ message: flashMessage, color: 'theme' });
+					// Overwrite changes the file we're viewing - refresh so the preview
+					// reflects the edited pixels. A new file leaves the original intact.
+					if (reloadAfter) onReloadFile?.();
+				} catch (err) {
+					logger.error('Failed to save edited image:', undefined, err);
+					notifyToast({
+						type: 'error',
+						title: 'Save Failed',
+						message: err instanceof Error ? err.message : 'Could not save the edited image.',
+					});
+				} finally {
+					setImageSaveBusy(false);
+				}
+			},
+			[imageSaveData, sshRemoteId, onReloadFile]
+		);
+
+		const handleOverwriteImage = useCallback(() => {
+			if (!file) return;
+			if (canOverwriteImage) {
+				void writeEditedImage(file.path, true);
+				return;
+			}
+			// Can't reproduce the original format - write a sibling file in the
+			// editor's format instead and tell the user what landed where.
+			void writeEditedImage(
+				siblingImagePath(imageFallbackName),
+				false,
+				`Saved as ${imageFallbackName}`
+			);
+		}, [file, canOverwriteImage, imageFallbackName, siblingImagePath, writeEditedImage]);
+
+		const handleSaveImageAs = useCallback(
+			(newName: string) => {
+				if (!file) return;
+				const targetPath = siblingImagePath(newName);
+				const isNewPath = getBasename(targetPath) !== getBasename(file.path);
+				void writeEditedImage(targetPath, !isNewPath, `Saved as ${newName}`);
+			},
+			[file, siblingImagePath, writeEditedImage]
+		);
 
 		// Track scroll position to show/hide stats bar and report changes
 		useEffect(() => {
@@ -922,28 +1061,11 @@ export const FilePreview = React.memo(
 		const copyContentToClipboard = async () => {
 			if (!file) return;
 			if (isImage) {
-				try {
-					const response = await fetch(file.content);
-					const blob = await response.blob();
-					const ok = await safeClipboardWriteBlob([new ClipboardItem({ [blob.type]: blob })]);
-					if (ok) {
-						flashCopiedToClipboard(undefined, 'Image Copied');
-					} else {
-						const fallbackOk = await safeClipboardWrite(file.content);
-						if (fallbackOk) {
-							flashCopiedToClipboard(file.content, 'Image URL Copied');
-						} else {
-							failClipboardToast('Failed to Copy Image');
-						}
-					}
-				} catch (err) {
-					captureException(err);
-					const fallbackOk = await safeClipboardWrite(file.content);
-					if (fallbackOk) {
-						flashCopiedToClipboard(file.content, 'Image URL Copied');
-					} else {
-						failClipboardToast('Failed to Copy Image');
-					}
+				const ok = await safeClipboardWriteImage(file.content);
+				if (ok) {
+					flashCopiedToClipboard(undefined, 'Image Copied');
+				} else {
+					failClipboardToast('Failed to Copy Image');
 				}
 			} else {
 				const ok = await safeClipboardWrite(file.content);
@@ -1202,6 +1324,7 @@ export const FilePreview = React.memo(
 					sshRemoteId={sshRemoteId}
 					copyContentToClipboard={copyContentToClipboard}
 					copyPathToClipboard={copyPathToClipboard}
+					onEditImage={isImage ? handleEditImage : undefined}
 					headerBtnClass={headerBtnClass}
 					headerIconClass={headerIconClass}
 					isHtml={isHtml}
@@ -1252,6 +1375,39 @@ export const FilePreview = React.memo(
 							<GhostIconButton onClick={() => setFileChangedOnDisk(false)} title="Dismiss">
 								<X className="w-3 h-3" style={{ color: theme.colors.textDim }} />
 							</GhostIconButton>
+						</div>
+					</div>
+				)}
+
+				{/* File no longer on disk banner (deleted or moved/renamed elsewhere) */}
+				{fileMissingOnDisk && (
+					<div
+						className="flex items-center gap-3 px-6 py-2 border-b shrink-0"
+						style={{
+							backgroundColor: theme.colors.warning + '15',
+							borderColor: theme.colors.warning + '40',
+						}}
+					>
+						<AlertTriangle
+							className="w-3.5 h-3.5 shrink-0"
+							style={{ color: theme.colors.warning }}
+						/>
+						<span className="flex-1 text-xs" style={{ color: theme.colors.textMain }}>
+							This file no longer exists at its original location. It may have been deleted or
+							moved.
+							{hasChanges ? ' Saving will prompt you for a new location.' : ''}
+						</span>
+						<div className="flex items-center gap-2 shrink-0">
+							<button
+								onClick={() => setFileMissingOnDisk(false)}
+								className="px-2 py-1 text-xs font-medium rounded hover:opacity-80 transition-opacity"
+								style={{
+									backgroundColor: theme.colors.warning,
+									color: theme.colors.accentForeground ?? '#000',
+								}}
+							>
+								Dismiss
+							</button>
 						</div>
 					</div>
 				)}
@@ -1835,6 +1991,22 @@ export const FilePreview = React.memo(
 				</div>
 
 				{/* Copy / save flashes are now rendered globally by <CenterFlash /> */}
+
+				{/* Image-edit save destination modal (overwrite vs new file) */}
+				{imageSaveData && file && (
+					<ImageSaveModal
+						theme={theme}
+						fileName={file.name}
+						outputExtension={editedImageExtension}
+						canOverwrite={canOverwriteImage}
+						fallbackFileName={imageFallbackName}
+						originalExtension={originalImageExtension}
+						onOverwrite={handleOverwriteImage}
+						onSaveAs={handleSaveImageAs}
+						onCancel={() => setImageSaveData(null)}
+						isSaving={imageSaveBusy}
+					/>
+				)}
 
 				{/* Unsaved Changes Confirmation Modal */}
 				{showUnsavedChangesModal && (

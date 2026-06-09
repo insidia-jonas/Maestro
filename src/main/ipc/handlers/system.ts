@@ -319,6 +319,14 @@ export function registerSystemHandlers(deps: SystemHandlerDependencies): void {
 		clipboard.writeImage(img);
 	});
 
+	// Read image from system clipboard. Returns a PNG data URL, or null when
+	// the clipboard does not currently hold an image.
+	ipcMain.handle('clipboard:readImage', async (): Promise<string | null> => {
+		const img = clipboard.readImage();
+		if (img.isEmpty()) return null;
+		return img.toDataURL();
+	});
+
 	// ============ Tunnel Handlers (Cloudflare) ============
 
 	ipcMain.handle('tunnel:isCloudflaredInstalled', async () => {

@@ -47,6 +47,11 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
 	toggleAutoRunExpanded: {
 		id: 'toggleAutoRunExpanded',
 		label: 'Auto Run Expanded Preview',
+		keys: ['Meta', 'Shift', 'e'],
+	},
+	openBatchRunner: {
+		id: 'openBatchRunner',
+		label: 'Run Auto Run',
 		keys: ['Meta', 'Shift', '2'],
 	},
 	focusInput: { id: 'focusInput', label: 'Toggle Input/Output Focus', keys: ['Meta', '.'] },
@@ -128,6 +133,11 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
 		id: 'focusActiveTab',
 		label: 'Focus Active Tab',
 		keys: ['Alt', 'Meta', 'f'],
+	},
+	editClipboardImage: {
+		id: 'editClipboardImage',
+		label: 'Edit Image from Clipboard',
+		keys: ['Alt', 'Meta', 'e'],
 	},
 };
 

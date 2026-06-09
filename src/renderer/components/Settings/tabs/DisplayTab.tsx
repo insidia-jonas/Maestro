@@ -13,7 +13,6 @@ import {
 	AlignHorizontalJustifyCenter,
 	AlertTriangle,
 	AppWindow,
-	Bell,
 	Database,
 	Eye,
 	FileText,
@@ -55,6 +54,7 @@ const TOOLBAR_BUTTON_LABELS: Record<FilePreviewToolbarButton, string> = {
 	htmlRender: 'Render HTML',
 	previewTier: 'Preview tier chip',
 	editToggle: 'Edit / preview toggle',
+	editImage: 'Edit image',
 	copyContent: 'Copy content',
 	publishGist: 'Publish as gist',
 	documentGraph: 'Document graph',
@@ -89,8 +89,6 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 		setUserMessageAlignment,
 		fileExplorerIconTheme,
 		setFileExplorerIconTheme,
-		toastWidth,
-		setToastWidth,
 		showStarredInUnreadFilter,
 		setShowStarredInUnreadFilter,
 		showFilePreviewsInUnreadFilter,
@@ -113,6 +111,8 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 		setShowWorktreePill,
 		showWorktreeBranchName,
 		setShowWorktreeBranchName,
+		showStarredSessionsSection,
+		setShowStarredSessionsSection,
 		showLeftPanelGroupMemberCount,
 		setShowLeftPanelGroupMemberCount,
 		leftPanelCollapsedPillsPerRow,
@@ -324,24 +324,6 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 				</p>
 			</div>
 
-			<div data-setting-id="display-toast-width">
-				<SettingsSectionHeading icon={Bell}>Toast Notification Width</SettingsSectionHeading>
-				<ToggleButtonGroup
-					options={[
-						{ value: 'small', label: 'Small' },
-						{ value: 'medium', label: 'Medium' },
-						{ value: 'large', label: 'Large' },
-					]}
-					value={toastWidth}
-					onChange={setToastWidth}
-					theme={theme}
-				/>
-				<p className="text-xs opacity-50 mt-2">
-					Controls how wide toast notifications appear in the corner. Small is the default compact
-					size; Large is roughly 1.8&times; wider.
-				</p>
-			</div>
-
 			{/* Window Chrome Settings */}
 			<div data-setting-id="display-window-chrome">
 				<SettingsSectionHeading icon={AppWindow}>Window Chrome</SettingsSectionHeading>
@@ -533,6 +515,41 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 						backgroundColor: theme.colors.bgMain,
 					}}
 				>
+					{/* Show Starred Sessions section */}
+					<div
+						className="flex items-center justify-between"
+						data-setting-id="display-left-panel-starred-sessions"
+					>
+						<div>
+							<p className="text-sm" style={{ color: theme.colors.textMain }}>
+								Show Starred Sessions section
+							</p>
+							<p className="text-xs opacity-50 mt-0.5">
+								Display a Starred Sessions section at the top of the left side bar listing every
+								starred AI tab across all agents.
+							</p>
+						</div>
+						<button
+							onClick={() => setShowStarredSessionsSection(!showStarredSessionsSection)}
+							className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+							tabIndex={0}
+							style={{
+								backgroundColor: showStarredSessionsSection
+									? theme.colors.accent
+									: theme.colors.bgActivity,
+							}}
+							role="switch"
+							aria-checked={showStarredSessionsSection}
+							aria-label="Show Starred Sessions section in left side bar"
+						>
+							<span
+								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+									showStarredSessionsSection ? 'translate-x-5' : 'translate-x-0.5'
+								}`}
+							/>
+						</button>
+					</div>
+
 					{/* Show group member count */}
 					<div className="flex items-center justify-between">
 						<div>

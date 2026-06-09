@@ -63,6 +63,31 @@ describe('resolveConfiguredContextWindow', () => {
 		const value = await resolveConfiguredContextWindow({ toolType: 'claude-code' });
 		expect(value).toBe(0);
 	});
+
+	it('detects the 1M window from a session [1m] model without fetching config', async () => {
+		const value = await resolveConfiguredContextWindow({
+			toolType: 'claude-code',
+			customModel: 'opus[1m]',
+		});
+		expect(value).toBe(1_000_000);
+		expect(mockGetConfig).not.toHaveBeenCalled();
+	});
+
+	it('detects the 1M window from the agent-level [1m] model', async () => {
+		mockGetConfig.mockResolvedValue({ model: 'claude-opus-4-7[1m]', contextWindow: 200000 });
+		const value = await resolveConfiguredContextWindow({ toolType: 'claude-code' });
+		expect(value).toBe(1_000_000);
+	});
+
+	it('lets an explicit customContextWindow override win over a [1m] model', async () => {
+		const value = await resolveConfiguredContextWindow({
+			toolType: 'claude-code',
+			customContextWindow: 500_000,
+			customModel: 'opus[1m]',
+		});
+		expect(value).toBe(500_000);
+		expect(mockGetConfig).not.toHaveBeenCalled();
+	});
 });
 
 describe('resolveEffectiveContextWindow', () => {

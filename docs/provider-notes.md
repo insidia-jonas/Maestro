@@ -31,7 +31,7 @@ Environment variables are passed to the agent process. Use these for:
 - Provider-specific settings
 
 <Note>
-The `MAESTRO_SESSION_RESUMED` variable is automatically set to `1` when resuming sessions—you don't need to configure this manually.
+The `MAESTRO_SESSION_RESUMED` variable is automatically set to `1` when resuming sessions - you don't need to configure this manually.
 </Note>
 
 ## Claude Code

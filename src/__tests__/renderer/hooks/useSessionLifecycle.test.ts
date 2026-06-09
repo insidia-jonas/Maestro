@@ -484,6 +484,62 @@ describe('useSessionLifecycle', () => {
 			expect(updated.name).toBeNull();
 		});
 
+		it('locks a browser tab name via customTitle without touching title', () => {
+			const browserTab = {
+				id: 'browser-1',
+				url: 'https://example.com/page',
+				title: 'Example Domain',
+				createdAt: 0,
+				canGoBack: false,
+				canGoForward: false,
+				isLoading: false,
+			};
+			const session = createMockSession({ id: 'session-1', browserTabs: [browserTab] });
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useModalStore.getState().openModal('renameTab', { tabId: 'browser-1', initialName: '' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.handleRenameTab('  My Tab  ');
+			});
+
+			const updated = useSessionStore.getState().sessions[0].browserTabs![0];
+			expect(updated.customTitle).toBe('My Tab');
+			// Underlying page title is preserved so it reappears once the name is cleared
+			expect(updated.title).toBe('Example Domain');
+		});
+
+		it('clears a browser tab custom name when renamed to empty', () => {
+			const browserTab = {
+				id: 'browser-1',
+				url: 'https://example.com/page',
+				title: 'Example Domain',
+				customTitle: 'My Tab',
+				createdAt: 0,
+				canGoBack: false,
+				canGoForward: false,
+				isLoading: false,
+			};
+			const session = createMockSession({ id: 'session-1', browserTabs: [browserTab] });
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useModalStore
+				.getState()
+				.openModal('renameTab', { tabId: 'browser-1', initialName: 'My Tab' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.handleRenameTab('   ');
+			});
+
+			const updated = useSessionStore.getState().sessions[0].browserTabs![0];
+			expect(updated.customTitle).toBeUndefined();
+			expect(updated.title).toBe('Example Domain');
+		});
+
 		it('returns early if no active session', () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: '' });
 
@@ -1192,6 +1248,7 @@ describe('useSessionLifecycle', () => {
 			expect(mockPushNavigation).toHaveBeenCalledWith({
 				sessionId: 'session-1',
 				tabId: 'tab-1',
+				tabKind: 'ai',
 			});
 		});
 
@@ -1250,6 +1307,7 @@ describe('useSessionLifecycle', () => {
 			expect(mockPushNavigation).toHaveBeenCalledWith({
 				sessionId: 'session-1',
 				tabId: 'tab-2',
+				tabKind: 'ai',
 			});
 		});
 	});
@@ -1619,7 +1677,11 @@ describe('useSessionLifecycle', () => {
 	// ======================================================================
 
 	describe('navigation history edge cases', () => {
-		it('tracks tabId as undefined when session has aiTabs but inputMode is terminal', () => {
+		it('resolves the AI tab when aiTabs exist and no other tab kind is active (field-based, ignores inputMode)', () => {
+			// The breadcrumb resolves the visible tab from the active*TabId fields
+			// (terminal > file > browser > ai), the same priority findActiveUnifiedTabIndex
+			// uses - not from inputMode. With no activeTerminalTabId set, it falls through
+			// to the active AI tab even though inputMode is 'terminal'.
 			const tab = createMockAITab({ id: 'tab-1' });
 			const session = createMockSession({
 				id: 'session-1',
@@ -1634,7 +1696,8 @@ describe('useSessionLifecycle', () => {
 
 			expect(mockPushNavigation).toHaveBeenCalledWith({
 				sessionId: 'session-1',
-				tabId: undefined,
+				tabId: 'tab-1',
+				tabKind: 'ai',
 			});
 		});
 	});

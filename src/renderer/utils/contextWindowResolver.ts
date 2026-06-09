@@ -9,12 +9,18 @@
  */
 
 import type { ToolType } from '../types';
-import { DEFAULT_CONTEXT_WINDOWS, FALLBACK_CONTEXT_WINDOW } from '../../shared/agentConstants';
+import {
+	DEFAULT_CONTEXT_WINDOWS,
+	FALLBACK_CONTEXT_WINDOW,
+	getModelContextWindowOverride,
+} from '../../shared/agentConstants';
 import { captureException } from './sentry';
 
 interface ContextWindowSource {
 	toolType?: ToolType | string;
 	customContextWindow?: number;
+	/** Per-agent model override; a `[1m]` variant implies the 1M extended window. */
+	customModel?: string;
 }
 
 /**
@@ -31,9 +37,16 @@ export async function resolveConfiguredContextWindow(
 	if (typeof session.customContextWindow === 'number' && session.customContextWindow > 0) {
 		return session.customContextWindow;
 	}
+	// A `[1m]` model picks Anthropic's 1M extended-context beta, which the agent
+	// only reports through usage stats after its first turn. Detect it from the
+	// selected model so the window is sized correctly before any usage lands.
+	const sessionModelWindow = getModelContextWindowOverride(session.customModel);
+	if (sessionModelWindow) return sessionModelWindow;
 	if (!session.toolType) return 0;
 	try {
 		const config = await window.maestro.agents.getConfig(session.toolType);
+		const configModelWindow = getModelContextWindowOverride(config?.model);
+		if (configModelWindow) return configModelWindow;
 		return typeof config?.contextWindow === 'number' ? config.contextWindow : 0;
 	} catch (error) {
 		captureException(error, {

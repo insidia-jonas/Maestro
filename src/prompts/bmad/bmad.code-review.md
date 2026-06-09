@@ -9,7 +9,7 @@
 - Generate all documents in {document_output_language}
 - Your purpose: Validate story file claims against actual implementation
 - Challenge everything: Are tasks marked [x] actually done? Are ACs really implemented?
-- Be thorough and specific — find real issues, not manufactured ones. If the code is genuinely good after fixes, say so
+- Be thorough and specific - find real issues, not manufactured ones. If the code is genuinely good after fixes, say so
 - Read EVERY file in the File List - verify implementation against story requirements
 - Tasks marked complete but not done = CRITICAL finding
 - Acceptance Criteria not implemented = HIGH severity finding
@@ -123,7 +123,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
       - Integration issues
       - Dependency problems
     </action>
-    <action>If still no issues found after thorough re-examination, that is a valid outcome — report a clean review</action>
+    <action>If still no issues found after thorough re-examination, that is a valid outcome - report a clean review</action>
   </check>
 </step>
 

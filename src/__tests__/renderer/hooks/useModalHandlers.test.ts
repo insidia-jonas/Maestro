@@ -19,6 +19,14 @@ vi.mock('../../../renderer/services/git', () => ({
 	},
 }));
 
+const refreshGitStatusMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../../renderer/contexts/GitStatusContext', () => ({
+	useGitDetail: () => ({
+		getFileDetails: () => undefined,
+		refreshGitStatus: refreshGitStatusMock,
+	}),
+}));
+
 import { useModalHandlers } from '../../../renderer/hooks/modal/useModalHandlers';
 import { useModalStore, getModalActions } from '../../../renderer/stores/modalStore';
 import { useCenterFlashStore } from '../../../renderer/stores/centerFlashStore';
@@ -1804,7 +1812,7 @@ describe('useModalHandlers', () => {
 			expect(useModalStore.getState().getData('gitDiff')?.diff).toBe('diff --git a/file.ts');
 		});
 
-		it('flashes a notification when the diff is empty', async () => {
+		it('flashes a notification and re-polls git status when the diff is empty', async () => {
 			const session = createMockSession({
 				isGitRepo: true,
 				cwd: '/projects/my-repo',
@@ -1813,6 +1821,7 @@ describe('useModalHandlers', () => {
 			useSessionStore.setState({ sessions: [session], activeSessionId: session.id });
 			(gitService.getDiff as ReturnType<typeof vi.fn>).mockResolvedValue({ diff: '' });
 			useCenterFlashStore.getState().setActive(null);
+			refreshGitStatusMock.mockClear();
 
 			const { result } = renderHook(() =>
 				useModalHandlers(createInputRef(), createTerminalOutputRef())
@@ -1824,6 +1833,7 @@ describe('useModalHandlers', () => {
 
 			expect(useModalStore.getState().isOpen('gitDiff')).toBe(false);
 			expect(useCenterFlashStore.getState().active?.message).toBe('No diff to examine');
+			expect(refreshGitStatusMock).toHaveBeenCalledTimes(1);
 		});
 
 		it('uses shellCwd when in terminal mode', async () => {

@@ -12,6 +12,9 @@ interface BuildGitWorktreeCommandsArgs {
 	onQuickCreateWorktree?: (session: Session) => void;
 	onOpenCreatePR?: (session: Session) => void;
 	onRefreshGitFileState?: () => Promise<void>;
+	/** Re-poll git status across sessions. Called when `git diff` returns empty
+	 * despite the widget advertising changes, so the stale stats clear immediately. */
+	onRefreshGitStatus?: () => Promise<void>;
 	shortcuts: {
 		viewGitDiff?: QuickAction['shortcut'];
 		viewGitLog?: QuickAction['shortcut'];
@@ -51,6 +54,7 @@ export function buildGitWorktreeCommands({
 	onQuickCreateWorktree,
 	onOpenCreatePR,
 	onRefreshGitFileState,
+	onRefreshGitStatus,
 	shortcuts,
 	gitService,
 	notifyCenterFlash,
@@ -76,6 +80,9 @@ export function buildGitWorktreeCommands({
 					setGitDiffPreview(diff.diff);
 				} else {
 					notifyCenterFlash({ message: 'No diff to examine', color: 'theme' });
+					// Polling cache said there were changes but `git diff` is empty —
+					// re-sync so the widget stops advertising stale stats.
+					void onRefreshGitStatus?.();
 				}
 				setQuickActionOpen(false);
 			},

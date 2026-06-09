@@ -41,6 +41,7 @@ const mockMaestro = {
 	fs: {
 		rename: vi.fn().mockResolvedValue(undefined),
 		writeFile: vi.fn().mockResolvedValue(undefined),
+		mkdir: vi.fn().mockResolvedValue(undefined),
 		delete: vi.fn().mockResolvedValue(undefined),
 		countItems: vi.fn().mockResolvedValue({ fileCount: 2, folderCount: 1 }),
 	},
@@ -174,6 +175,20 @@ describe('useFileOperations', () => {
 		expect(refreshFileTree).toHaveBeenCalledWith('sess-1');
 		expect(expandFolder).toHaveBeenCalledWith('components');
 		expect(onShowFlash).toHaveBeenCalledWith('Created "NewComp.tsx"');
+	});
+
+	it('handleCreateNewFile calls mkdir (not writeFile) when opened as a folder', async () => {
+		const refreshFileTree = vi.fn().mockResolvedValue(undefined);
+		const { result } = renderHook(() => useFileOperations({ ...defaultArgs, refreshFileTree }));
+		act(() => {
+			result.current.openNewFolderModal('components', '/project/components');
+			result.current.setNewFileValue('NewDir');
+		});
+		await act(async () => {
+			await result.current.handleCreateNewFile();
+		});
+		expect(mockMaestro.fs.mkdir).toHaveBeenCalledWith('/project/components/NewDir', undefined);
+		expect(mockMaestro.fs.writeFile).not.toHaveBeenCalled();
 	});
 
 	// ─── delete ───────────────────────────────────────────────────────────────

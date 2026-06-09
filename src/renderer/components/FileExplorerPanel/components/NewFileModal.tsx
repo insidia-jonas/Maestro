@@ -6,6 +6,7 @@ import type { Theme } from '../../../types';
 
 interface NewFileModalProps {
 	theme: Theme;
+	kind: 'file' | 'folder';
 	parentFolderLabel: string;
 	value: string;
 	setValue: (value: string) => void;
@@ -17,6 +18,7 @@ interface NewFileModalProps {
 
 export function NewFileModal({
 	theme,
+	kind,
 	parentFolderLabel,
 	value,
 	setValue,
@@ -26,11 +28,12 @@ export function NewFileModal({
 	onCreate,
 }: NewFileModalProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const noun = kind === 'folder' ? 'folder' : 'file';
 
 	return (
 		<Modal
 			theme={theme}
-			title={`New file in ${parentFolderLabel}`}
+			title={`New ${noun} in ${parentFolderLabel}`}
 			priority={MODAL_PRIORITIES.RENAME_INSTANCE}
 			onClose={isCreating ? () => {} : onClose}
 			initialFocusRef={inputRef}
@@ -50,7 +53,7 @@ export function NewFileModal({
 				value={value}
 				onChange={setValue}
 				onSubmit={onCreate}
-				placeholder="Enter file name..."
+				placeholder={`Enter ${noun} name...`}
 				error={error || undefined}
 				submitEnabled={Boolean(value.trim()) && !isCreating}
 			/>

@@ -10,7 +10,7 @@ export const FILE_TREE_MULTI_MIME = 'application/x-maestro-file-paths';
 export const FILE_TREE_SINGLE_MIME = 'application/x-maestro-file-path';
 
 /**
- * Above this many files, "Preview all files under Folder" asks for confirmation
+ * Above this many files, "Preview All Files in Folder" asks for confirmation
  * first so a deep folder doesn't silently flood the tab bar with hundreds of tabs.
  */
 export const PREVIEW_ALL_CONFIRM_THRESHOLD = 25;
@@ -49,6 +49,12 @@ export interface MoveConflictState {
 	destFolderAbsolutePath: string;
 	conflicts: PendingMove[];
 	nonConflicting: PendingMove[];
+	/**
+	 * Whether the pending transfer moves rows within the tree (`move`, the
+	 * default) or copies OS files dragged in from Finder/Explorer (`copy`). Only
+	 * affects the conflict modal's verbs and the executor's filesystem call.
+	 */
+	operation: 'move' | 'copy';
 }
 
 export interface RenameModalState {
@@ -69,6 +75,7 @@ export interface MultiDeleteModalState {
 }
 
 export interface NewFileModalState {
+	kind: 'file' | 'folder';
 	parentFolderPath: string;
 	parentFolderAbsolutePath: string;
 }
@@ -76,7 +83,12 @@ export interface NewFileModalState {
 export interface ContextMenuState {
 	x: number;
 	y: number;
-	node: FileNode;
+	/**
+	 * The file/folder row under the cursor, or `null` for the empty-space menu
+	 * (right-clicking the blank area of the panel or an empty workspace). The
+	 * root menu only offers "New Folder", targeting the workspace root.
+	 */
+	node: FileNode | null;
 	path: string;
 }
 

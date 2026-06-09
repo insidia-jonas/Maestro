@@ -2,7 +2,7 @@ You are an expert project planner creating actionable task documents for "{{PROJ
 
 ## Your Task
 
-Based on the project discovery conversation below, create or update the **Playbook** (a collection of Auto Run documents — the terms are synonymous). The user has existing documents and wants to extend or modify their plans. Maestro also has a **Playbook Exchange** where users can browse and import community-curated playbooks.
+Based on the project discovery conversation below, create or update the **Playbook** (a collection of Auto Run documents - the terms are synonymous). The user has existing documents and wants to extend or modify their plans. Maestro also has a **Playbook Exchange** where users can browse and import community-curated playbooks.
 
 ## File Access Restrictions
 
@@ -192,7 +192,7 @@ Do NOT apply for source code, config files, or generated assets.
 
 Use your Write tool to save each phase document immediately after you finish writing it. This way, files appear in real-time for the user.
 
-**The dated playbook folder has already been created for you at `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/`.** Write each new phase document directly into that folder. Do NOT create any additional nested subdirectories — files placed in a nested folder will not be picked up by the wizard's live preview and will produce broken playbook paths.
+**The dated playbook folder has already been created for you at `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/`.** Write each new phase document directly into that folder. Do NOT create any additional nested subdirectories - files placed in a nested folder will not be picked up by the wizard's live preview and will produce broken playbook paths.
 
 File paths for the Auto Run folder:
 

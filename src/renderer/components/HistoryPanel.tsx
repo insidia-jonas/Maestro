@@ -165,6 +165,13 @@ export const HistoryPanel = React.memo(
 					projectPath: projectPathForHistory,
 					sharedContext: sharedContextSnapshot,
 					lookbackHours: graphLookbackHours,
+					// Type filter runs server-side so the window holds the newest
+					// N entries of the selected types. Toggling a filter changes
+					// this callback's identity, which the pagination hook treats
+					// as a window reset (re-fetches page 0). Without it, a
+					// Cue-heavy agent fills the window with CUE and toggling CUE
+					// off shows nothing despite USER/AUTO history existing.
+					types: [...activeFilters],
 					pagination: { offset, limit },
 				});
 				return {
@@ -173,7 +180,7 @@ export const HistoryPanel = React.memo(
 					total: result.total,
 				};
 			},
-			[session.id, projectPathForHistory, sharedContextSnapshot, graphLookbackHours]
+			[session.id, projectPathForHistory, sharedContextSnapshot, graphLookbackHours, activeFilters]
 		);
 
 		const getEntryId = useCallback((entry: HistoryEntry) => entry.id, []);
@@ -467,7 +474,8 @@ export const HistoryPanel = React.memo(
 					const targetOffset = await window.maestro.history.getOffsetForTimestamp(
 						session.id,
 						bucketEnd - 1,
-						graphLookbackHours
+						graphLookbackHours,
+						[...activeFilters]
 					);
 					await jumpToOffset(targetOffset);
 					requestAnimationFrame(() => {
@@ -481,6 +489,7 @@ export const HistoryPanel = React.memo(
 				allFilteredEntries,
 				session.id,
 				graphLookbackHours,
+				activeFilters,
 				jumpToOffset,
 				setSelectedIndex,
 				virtualizer,
@@ -587,12 +596,19 @@ export const HistoryPanel = React.memo(
 		// Keyboard navigation handler - combines hook handler with custom Escape/Cmd+F logic
 		const handleKeyDown = useCallback(
 			(e: React.KeyboardEvent) => {
-				// Open search filter with Cmd+F
-				if (e.key === 'f' && (e.metaKey || e.ctrlKey) && !searchFilterOpen) {
+				// Open (or re-focus) search filter with Cmd+F. When already open we
+				// still want to pull focus back to the input so the user can keep
+				// typing after using arrow keys to scroll the list.
+				if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
 					e.preventDefault();
-					setSearchFilterOpen(true);
-					// Focus the search input after state update
-					setTimeout(() => searchInputRef.current?.focus(), 0);
+					if (!searchFilterOpen) setSearchFilterOpen(true);
+					setTimeout(() => {
+						const input = searchInputRef.current;
+						if (!input) return;
+						input.focus();
+						const len = input.value.length;
+						input.setSelectionRange(len, len);
+					}, 0);
 					return;
 				}
 

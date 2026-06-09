@@ -63,6 +63,8 @@ vi.mock('lucide-react', () => ({
 	Trophy: () => <span data-testid="icon-trophy" />,
 	Trash2: () => <span data-testid="icon-trash" />,
 	Edit3: () => <span data-testid="icon-edit" />,
+	Smile: () => <span data-testid="icon-smile" />,
+	Fingerprint: () => <span data-testid="icon-fingerprint" />,
 	FolderInput: () => <span data-testid="icon-folder-input" />,
 	FolderPlus: () => <span data-testid="icon-folder-plus" />,
 	Download: () => <span data-testid="icon-download" />,
@@ -974,7 +976,7 @@ describe('SessionList', () => {
 			expect(screen.getByText('Delete Group')).toBeInTheDocument();
 		});
 
-		it('does not show Delete option for a non-empty non-worktree group', () => {
+		it('offers Delete Group (which ungroups agents) for a non-empty non-worktree group', () => {
 			const group = createMockGroup({ id: 'g1', name: 'My Group', emoji: '🚀' });
 			const sessions = [createMockSession({ id: 's1', name: 'Session', groupId: 'g1' })];
 			useSessionStore.setState({ sessions, groups: [group] });
@@ -984,8 +986,22 @@ describe('SessionList', () => {
 
 			fireEvent.contextMenu(screen.getByText('My Group'), { clientX: 100, clientY: 100 });
 
-			expect(screen.queryByText('Delete Group')).not.toBeInTheDocument();
+			// Non-worktree groups use the "Delete Group" label even when populated;
+			// the destructive "Remove Group and Agents" wording is reserved for worktrees.
+			expect(screen.getByText('Delete Group')).toBeInTheDocument();
 			expect(screen.queryByText('Remove Group and Agents')).not.toBeInTheDocument();
+		});
+
+		it('does not show "Change Emoji..." in the group context menu (emoji is changed via Rename)', () => {
+			const group = createMockGroup({ id: 'g1', name: 'My Group', emoji: '🚀' });
+			useSessionStore.setState({ sessions: [], groups: [group] });
+			useUIStore.setState({ leftSidebarOpen: true });
+			const props = createDefaultProps({ sortedSessions: [] });
+			render(<SessionList {...props} />);
+
+			fireEvent.contextMenu(screen.getByText('My Group'), { clientX: 100, clientY: 100 });
+
+			expect(screen.queryByText('Change Emoji...')).not.toBeInTheDocument();
 		});
 
 		it('shows "Remove Group and Agents" for a non-empty worktree group', () => {
@@ -1160,6 +1176,26 @@ describe('SessionList', () => {
 				expect.stringContaining('Delete Me'),
 				expect.any(Function)
 			);
+		});
+
+		it('copies agent GUID to clipboard from context menu', async () => {
+			const mockClipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+			Object.assign(navigator, { clipboard: mockClipboard });
+
+			const sessions = [createMockSession({ id: 'agent-guid-1', name: 'Copy GUID Me' })];
+			useSessionStore.setState({ sessions: sessions });
+			useUIStore.setState({ leftSidebarOpen: true });
+			const props = createDefaultProps({
+				sortedSessions: sessions,
+			});
+			render(<SessionList {...props} />);
+
+			// Open context menu
+			fireEvent.contextMenu(screen.getByText('Copy GUID Me'), { clientX: 100, clientY: 100 });
+
+			fireEvent.click(screen.getByText('Copy Agent GUID to Clipboard'));
+
+			expect(mockClipboard.writeText).toHaveBeenCalledWith('agent-guid-1');
 		});
 
 		it('toggles bookmark from context menu', () => {

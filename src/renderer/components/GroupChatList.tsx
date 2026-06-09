@@ -4,7 +4,7 @@
  * Appears below the Ungrouped Agents section in the left sidebar.
  */
 
-import { memo, useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { memo, useState, useRef, useMemo, useCallback } from 'react';
 import { useEventListener } from '../hooks/utils/useEventListener';
 import {
 	MessageSquare,
@@ -165,6 +165,10 @@ interface GroupChatListProps {
 	isExpanded?: boolean;
 	/** Callback when expanded state changes */
 	onExpandedChange?: (expanded: boolean) => void;
+	/** When true, sort chats alphabetically by name instead of by most recent activity */
+	sortAlphabetical?: boolean;
+	/** Callback to toggle the alphabetical/most-recent sort order */
+	onSortAlphabeticalChange?: (sortAlphabetical: boolean) => void;
 	/** Current state of the active group chat (for status indicator) */
 	groupChatState?: GroupChatState;
 	/** Per-participant working states for the active group chat */
@@ -191,6 +195,8 @@ function GroupChatListInner({
 	onDeleteAllArchivedGroupChats,
 	isExpanded: controlledIsExpanded,
 	onExpandedChange,
+	sortAlphabetical = false,
+	onSortAlphabeticalChange,
 	groupChatState = 'idle',
 	participantStates,
 	groupChatStates,
@@ -221,22 +227,6 @@ function GroupChatListInner({
 		y: number;
 		chatId: string;
 	} | null>(null);
-
-	// Track previous count to detect when chats are added.
-	// Initialized to -1 so the first observed length (including async hydration
-	// from disk) is treated as the baseline rather than as a user-initiated add
-	// — otherwise the persisted collapsed state gets clobbered on every restart
-	// once group chats finish loading.
-	const prevCountRef = useRef(-1);
-
-	// Auto-expand when a new chat is added
-	useEffect(() => {
-		if (prevCountRef.current >= 0 && groupChats.length > prevCountRef.current) {
-			// A chat was added, expand the list
-			setIsExpanded(true);
-		}
-		prevCountRef.current = groupChats.length;
-	}, [groupChats.length, setIsExpanded]);
 
 	const handleContextMenu = (e: React.MouseEvent, chatId: string) => {
 		e.preventDefault();
@@ -288,9 +278,19 @@ function GroupChatListInner({
 				if (showArchived && a.archived !== b.archived) {
 					return a.archived ? 1 : -1;
 				}
+				if (sortAlphabetical) {
+					return a.name.localeCompare(b.name);
+				}
 				return (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt);
 			});
-	}, [groupChats, showArchived, showUnreadAgentsOnly, activeGroupChatId, isChatBusy]);
+	}, [
+		groupChats,
+		showArchived,
+		showUnreadAgentsOnly,
+		activeGroupChatId,
+		isChatBusy,
+		sortAlphabetical,
+	]);
 
 	// When the unread-agents filter hides everything, drop the section entirely
 	// rather than leaving an empty header dangling at the bottom of the sidebar.
@@ -323,6 +323,31 @@ function GroupChatListInner({
 					)}
 				</div>
 				<div className="flex items-center gap-1.5">
+					{onSortAlphabeticalChange && activeCount > 1 && (
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								onSortAlphabeticalChange(!sortAlphabetical);
+							}}
+							className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+							style={{
+								backgroundColor: 'transparent',
+								color: theme.colors.textDim,
+								border: `1px solid ${theme.colors.border}`,
+							}}
+							title={
+								sortAlphabetical
+									? 'Sorting alphabetically (click to sort by most recent)'
+									: 'Sorting by most recent (click to sort alphabetically)'
+							}
+						>
+							{sortAlphabetical ? (
+								<ArrowDownAZ className="w-3 h-3" />
+							) : (
+								<Clock className="w-3 h-3" />
+							)}
+						</button>
+					)}
 					{onArchiveGroupChat && archivedCount > 0 && (
 						<button
 							onClick={(e) => {
@@ -348,6 +373,8 @@ function GroupChatListInner({
 					<button
 						onClick={(e) => {
 							e.stopPropagation();
+							// Creating a chat is a deliberate action, so expand to reveal it.
+							setIsExpanded(true);
 							onNewGroupChat();
 						}}
 						className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"

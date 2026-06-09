@@ -39,6 +39,7 @@ interface UseFileOperationsResult {
 	setRenameValue: (v: string) => void;
 	handleRename: () => Promise<void>;
 	openNewFileModal: (parentFolderPath: string, parentFolderAbsolutePath: string) => void;
+	openNewFolderModal: (parentFolderPath: string, parentFolderAbsolutePath: string) => void;
 	closeNewFileModal: () => void;
 	setNewFileValue: (v: string) => void;
 	handleCreateNewFile: () => Promise<void>;
@@ -140,7 +141,16 @@ export function useFileOperations({
 
 	const openNewFileModal = useCallback(
 		(parentFolderPath: string, parentFolderAbsolutePath: string) => {
-			setNewFileModal({ parentFolderPath, parentFolderAbsolutePath });
+			setNewFileModal({ kind: 'file', parentFolderPath, parentFolderAbsolutePath });
+			setNewFileValue('');
+			setNewFileError(null);
+		},
+		[]
+	);
+
+	const openNewFolderModal = useCallback(
+		(parentFolderPath: string, parentFolderAbsolutePath: string) => {
+			setNewFileModal({ kind: 'folder', parentFolderPath, parentFolderAbsolutePath });
 			setNewFileValue('');
 			setNewFileError(null);
 		},
@@ -149,10 +159,11 @@ export function useFileOperations({
 
 	const closeNewFileModal = useCallback(() => setNewFileModal(null), []);
 
-	// Create an empty file inside the new-file modal's parent folder.
+	// Create an empty file or a new folder inside the new-file modal's parent folder.
 	const handleCreateNewFile = useCallback(async () => {
 		if (!newFileModal || !newFileValue.trim()) return;
 
+		const isFolder = newFileModal.kind === 'folder';
 		const name = newFileValue.trim();
 		if (name.includes('/') || name.includes('\\')) {
 			setNewFileError('Name cannot contain slashes');
@@ -173,7 +184,11 @@ export function useFileOperations({
 		const absolutePath = `${newFileModal.parentFolderAbsolutePath}/${name}`;
 		setIsCreatingFile(true);
 		try {
-			await window.maestro.fs.writeFile(absolutePath, '', sshRemoteId);
+			if (isFolder) {
+				await window.maestro.fs.mkdir(absolutePath, sshRemoteId);
+			} else {
+				await window.maestro.fs.writeFile(absolutePath, '', sshRemoteId);
+			}
 			await refreshFileTree(session.id);
 			expandFolder(newFileModal.parentFolderPath);
 			setNewFileModal(null);
@@ -305,6 +320,7 @@ export function useFileOperations({
 		},
 		handleRename,
 		openNewFileModal,
+		openNewFolderModal,
 		closeNewFileModal,
 		setNewFileValue: (v: string) => {
 			setNewFileValue(v);

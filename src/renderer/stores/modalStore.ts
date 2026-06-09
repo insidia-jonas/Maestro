@@ -163,9 +163,11 @@ export interface DirectorNotesData {
 	initialTab?: 'overview' | 'history' | 'ai-overview';
 }
 
-/** Cue modal data */
+/** Quit confirmation modal data */
 export interface QuitConfirmModalData {
 	activeTerminalTasks?: string[];
+	activeCueRunCount?: number;
+	activeGroupChatCount?: number;
 	hasFeedbackDraft?: boolean;
 }
 
@@ -206,7 +208,7 @@ export interface KeyboardMasteryData {
 
 /** Batch Runner modal data — used to pre-seed the doc list when opened programmatically (e.g. from the inline wizard's "Start Auto Run" button). */
 export interface BatchRunnerModalData {
-	/** Document filenames (without `.md`) to pre-populate the run list with. When set, overrides the default `[currentDocument]` initialization. */
+	/** Document filenames (without `.md`) to pre-populate the run list with. When omitted, the run list opens empty. */
 	presetDocuments?: string[];
 }
 
@@ -277,6 +279,7 @@ export type ModalId =
 	| 'debugWizard'
 	| 'debugPackage'
 	| 'debugApplicationStats'
+	| 'debugAgentProbe'
 	| 'playground'
 	| 'logViewer'
 	| 'processMonitor'
@@ -689,6 +692,10 @@ export function getModalActions() {
 		setDebugApplicationStatsOpen: (open: boolean) =>
 			open ? openModal('debugApplicationStats') : closeModal('debugApplicationStats'),
 
+		// Debug Agent Probe Modal
+		setDebugAgentProbeOpen: (open: boolean) =>
+			open ? openModal('debugAgentProbe') : closeModal('debugAgentProbe'),
+
 		// Confirmation Modal
 		setConfirmModalOpen: (open: boolean) => (open ? openModal('confirm') : closeModal('confirm')),
 		setConfirmModalMessage: (message: string) => updateModalData('confirm', { message }),
@@ -699,10 +706,8 @@ export function getModalActions() {
 		closeConfirmation: () => closeModal('confirm'),
 
 		// Quit Confirmation Modal
-		setQuitConfirmModalOpen: (
-			open: boolean,
-			data?: { activeTerminalTasks?: string[]; hasFeedbackDraft?: boolean }
-		) => (open ? openModal('quitConfirm', data) : closeModal('quitConfirm')),
+		setQuitConfirmModalOpen: (open: boolean, data?: QuitConfirmModalData) =>
+			open ? openModal('quitConfirm', data) : closeModal('quitConfirm'),
 
 		// Rename Instance Modal
 		setRenameInstanceModalOpen: (open: boolean) => {
@@ -963,6 +968,7 @@ export function useModalActions() {
 	const debugWizardModalOpen = useModalStore(selectModalOpen('debugWizard'));
 	const debugPackageModalOpen = useModalStore(selectModalOpen('debugPackage'));
 	const debugApplicationStatsOpen = useModalStore(selectModalOpen('debugApplicationStats'));
+	const debugAgentProbeOpen = useModalStore(selectModalOpen('debugAgentProbe'));
 	const confirmModalOpen = useModalStore(selectModalOpen('confirm'));
 	const confirmData = useModalStore(selectModalData('confirm'));
 	const quitConfirmModalOpen = useModalStore(selectModalOpen('quitConfirm'));
@@ -1087,6 +1093,9 @@ export function useModalActions() {
 
 		// Debug Application Stats Modal
 		debugApplicationStatsOpen,
+
+		// Debug Agent Probe Modal
+		debugAgentProbeOpen,
 
 		// Confirmation Modal
 		confirmModalOpen,

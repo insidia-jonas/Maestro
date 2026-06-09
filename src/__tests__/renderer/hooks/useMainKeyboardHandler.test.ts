@@ -3041,5 +3041,297 @@ describe('useMainKeyboardHandler', () => {
 			unmount();
 			expect(ipcCallback).toBeNull();
 		});
+
+		it('routes forwarded Cmd+L to focusBrowserAddressBar without re-dispatching', () => {
+			let ipcCallback: ((input: Record<string, unknown>) => void) | null = null;
+			(window as any).maestro = {
+				...(window as any).maestro,
+				app: {
+					...((window as any).maestro?.app ?? {}),
+					onBrowserTabShortcutKey: (cb: (input: Record<string, unknown>) => void) => {
+						ipcCallback = cb;
+						return () => {
+							ipcCallback = null;
+						};
+					},
+				},
+			};
+
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const focusBrowserAddressBar = vi.fn();
+			const openBrowserFind = vi.fn();
+			result.current.keyboardHandlerRef.current = createMockContext({
+				activeSession: { id: 's1', activeBrowserTabId: 'b1' },
+				isTabShortcut: (_e: unknown, id: string) => id === 'focusBrowserAddress',
+				mainPanelRef: { current: { focusBrowserAddressBar, openBrowserFind } },
+			});
+
+			const dispatched: KeyboardEvent[] = [];
+			const listener = (e: Event) => dispatched.push(e as KeyboardEvent);
+			originalAddEventListener.call(window, 'keydown', listener);
+
+			act(() => {
+				ipcCallback!({
+					key: 'l',
+					code: 'KeyL',
+					meta: true,
+					control: false,
+					alt: false,
+					shift: false,
+				});
+			});
+
+			originalRemoveEventListener.call(window, 'keydown', listener);
+
+			expect(focusBrowserAddressBar).toHaveBeenCalledTimes(1);
+			expect(openBrowserFind).not.toHaveBeenCalled();
+			// Must NOT re-dispatch — that's what made the older implementation race
+			// with the overlay guard.
+			expect(dispatched.find((e) => e.key === 'l' && e.metaKey)).toBeUndefined();
+		});
+
+		it('routes forwarded Cmd+Left and Cmd+Right to browserBack/browserForward', () => {
+			let ipcCallback: ((input: Record<string, unknown>) => void) | null = null;
+			(window as any).maestro = {
+				...(window as any).maestro,
+				app: {
+					...((window as any).maestro?.app ?? {}),
+					onBrowserTabShortcutKey: (cb: (input: Record<string, unknown>) => void) => {
+						ipcCallback = cb;
+						return () => {
+							ipcCallback = null;
+						};
+					},
+				},
+			};
+
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const browserBack = vi.fn();
+			const browserForward = vi.fn();
+			const openBrowserFind = vi.fn();
+			const focusBrowserAddressBar = vi.fn();
+			result.current.keyboardHandlerRef.current = createMockContext({
+				activeSession: { id: 's1', activeBrowserTabId: 'b1' },
+				isTabShortcut: () => false,
+				mainPanelRef: {
+					current: { focusBrowserAddressBar, openBrowserFind, browserBack, browserForward },
+				},
+			});
+
+			act(() => {
+				ipcCallback!({
+					key: 'ArrowLeft',
+					code: 'ArrowLeft',
+					meta: true,
+					control: false,
+					alt: false,
+					shift: false,
+				});
+			});
+			act(() => {
+				ipcCallback!({
+					key: 'ArrowRight',
+					code: 'ArrowRight',
+					meta: true,
+					control: false,
+					alt: false,
+					shift: false,
+				});
+			});
+
+			expect(browserBack).toHaveBeenCalledTimes(1);
+			expect(browserForward).toHaveBeenCalledTimes(1);
+			expect(openBrowserFind).not.toHaveBeenCalled();
+			expect(focusBrowserAddressBar).not.toHaveBeenCalled();
+		});
+
+		it('window Cmd+Left navigates browser back, but only when not in an input', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const browserBack = vi.fn();
+			const browserForward = vi.fn();
+			result.current.keyboardHandlerRef.current = createMockContext({
+				activeSessionId: 's1',
+				activeSession: { id: 's1', activeBrowserTabId: 'b1' },
+				activeGroupChatId: null,
+				isTabShortcut: () => false,
+				mainPanelRef: { current: { browserBack, browserForward } },
+			});
+
+			// Focused on body (not an editable element)
+			act(() => {
+				const event = new KeyboardEvent('keydown', {
+					key: 'ArrowLeft',
+					metaKey: true,
+					bubbles: true,
+					cancelable: true,
+				});
+				window.dispatchEvent(event);
+			});
+			expect(browserBack).toHaveBeenCalledTimes(1);
+
+			// Now focus on an HTMLInputElement and re-fire — must NOT navigate
+			// (preserves macOS line-navigation inside text inputs)
+			const input = document.createElement('input');
+			document.body.appendChild(input);
+			input.focus();
+			act(() => {
+				const event = new KeyboardEvent('keydown', {
+					key: 'ArrowLeft',
+					metaKey: true,
+					bubbles: true,
+					cancelable: true,
+				});
+				input.dispatchEvent(event);
+			});
+			expect(browserBack).toHaveBeenCalledTimes(1);
+			input.remove();
+
+			// Cmd+Right while body has focus
+			act(() => {
+				const event = new KeyboardEvent('keydown', {
+					key: 'ArrowRight',
+					metaKey: true,
+					bubbles: true,
+					cancelable: true,
+				});
+				window.dispatchEvent(event);
+			});
+			expect(browserForward).toHaveBeenCalledTimes(1);
+		});
+
+		it('routes forwarded Cmd+F to openBrowserFind', () => {
+			let ipcCallback: ((input: Record<string, unknown>) => void) | null = null;
+			(window as any).maestro = {
+				...(window as any).maestro,
+				app: {
+					...((window as any).maestro?.app ?? {}),
+					onBrowserTabShortcutKey: (cb: (input: Record<string, unknown>) => void) => {
+						ipcCallback = cb;
+						return () => {
+							ipcCallback = null;
+						};
+					},
+				},
+			};
+
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const openBrowserFind = vi.fn();
+			const focusBrowserAddressBar = vi.fn();
+			result.current.keyboardHandlerRef.current = createMockContext({
+				activeSession: { id: 's1', activeBrowserTabId: 'b1' },
+				isTabShortcut: () => false,
+				mainPanelRef: { current: { focusBrowserAddressBar, openBrowserFind } },
+			});
+
+			const dispatched: KeyboardEvent[] = [];
+			const listener = (e: Event) => dispatched.push(e as KeyboardEvent);
+			originalAddEventListener.call(window, 'keydown', listener);
+
+			act(() => {
+				ipcCallback!({
+					key: 'f',
+					code: 'KeyF',
+					meta: true,
+					control: false,
+					alt: false,
+					shift: false,
+				});
+			});
+
+			originalRemoveEventListener.call(window, 'keydown', listener);
+
+			expect(openBrowserFind).toHaveBeenCalledTimes(1);
+			expect(focusBrowserAddressBar).not.toHaveBeenCalled();
+			expect(dispatched.find((e) => e.key === 'f' && e.metaKey)).toBeUndefined();
+		});
+
+		it('routes forwarded Cmd+Shift+, to handleNavBack without re-dispatching', () => {
+			let ipcCallback: ((input: Record<string, unknown>) => void) | null = null;
+			(window as any).maestro = {
+				...(window as any).maestro,
+				app: {
+					...((window as any).maestro?.app ?? {}),
+					onBrowserTabShortcutKey: (cb: (input: Record<string, unknown>) => void) => {
+						ipcCallback = cb;
+						return () => {
+							ipcCallback = null;
+						};
+					},
+				},
+			};
+
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const handleNavBack = vi.fn();
+			const handleNavForward = vi.fn();
+			result.current.keyboardHandlerRef.current = createMockContext({
+				activeSession: { id: 's1', activeBrowserTabId: 'b1' },
+				isTabShortcut: () => false,
+				isShortcut: (_e: unknown, id: string) => id === 'navBack',
+				handleNavBack,
+				handleNavForward,
+			});
+
+			const dispatched: KeyboardEvent[] = [];
+			const listener = (e: Event) => dispatched.push(e as KeyboardEvent);
+			originalAddEventListener.call(window, 'keydown', listener);
+
+			act(() => {
+				ipcCallback!({
+					key: '<',
+					code: 'Comma',
+					meta: true,
+					control: false,
+					alt: false,
+					shift: true,
+				});
+			});
+
+			originalRemoveEventListener.call(window, 'keydown', listener);
+
+			expect(handleNavBack).toHaveBeenCalledTimes(1);
+			expect(handleNavForward).not.toHaveBeenCalled();
+			expect(dispatched.find((e) => (e.key === '<' || e.key === ',') && e.metaKey)).toBeUndefined();
+		});
+
+		it('routes forwarded Cmd+Shift+. to handleNavForward without re-dispatching', () => {
+			let ipcCallback: ((input: Record<string, unknown>) => void) | null = null;
+			(window as any).maestro = {
+				...(window as any).maestro,
+				app: {
+					...((window as any).maestro?.app ?? {}),
+					onBrowserTabShortcutKey: (cb: (input: Record<string, unknown>) => void) => {
+						ipcCallback = cb;
+						return () => {
+							ipcCallback = null;
+						};
+					},
+				},
+			};
+
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const handleNavBack = vi.fn();
+			const handleNavForward = vi.fn();
+			result.current.keyboardHandlerRef.current = createMockContext({
+				activeSession: { id: 's1', activeBrowserTabId: 'b1' },
+				isTabShortcut: () => false,
+				isShortcut: (_e: unknown, id: string) => id === 'navForward',
+				handleNavBack,
+				handleNavForward,
+			});
+
+			act(() => {
+				ipcCallback!({
+					key: '>',
+					code: 'Period',
+					meta: true,
+					control: false,
+					alt: false,
+					shift: true,
+				});
+			});
+
+			expect(handleNavForward).toHaveBeenCalledTimes(1);
+			expect(handleNavBack).not.toHaveBeenCalled();
+		});
 	});
 });

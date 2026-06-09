@@ -24,10 +24,12 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { useTerminalMounting } from '../../hooks/terminal/useTerminalMounting';
 import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
+import { aiTabFocusFields } from '../../utils/tabHelpers';
 import { useSshRemoteName } from '../../hooks/mainPanel/useSshRemoteName';
 import { useContextWindow } from '../../hooks/mainPanel/useContextWindow';
 import { useFilePreviewHandlers } from '../../hooks/mainPanel/useFilePreviewHandlers';
 import { useGitInfo } from '../../hooks/mainPanel/useGitInfo';
+import { useChatFileDropZone } from '../../hooks/ui/useChatFileDropZone';
 import { MainPanelHeader } from './MainPanelHeader';
 import { MainPanelContent } from './MainPanelContent';
 import { AgentErrorBanner } from './AgentErrorBanner';
@@ -99,6 +101,7 @@ export const MainPanel = React.memo(
 			currentSessionBatchState,
 			onStopBatchRun,
 			onRemoveQueuedItem,
+			onTogglePauseQueuedItem,
 			onForceSendQueuedItem,
 			forcedParallelEnabled,
 			getForceSendContext,
@@ -186,13 +189,14 @@ export const MainPanel = React.memo(
 			activeFileTabId,
 			activeFileTab,
 			activeBrowserTabId,
-			activeBrowserTab,
 			onFileTabSelect,
 			onFileTabClose,
 			onNewFileTab,
 			onNewBrowserTab,
 			onBrowserTabSelect,
 			onBrowserTabClose,
+			onBrowserTabRename,
+			onBrowserTabResetName,
 			onBrowserTabUpdate,
 			onFileTabEditModeChange,
 			onFileTabEditContentChange,
@@ -248,15 +252,8 @@ export const MainPanel = React.memo(
 				setSessions((prev) =>
 					prev.map((s) => {
 						if (s.id !== sessionId) return s;
-						if (tabId && !s.aiTabs?.some((t) => t.id === tabId)) {
-							return { ...s, activeFileTabId: null, inputMode: 'ai' as const };
-						}
-						return {
-							...s,
-							...(tabId && { activeTabId: tabId }),
-							activeFileTabId: null,
-							inputMode: 'ai' as const,
-						};
+						const targetTabId = tabId && s.aiTabs?.some((t) => t.id === tabId) ? tabId : undefined;
+						return { ...s, ...aiTabFocusFields(targetTabId) };
 					})
 				);
 			},
@@ -363,15 +360,32 @@ export const MainPanel = React.memo(
 					}
 				},
 				focusBrowserAddressBar: () => {
-					if (activeSession?.activeBrowserTabId) {
-						const input = document.getElementById(
-							`browser-tab-address-${activeSession.activeBrowserTabId}`
-						) as HTMLInputElement | null;
-						if (input) {
-							input.focus();
-							input.select();
-						}
-					}
+					// Read fresh from the store: `useImperativeHandle` only rebuilds when
+					// session ID changes, so opening a browser tab inside an existing
+					// session leaves `activeBrowserTabId` stale in the captured closure.
+					const session = selectActiveSession(useSessionStore.getState());
+					if (!session?.activeBrowserTabId) return;
+					const input = document.getElementById(
+						`browser-tab-address-${session.activeBrowserTabId}`
+					) as HTMLInputElement | null;
+					input?.focus();
+					input?.select();
+				},
+				openBrowserFind: () => {
+					// Same fresh-from-store reasoning as `focusBrowserAddressBar`.
+					const session = selectActiveSession(useSessionStore.getState());
+					if (!session?.activeBrowserTabId) return;
+					browserViewRef.current?.openFind();
+				},
+				browserBack: () => {
+					const session = selectActiveSession(useSessionStore.getState());
+					if (!session?.activeBrowserTabId) return;
+					browserViewRef.current?.goBack();
+				},
+				browserForward: () => {
+					const session = selectActiveSession(useSessionStore.getState());
+					if (!session?.activeBrowserTabId) return;
+					browserViewRef.current?.goForward();
 				},
 				focusActiveTab: () => {
 					// Read fresh from the store: useImperativeHandle only rebuilds when
@@ -408,22 +422,22 @@ export const MainPanel = React.memo(
 					tabElement.focus({ preventScroll: true });
 				},
 				reloadBrowserTab: () => {
-					if (activeSession?.activeBrowserTabId) {
-						const host = document.querySelector('[data-testid="browser-tab-host"]');
-						const webview = host?.querySelector('webview') as
-							| (HTMLElement & { reload: () => void; stop: () => void; isLoading: () => boolean })
-							| null;
-						if (webview) {
-							try {
-								if (webview.isLoading()) {
-									webview.stop();
-								} else {
-									webview.reload();
-								}
-							} catch {
-								// webview not ready
-							}
+					// Same stale-closure caveat as `focusBrowserAddressBar` — read fresh.
+					const session = selectActiveSession(useSessionStore.getState());
+					if (!session?.activeBrowserTabId) return;
+					const host = document.querySelector('[data-testid="browser-tab-host"]');
+					const webview = host?.querySelector('webview') as
+						| (HTMLElement & { reload: () => void; stop: () => void; isLoading: () => boolean })
+						| null;
+					if (!webview) return;
+					try {
+						if (webview.isLoading()) {
+							webview.stop();
+						} else {
+							webview.reload();
 						}
+					} catch {
+						// webview not ready
 					}
 				},
 				openTerminalSearch: () => {
@@ -528,6 +542,7 @@ export const MainPanel = React.memo(
 				if (!handle || handle.getTabId() !== tabId) return null;
 				const content = await handle.getContent();
 				const displayName =
+					(browserTab.customTitle && browserTab.customTitle.trim()) ||
 					(browserTab.title && browserTab.title.trim()) ||
 					(() => {
 						try {
@@ -618,6 +633,10 @@ export const MainPanel = React.memo(
 				setGitDiffPreview(diff.diff);
 			} else {
 				notifyCenterFlash({ message: 'No diff to examine', color: 'theme' });
+				// Polling cache said there were changes but `git diff` is empty —
+				// repo state changed since the last poll. Re-sync so the widget
+				// stops advertising stale stats.
+				void refreshGitStatus();
 			}
 		}, [
 			activeSession?.isGitRepo,
@@ -626,7 +645,14 @@ export const MainPanel = React.memo(
 			activeSession?.cwd,
 			filePreviewSshRemoteId,
 			setGitDiffPreview,
+			refreshGitStatus,
 		]);
+
+		// Chat-attach drop zone, scoped to the main panel. Dropping an OS file (or
+		// a Files-panel row) anywhere over the main panel attaches it to the chat;
+		// other regions (left bar, Files/History/Auto Run) stay inert because they
+		// don't mount this zone.
+		const chatDropZone = useChatFileDropZone(theme, handleDrop);
 
 		// Show log viewer
 		if (logViewerOpen) {
@@ -712,7 +738,9 @@ export const MainPanel = React.memo(
 							backgroundColor: theme.colors.bgMain,
 						}}
 						onClick={() => useUIStore.getState().setActiveFocus('main')}
+						{...chatDropZone.dragHandlers}
 					>
+						{chatDropZone.overlay}
 						{/* Top Bar (hidden in mobile landscape for focused reading) */}
 						{!isMobileLandscape && (
 							<MainPanelHeader
@@ -788,6 +816,8 @@ export const MainPanel = React.memo(
 									onNewBrowserTab={onNewBrowserTab}
 									onBrowserTabSelect={onBrowserTabSelect}
 									onBrowserTabClose={onBrowserTabClose}
+									onBrowserTabRename={onBrowserTabRename}
+									onBrowserTabResetName={onBrowserTabResetName}
 									// Terminal tab props (Phase 8)
 									onNewTerminalTab={onNewTerminalTab}
 									activeTerminalTabId={activeSession.activeTerminalTabId}
@@ -834,7 +864,6 @@ export const MainPanel = React.memo(
 							activeFileTabId={activeFileTabId}
 							activeFileTab={activeFileTab}
 							activeBrowserTabId={activeBrowserTabId}
-							activeBrowserTab={activeBrowserTab}
 							memoizedFilePreviewFile={memoizedFilePreviewFile}
 							filePreviewCwd={filePreviewCwd}
 							filePreviewSshRemoteId={filePreviewSshRemoteId}
@@ -912,6 +941,7 @@ export const MainPanel = React.memo(
 							thinkingItems={thinkingItems}
 							onStopBatchRun={onStopBatchRun}
 							onRemoveQueuedItem={onRemoveQueuedItem}
+							onTogglePauseQueuedItem={onTogglePauseQueuedItem}
 							onForceSendQueuedItem={onForceSendQueuedItem}
 							forcedParallelEnabled={forcedParallelEnabled}
 							getForceSendContext={getForceSendContext}

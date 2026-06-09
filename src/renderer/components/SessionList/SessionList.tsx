@@ -20,6 +20,7 @@ import {
 	Trophy,
 	Trash2,
 	Bot,
+	Star,
 } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import type { Session, Group, Theme } from '../../types';
@@ -51,6 +52,12 @@ import { useSessionFilterMode } from '../../hooks/session/useSessionFilterMode';
 import { cueService } from '../../services/cue';
 import { captureException } from '../../utils/sentry';
 import { useEventListener } from '../../hooks/utils/useEventListener';
+import { getTabDisplayName } from '../../utils/tabHelpers';
+import {
+	notifyStarredSessionsChanged,
+	onStarredSessionsChanged,
+} from '../../utils/starredSessions';
+import { updateSessionWith } from '../../stores/sessionStore';
 
 // ============================================================================
 // SessionContextMenu - Right-click context menu for session items
@@ -111,6 +118,16 @@ interface SessionListProps {
 	// Maestro Cue
 	onConfigureCue?: (session: Session) => void;
 
+	// Starred sessions cross-agent jump. Resolves to `false` when the session can
+	// no longer be loaded (aged out), so the click handler can offer to unstar it.
+	onJumpToStarredSession?: (
+		agentId: string,
+		projectPath: string,
+		agentSessionId: string,
+		sessionName: string,
+		parentSessionId: string
+	) => Promise<boolean>;
+
 	// Group Chat handlers
 	onOpenGroupChat?: (id: string) => void;
 	onNewGroupChat?: () => void;
@@ -121,6 +138,10 @@ interface SessionListProps {
 	onArchiveGroupChat?: (id: string, archived: boolean) => void;
 	onDeleteAllArchivedGroupChats?: () => void;
 }
+
+// Sentinel for the "ungrouped" drop zone in the drag-over highlight state.
+// Real group ids are prefixed `group-`, so this can never collide with one.
+const UNGROUPED_DROP_TARGET = '__ungrouped__';
 
 function SessionListInner(props: SessionListProps) {
 	// Store subscriptions
@@ -143,12 +164,15 @@ function SessionListInner(props: SessionListProps) {
 	const draggingSessionId = useUIStore((s) => s.draggingSessionId);
 	const bookmarksCollapsed = useUIStore((s) => s.bookmarksCollapsed);
 	const groupChatsExpanded = useSettingsStore((s) => s.groupChatsExpanded);
+	const groupChatSortAlphabetical = useSettingsStore((s) => s.groupChatSortAlphabetical);
 	const shortcuts = useSettingsStore((s) => s.shortcuts);
 	const leftSidebarWidthState = useSettingsStore((s) => s.leftSidebarWidth);
 	const persistentWebLink = useSettingsStore((s) => s.persistentWebLink);
 	const webInterfaceUseCustomPort = useSettingsStore((s) => s.webInterfaceUseCustomPort);
 	const webInterfaceCustomPort = useSettingsStore((s) => s.webInterfaceCustomPort);
 	const ungroupedCollapsed = useSettingsStore((s) => s.ungroupedCollapsed);
+	const starredSectionCollapsed = useSettingsStore((s) => s.starredSessionsCollapsed);
+	const showStarredSessionsSection = useSettingsStore((s) => s.showStarredSessionsSection);
 	const showLeftPanelGroupMemberCount = useSettingsStore((s) => s.showLeftPanelGroupMemberCount);
 	const leftPanelCollapsedPillsPerRow = useSettingsStore((s) => s.leftPanelCollapsedPillsPerRow);
 	const autoRunStats = useSettingsStore((s) => s.autoRunStats);
@@ -255,6 +279,175 @@ function SessionListInner(props: SessionListProps) {
 		};
 		// Re-fetch when sessions change so newly added agents show their Cue indicator
 	}, [sessions.length]);
+	// Starred named sessions across all providers, used for the Left Bar
+	// "Starred Sessions" section. We load lazily when the section is enabled
+	// and refresh when the list of agents changes, so newly starred or closed
+	// sessions surface without a reload.
+	const [starredNamedSessions, setStarredNamedSessions] = useState<
+		Array<{
+			agentId: string;
+			agentSessionId: string;
+			projectPath: string;
+			sessionName: string;
+			lastActivityAt?: number;
+		}>
+	>([]);
+	const setStarredSectionCollapsed = useSettingsStore.getState().setStarredSessionsCollapsed;
+	const loadStarredNamedSessions = useCallback(async () => {
+		if (!showStarredSessionsSection) return;
+		try {
+			const all = await window.maestro.agentSessions.getAllNamedSessions();
+			setStarredNamedSessions(
+				all
+					.filter((s) => s.starred === true)
+					.map((s) => ({
+						agentId: s.agentId,
+						agentSessionId: s.agentSessionId,
+						projectPath: s.projectPath,
+						sessionName: s.sessionName,
+						lastActivityAt: s.lastActivityAt,
+					}))
+			);
+		} catch (err) {
+			captureException(err, { extra: { context: 'SessionList.loadStarredNamedSessions' } });
+		}
+	}, [showStarredSessionsSection]);
+
+	// Refresh the closed/named starred cache when the agent count changes (a new
+	// session may have been starred) and whenever any star toggles anywhere in the
+	// app (so unstarring removes the row immediately instead of leaving a stale
+	// closed twin behind).
+	useEffect(() => {
+		void loadStarredNamedSessions();
+	}, [loadStarredNamedSessions, sessions.length]);
+	useEffect(
+		() => onStarredSessionsChanged(() => void loadStarredNamedSessions()),
+		[loadStarredNamedSessions]
+	);
+
+	// Combine open starred AI tabs with closed starred named sessions into the
+	// flat list rendered by the "Starred Sessions" Left Bar section.
+	type StarredItem =
+		| {
+				kind: 'open';
+				key: string;
+				displayName: string;
+				agentName: string;
+				parentSessionId: string;
+				tabId: string;
+		  }
+		| {
+				kind: 'closed';
+				key: string;
+				displayName: string;
+				agentName: string;
+				parentSessionId: string;
+				agentId: string;
+				agentSessionId: string;
+				projectPath: string;
+				sessionName: string;
+		  };
+	const starredItems = useMemo<StarredItem[]>(() => {
+		if (!showStarredSessionsSection) return [];
+		const items: StarredItem[] = [];
+		// Suppress a closed/named row whenever its conversation is already open as a
+		// tab, regardless of that tab's star state. Tracking every open tab's
+		// agentSessionId (not just starred ones) prevents a restored session from
+		// rendering twice - once as the open tab and once as its lingering closed
+		// twin - which is the duplication seen when restoring an aged-out star.
+		const openAgentSessionIds = new Set<string>();
+		for (const s of sessions) {
+			if (!s.aiTabs) continue;
+			for (const t of s.aiTabs) {
+				if (t.agentSessionId) openAgentSessionIds.add(t.agentSessionId);
+				if (!t.starred) continue;
+				items.push({
+					kind: 'open',
+					key: `open:${s.id}:${t.id}`,
+					displayName: getTabDisplayName(t),
+					agentName: s.name,
+					parentSessionId: s.id,
+					tabId: t.id,
+				});
+			}
+		}
+		const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+		for (const closed of starredNamedSessions) {
+			if (openAgentSessionIds.has(closed.agentSessionId)) continue;
+			const parent = sessions.find(
+				(s) => s.toolType === closed.agentId && norm(s.projectRoot) === norm(closed.projectPath)
+			);
+			if (!parent) continue;
+			items.push({
+				kind: 'closed',
+				key: `closed:${parent.id}:${closed.agentSessionId}`,
+				displayName: closed.sessionName,
+				agentName: parent.name,
+				parentSessionId: parent.id,
+				agentId: closed.agentId,
+				agentSessionId: closed.agentSessionId,
+				projectPath: closed.projectPath,
+				sessionName: closed.sessionName,
+			});
+		}
+		items.sort((a, b) => a.displayName.localeCompare(b.displayName));
+		return items;
+	}, [showStarredSessionsSection, sessions, starredNamedSessions]);
+
+	const handleStarredItemClick = useCallback(
+		async (item: StarredItem) => {
+			useSessionStore.getState().setActiveSessionId(item.parentSessionId);
+			if (item.kind === 'open') {
+				updateSessionWith(item.parentSessionId, (s) => ({
+					...s,
+					activeTabId: item.tabId,
+					activeFileTabId: null,
+					activeTerminalTabId: null,
+					activeBrowserTabId: null,
+					inputMode: 'ai',
+				}));
+				return;
+			}
+			// Closed session: ask the owning agent to resume it. If it can't be
+			// loaded the conversation has aged out (no longer on disk), so offer to
+			// remove the now-dangling star instead of silently doing nothing.
+			const opened = await props.onJumpToStarredSession?.(
+				item.agentId,
+				item.projectPath,
+				item.agentSessionId,
+				item.sessionName,
+				item.parentSessionId
+			);
+			if (opened === false) {
+				props.showConfirmation?.(
+					`"${item.sessionName}" is no longer available. It has aged out and its conversation could not be loaded. Remove the star?`,
+					async () => {
+						await window.maestro.agentSessions.setSessionStarred(
+							item.agentId,
+							item.projectPath,
+							item.agentSessionId,
+							false
+						);
+						// Drop it from the local list so the section updates immediately,
+						// and broadcast so any other starred views refresh too.
+						setStarredNamedSessions((prev) =>
+							prev.filter(
+								(s) =>
+									!(
+										s.agentId === item.agentId &&
+										s.agentSessionId === item.agentSessionId &&
+										s.projectPath === item.projectPath
+									)
+							)
+						);
+						notifyStarredSessionsChanged();
+					}
+				);
+			}
+		},
+		[props]
+	);
+
 	const groupChats = useGroupChatStore((s) => s.groupChats);
 	const activeGroupChatId = useGroupChatStore((s) => s.activeGroupChatId);
 	const groupChatState = useGroupChatStore((s) => s.groupChatState);
@@ -267,6 +460,7 @@ function SessionListInner(props: SessionListProps) {
 	const setLeftSidebarOpen = useUIStore.getState().setLeftSidebarOpen;
 	const setBookmarksCollapsed = useUIStore.getState().setBookmarksCollapsed;
 	const setGroupChatsExpanded = useSettingsStore.getState().setGroupChatsExpanded;
+	const setGroupChatSortAlphabetical = useSettingsStore.getState().setGroupChatSortAlphabetical;
 	const setActiveSessionIdRaw = useSessionStore.getState().setActiveSessionId;
 	const setActiveGroupChatId = useGroupChatStore.getState().setActiveGroupChatId;
 	const setActiveSessionId = useCallback(
@@ -411,6 +605,35 @@ function SessionListInner(props: SessionListProps) {
 		: 0;
 	const menuRef = useRef<HTMLDivElement>(null);
 	const ignoreNextBlurRef = useRef(false);
+	const sessionFilterInputRef = useRef<HTMLInputElement>(null);
+
+	// Drag-over highlight for the group / ungrouped drop zones. While an agent is
+	// being dragged, the zone under the cursor lights up so the drop destination
+	// is unambiguous - mirrors the file panel's drop-target affordance. The value
+	// is a group id or the UNGROUPED_DROP_TARGET sentinel (group ids are prefixed
+	// `group-`, so the sentinel can never collide with a real one).
+	const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+
+	// The highlight is purely transient: clear it the instant the agent drag ends
+	// (successful drop, cancel, or release outside any zone). Keying off the
+	// shared draggingSessionId means a zone can never stay stuck highlighted.
+	useEffect(() => {
+		if (!draggingSessionId) setDragOverTarget(null);
+	}, [draggingSessionId]);
+
+	const handleDropTargetEnter = useCallback((target: string) => {
+		// Only a session drag should light up a drop zone; ignore OS/file drags.
+		if (useUIStore.getState().draggingSessionId) setDragOverTarget(target);
+	}, []);
+
+	const handleDropTargetLeave = useCallback((e: React.DragEvent) => {
+		// dragenter/leave also fire for descendants; keep the highlight while the
+		// cursor stays within the zone (relatedTarget still inside currentTarget).
+		const next = e.relatedTarget as Node | null;
+		const zone = e.currentTarget as Node | null;
+		if (zone && next && zone.contains(next)) return;
+		setDragOverTarget(null);
+	}, []);
 
 	// Toggle bookmark for a session - memoized to prevent SessionItem re-renders
 	const toggleBookmark = useCallback(
@@ -792,16 +1015,28 @@ function SessionListInner(props: SessionListProps) {
 			onClick={() => setActiveFocus('sidebar')}
 			onFocus={() => setActiveFocus('sidebar')}
 			onKeyDown={(e) => {
-				// Open session filter with Cmd+F when sidebar has focus
+				// Open (or re-focus) the session filter with Cmd+F when the sidebar
+				// has focus. If the filter is already open and the user has moved
+				// focus elsewhere (e.g. arrow-key navigation through agents), pull
+				// focus back to the input and put the caret at the end of any
+				// existing query.
 				if (
 					e.key === 'f' &&
 					(e.metaKey || e.ctrlKey) &&
 					activeFocus === 'sidebar' &&
-					leftSidebarOpen &&
-					!sessionFilterOpen
+					leftSidebarOpen
 				) {
 					e.preventDefault();
-					setSessionFilterOpen(true);
+					if (!sessionFilterOpen) {
+						setSessionFilterOpen(true);
+					}
+					setTimeout(() => {
+						const input = sessionFilterInputRef.current;
+						if (!input) return;
+						input.focus();
+						const len = input.value.length;
+						input.setSelectionRange(len, len);
+					}, 0);
 				}
 			}}
 		>
@@ -989,6 +1224,7 @@ function SessionListInner(props: SessionListProps) {
 					{sessionFilterOpen && (
 						<div className="mx-3 mb-3 relative">
 							<input
+								ref={sessionFilterInputRef}
 								autoFocus
 								type="text"
 								placeholder="Filter agents..."
@@ -1023,6 +1259,73 @@ function SessionListInner(props: SessionListProps) {
 						>
 							<Bot className="w-8 h-8 opacity-30" />
 							<span className="text-xs italic">No unread or working agents</span>
+						</div>
+					)}
+
+					{/* STARRED SESSIONS SECTION - hidden when filtering by unread agents.
+					    Lists every starred AI tab (open) plus every starred closed session
+					    aggregated from agentSessions.getAllNamedSessions, across all agents.
+					    Click switches to the owning agent and either jumps to the open tab
+					    or resumes the closed session. */}
+					{showStarredSessionsSection && !showUnreadAgentsOnly && starredItems.length > 0 && (
+						<div className="mb-1">
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+								onClick={() => setStarredSectionCollapsed(!starredSectionCollapsed)}
+								aria-expanded={!starredSectionCollapsed}
+							>
+								<div
+									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+									style={{ color: theme.colors.accent }}
+								>
+									{starredSectionCollapsed ? (
+										<ChevronRight className="w-3 h-3" />
+									) : (
+										<ChevronDown className="w-3 h-3" />
+									)}
+									<Star className="w-3.5 h-3.5" fill={theme.colors.accent} />
+									<span>
+										Starred Sessions
+										{showLeftPanelGroupMemberCount && (
+											<span className="ml-1 opacity-60">({starredItems.length})</span>
+										)}
+									</span>
+								</div>
+							</button>
+
+							{!starredSectionCollapsed && (
+								<div
+									className="flex flex-col border-l ml-4"
+									style={{ borderColor: theme.colors.accent }}
+								>
+									{starredItems.map((item) => (
+										<button
+											key={item.key}
+											type="button"
+											onClick={() => void handleStarredItemClick(item)}
+											className="px-3 py-1.5 flex flex-col text-left hover:bg-white/5 transition-colors"
+											style={{ color: theme.colors.textMain }}
+											title={`${item.displayName} - ${item.agentName}`}
+										>
+											<span className="flex items-center gap-1.5 text-sm truncate">
+												<Star
+													className="w-3 h-3 flex-shrink-0"
+													fill={theme.colors.accent}
+													stroke={theme.colors.accent}
+												/>
+												<span className="truncate">{item.displayName}</span>
+											</span>
+											<span
+												className="text-xs opacity-60 truncate ml-[1.125rem]"
+												style={{ color: theme.colors.textDim }}
+											>
+												{item.agentName}
+											</span>
+										</button>
+									))}
+								</div>
+							)}
 						</div>
 					)}
 
@@ -1100,7 +1403,21 @@ function SessionListInner(props: SessionListProps) {
 						if (showUnreadAgentsOnly && groupSessions.length === 0) return null;
 						const groupCollapsedPills = groupSessions.filter((session) => !session.parentSessionId);
 						return (
-							<div key={group.id} className="mb-1">
+							<div
+								key={group.id}
+								className="mb-1 rounded"
+								style={
+									dragOverTarget === group.id
+										? {
+												outline: `1px dashed ${theme.colors.accent}`,
+												outlineOffset: '-2px',
+												backgroundColor: `${theme.colors.accent}14`,
+											}
+										: undefined
+								}
+								onDragEnter={() => handleDropTargetEnter(group.id)}
+								onDragLeave={handleDropTargetLeave}
+							>
 								<div
 									role="button"
 									tabIndex={0}
@@ -1112,10 +1429,18 @@ function SessionListInner(props: SessionListProps) {
 										}
 									}}
 									className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+									style={
+										dragOverTarget === group.id
+											? { backgroundColor: `${theme.colors.accent}33` }
+											: undefined
+									}
 									onClick={() => toggleGroup(group.id)}
 									onContextMenu={(e) => handleGroupContextMenu(e, group.id)}
 									onDragOver={handleDragOver}
-									onDrop={() => handleDropOnGroup(group.id)}
+									onDrop={() => {
+										setDragOverTarget(null);
+										handleDropOnGroup(group.id);
+									}}
 								>
 									<div
 										className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
@@ -1259,12 +1584,33 @@ function SessionListInner(props: SessionListProps) {
 						</>
 					) : groups.length > 0 && ungroupedSessions.length > 0 ? (
 						/* UNGROUPED FOLDER - Groups exist and there are ungrouped agents */
-						<div className="mb-1 mt-4">
+						<div
+							className="mb-1 mt-4 rounded"
+							style={
+								dragOverTarget === UNGROUPED_DROP_TARGET
+									? {
+											outline: `1px dashed ${theme.colors.accent}`,
+											outlineOffset: '-2px',
+											backgroundColor: `${theme.colors.accent}14`,
+										}
+									: undefined
+							}
+							onDragEnter={() => handleDropTargetEnter(UNGROUPED_DROP_TARGET)}
+							onDragLeave={handleDropTargetLeave}
+						>
 							<div
 								className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+								style={
+									dragOverTarget === UNGROUPED_DROP_TARGET
+										? { backgroundColor: `${theme.colors.accent}33` }
+										: undefined
+								}
 								onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
 								onDragOver={handleDragOver}
-								onDrop={handleDropOnUngrouped}
+								onDrop={() => {
+									setDragOverTarget(null);
+									handleDropOnUngrouped();
+								}}
 							>
 								<div
 									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
@@ -1338,15 +1684,31 @@ function SessionListInner(props: SessionListProps) {
 						</div>
 					) : groups.length > 0 && !showUnreadAgentsOnly ? (
 						/* NO UNGROUPED AGENTS - Show drop zone for ungrouping + New Group button */
-						<div className="mt-4 px-3" onDragOver={handleDragOver} onDrop={handleDropOnUngrouped}>
-							{/* Drop zone indicator when dragging */}
+						<div
+							className="mt-4 px-3"
+							onDragOver={handleDragOver}
+							onDragEnter={() => handleDropTargetEnter(UNGROUPED_DROP_TARGET)}
+							onDragLeave={handleDropTargetLeave}
+							onDrop={() => {
+								setDragOverTarget(null);
+								handleDropOnUngrouped();
+							}}
+						>
+							{/* Drop zone indicator when dragging - intensifies on hover so the
+							    drop destination is obvious, matching the group-header affordance. */}
 							{draggingSessionId && (
 								<div
-									className="mb-2 px-3 py-2 rounded border-2 border-dashed text-center text-xs"
+									className="mb-2 px-3 py-2 rounded border-2 border-dashed text-center text-xs transition-colors"
 									style={{
 										borderColor: theme.colors.accent,
-										color: theme.colors.textDim,
-										backgroundColor: theme.colors.accent + '10',
+										color:
+											dragOverTarget === UNGROUPED_DROP_TARGET
+												? theme.colors.textMain
+												: theme.colors.textDim,
+										backgroundColor:
+											dragOverTarget === UNGROUPED_DROP_TARGET
+												? `${theme.colors.accent}33`
+												: theme.colors.accent + '10',
 									}}
 								>
 									Drop here to ungroup
@@ -1392,6 +1754,8 @@ function SessionListInner(props: SessionListProps) {
 								onDeleteAllArchivedGroupChats={onDeleteAllArchivedGroupChats}
 								isExpanded={groupChatsExpanded}
 								onExpandedChange={setGroupChatsExpanded}
+								sortAlphabetical={groupChatSortAlphabetical}
+								onSortAlphabeticalChange={setGroupChatSortAlphabetical}
 								groupChatState={groupChatState}
 								participantStates={participantStates}
 								groupChatStates={groupChatStates}
@@ -1513,7 +1877,6 @@ function SessionListInner(props: SessionListProps) {
 					}}
 					onDelete={
 						// Worktree groups always cascade-delete (handler removes agents).
-						// Non-worktree groups can only be deleted when empty.
 						groupContextMenuGroup.emoji === '🌳' && onDeleteWorktreeGroup
 							? () => onDeleteWorktreeGroup(groupContextMenuGroup.id)
 							: groupContextMenuMemberCount === 0
@@ -1524,7 +1887,21 @@ function SessionListInner(props: SessionListProps) {
 												setGroups((prev) => prev.filter((g) => g.id !== groupContextMenuGroup.id));
 											}
 										)
-								: undefined
+								: () =>
+										showConfirmation(
+											`Delete the group "${groupContextMenuGroup.name}"? Its ${groupContextMenuMemberCount} agent${groupContextMenuMemberCount === 1 ? '' : 's'} will be moved out of the group, not deleted.`,
+											() => {
+												const gid = groupContextMenuGroup.id;
+												// Ungroup members (and their synced worktree children) first.
+												setSessions((prev) =>
+													prev.map((s) => (s.groupId === gid ? { ...s, groupId: undefined } : s))
+												);
+												setGroups((prev) => prev.filter((g) => g.id !== gid));
+											}
+										)
+					}
+					deleteLabel={
+						groupContextMenuGroup.emoji === '🌳' ? 'Remove Group and Agents' : 'Delete Group'
 					}
 					onDismiss={() => setGroupContextMenu(null)}
 				/>

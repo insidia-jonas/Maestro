@@ -50,6 +50,7 @@ export function createShellApi() {
 		trashItem: (itemPath: string) => ipcRenderer.invoke('shell:trashItem', itemPath),
 		showItemInFolder: (itemPath: string) => ipcRenderer.invoke('shell:showItemInFolder', itemPath),
 		copyImageToClipboard: (dataUrl: string) => ipcRenderer.invoke('clipboard:writeImage', dataUrl),
+		readImageFromClipboard: (): Promise<string | null> => ipcRenderer.invoke('clipboard:readImage'),
 	};
 }
 
@@ -168,6 +169,14 @@ export function createAppApi() {
 		},
 		cancelQuit: () => {
 			ipcRenderer.send('app:quitCancelled');
+		},
+		/**
+		 * Tell the main process the quit-confirmation modal is now showing and the
+		 * user is deciding. Disarms the dead-renderer safety timeout so the app
+		 * doesn't force-quit while the dialog is open.
+		 */
+		quitConfirmationPending: () => {
+			ipcRenderer.send('app:quitConfirmationPending');
 		},
 		/**
 		 * Listen for system resume event (after sleep/suspend)

@@ -10,24 +10,24 @@ Maestro hones fractured attention into focused intent. It is built for developer
 
 Maestro enables a **specification-first approach** to AI-assisted development. Instead of ad-hoc prompting, you collaboratively build detailed specs with the AI, then execute them systematically:
 
-1. **PLAN** — Discuss the feature with the AI agent
-2. **SPECIFY** — Create markdown docs with task checklists in the Auto Run document folder
-3. **EXECUTE** — Auto Run works through tasks, spawning a fresh session per task
-4. **REFINE** — Review results, update specs, and repeat
+1. **PLAN** - Discuss the feature with the AI agent
+2. **SPECIFY** - Create markdown docs with task checklists in the Auto Run document folder
+3. **EXECUTE** - Auto Run works through tasks, spawning a fresh session per task
+4. **REFINE** - Review results, update specs, and repeat
 
 **Why this works:**
 
-- **Deliberate planning** — Conversation forces you to think through requirements before coding
-- **Documented specs** — Your markdown files become living documentation
-- **Clean execution** — Each task runs in isolation with no context bleed
-- **Iterative refinement** — Review, adjust specs, re-run — specs evolve with your understanding
+- **Deliberate planning** - Conversation forces you to think through requirements before coding
+- **Documented specs** - Your markdown files become living documentation
+- **Clean execution** - Each task runs in isolation with no context bleed
+- **Iterative refinement** - Review, adjust specs, re-run - specs evolve with your understanding
 
 **Example workflow:**
 
 1. **Plan**: In the AI Terminal, discuss your feature: _"I want to add user authentication with OAuth support"_
 2. **Specify**: Ask the AI to help create a spec: _"Create a markdown checklist for implementing this feature"_
 3. **Save**: Copy the spec to your Auto Run document folder (or have the AI write it directly)
-4. **Execute**: Switch to Auto Run tab, select the doc, click Run — Maestro handles the rest
+4. **Execute**: Switch to Auto Run tab, select the doc, click Run - Maestro handles the rest
 5. **Review**: Check the History tab for results, refine specs as needed
 
 This approach mirrors methodologies like [Spec-Kit](https://github.com/github/spec-kit), but with a graphical interface, real-time AI collaboration, and multi-agent parallelism.

@@ -55,7 +55,7 @@ Fires on a periodic timer. The subscription triggers immediately when the engine
 **Behavior:**
 
 - Fires immediately on engine start (or when the subscription is first loaded)
-- Reconciles missed intervals after system sleep — if your machine sleeps through one or more intervals, Cue fires a catch-up event on wake
+- Reconciles missed intervals after system sleep - if your machine sleeps through one or more intervals, Cue fires a catch-up event on wake
 - The interval resets after each trigger, not after each run completes
 
 **Example:**
@@ -76,7 +76,7 @@ subscriptions:
 
 ## time.scheduled
 
-Fires at specific times and days of the week — a cron-like trigger for precise scheduling.
+Fires at specific times and days of the week - a cron-like trigger for precise scheduling.
 
 **Required fields:**
 
@@ -95,9 +95,9 @@ Fires at specific times and days of the week — a cron-like trigger for precise
 - Checks every 60 seconds if the current time matches any `schedule_times` entry
 - If `schedule_days` is set, the current day must also match
 - Does **not** fire immediately on engine start (unlike `time.heartbeat`)
-- Multiple times per day are supported — add multiple entries to `schedule_times`
+- Multiple times per day are supported - add multiple entries to `schedule_times`
 
-**Example — weekday standup:**
+**Example - weekday standup:**
 
 ```yaml
 subscriptions:
@@ -118,7 +118,7 @@ subscriptions:
       3. Summarize what was accomplished and what's next
 ```
 
-**Example — multiple times daily:**
+**Example - multiple times daily:**
 
 ```yaml
 subscriptions:
@@ -154,7 +154,7 @@ Fires when files matching a glob pattern are created, modified, or deleted.
 **Behavior:**
 
 - Monitors for `add`, `change`, and `unlink` (delete) events
-- Debounces by 5 seconds per file — rapid saves to the same file produce a single event
+- Debounces by 5 seconds per file - rapid saves to the same file produce a single event
 - The glob is evaluated relative to the project root
 - Standard glob syntax: `*` matches within a directory, `**` matches across directories
 
@@ -188,7 +188,7 @@ The `changeType` field is also available in [filters](./maestro-cue-advanced#fil
 
 ## agent.completed
 
-Fires when another Maestro agent finishes a task. This is the foundation for agent chaining — building multi-step pipelines where one agent's completion triggers the next.
+Fires when another Maestro agent finishes a task. This is the foundation for agent chaining - building multi-step pipelines where one agent's completion triggers the next.
 
 **Required fields:**
 
@@ -203,7 +203,7 @@ Fires when another Maestro agent finishes a task. This is the foundation for age
 - The source agent's output is captured and available via `{{CUE_SOURCE_OUTPUT}}` (truncated to 5,000 characters)
 - Matches agent names as shown in the Left Bar
 
-**Example — single source:**
+**Example - single source:**
 
 ```yaml
 subscriptions:
@@ -219,7 +219,7 @@ subscriptions:
       Deploy to staging with `npm run deploy:staging`.
 ```
 
-**Example — fan-in (multiple sources):**
+**Example - fan-in (multiple sources):**
 
 ```yaml
 subscriptions:
@@ -317,7 +317,7 @@ Polls GitHub for new pull requests using the GitHub CLI (`gh`).
 **Behavior:**
 
 - Requires the [GitHub CLI](https://cli.github.com/) (`gh`) to be installed and authenticated
-- On first run, seeds the "seen" list with existing PRs — only **new** PRs trigger events
+- On first run, seeds the "seen" list with existing PRs - only **new** PRs trigger events
 - Tracks seen PRs in a local database with 30-day retention
 - Auto-detects the repository from the git remote if `repo` is not specified
 
@@ -377,7 +377,7 @@ Polls GitHub for new issues using the GitHub CLI (`gh`). Behaves identically to 
 
 **Behavior:**
 
-Same as `github.pull_request` — requires GitHub CLI, seeds on first run, tracks seen issues.
+Same as `github.pull_request` - requires GitHub CLI, seeds on first run, tracks seen issues.
 
 **Example:**
 
@@ -417,13 +417,13 @@ The branch-specific variables (`{{CUE_GH_BRANCH}}`, `{{CUE_GH_BASE_BRANCH}}`) ar
 
 ## cli.trigger
 
-Fires only when explicitly triggered from the command line via `maestro-cli cue trigger <name>`. Unlike other event types, `cli.trigger` has no background watcher or poller — it waits for a manual invocation.
+Fires only when explicitly triggered from the command line via `maestro-cli cue trigger <name>`. Unlike other event types, `cli.trigger` has no background watcher or poller - it waits for a manual invocation.
 
-**No additional fields required** — just `name`, `event`, `prompt`, and optionally `enabled`.
+**No additional fields required** - just `name`, `event`, `prompt`, and optionally `enabled`.
 
 **Behavior:**
 
-- Does nothing on its own — only fires when you run `maestro-cli cue trigger <subscription-name>`
+- Does nothing on its own - only fires when you run `maestro-cli cue trigger <subscription-name>`
 - Supports an optional `--prompt` flag to override or supply the prompt at invocation time
 - The override text is available in the prompt template as `{{CUE_CLI_PROMPT}}`
 - Ideal for deployment scripts, CI/CD integration, on-demand reviews, or ad-hoc automation
@@ -444,10 +444,10 @@ subscriptions:
 **Triggering from the command line:**
 
 ```bash
-# Basic trigger — uses the configured prompt as-is
+# Basic trigger - uses the configured prompt as-is
 maestro-cli cue trigger deploy
 
-# With a prompt override — {{CUE_CLI_PROMPT}} receives this text
+# With a prompt override - {{CUE_CLI_PROMPT}} receives this text
 maestro-cli cue trigger deploy --prompt "Deploy to staging only"
 
 # JSON output for scripting

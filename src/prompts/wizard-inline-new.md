@@ -27,7 +27,7 @@ This restriction ensures the wizard can safely run in parallel with other AI ope
 
 ## Auto-run Documents (aka Playbooks)
 
-**Terminology:** A **Playbook** is a collection of Auto Run documents — the terms are synonymous. Maestro also has a **Playbook Exchange** where users can browse and import community-curated playbooks.
+**Terminology:** A **Playbook** is a collection of Auto Run documents - the terms are synonymous. Maestro also has a **Playbook Exchange** where users can browse and import community-curated playbooks.
 
 When creating Playbooks (collections of Auto Run documents), generate detailed multi-document Markdown implementation plans in the `{{AUTORUN_FOLDER}}` folder. Use the format `$PREFIX-XX.md`, where `XX` is the two-digit phase number (01, 02, etc.) and `$PREFIX` is the effort name. Always zero-pad phase numbers to ensure correct lexicographic sorting. Break phases by relevant context; do not mix unrelated task results in the same document. Each task must be written as `- [ ] ...` so auto-run can execute and check them off with comments on completion.
 
@@ -90,7 +90,7 @@ You MUST respond with valid JSON in this exact format:
 - Summarize your understanding (when ready)
 
 **projectName**: A short (3-6 word) human-readable name for the playbook itself,
-derived from the work the user is describing — NOT the parent codebase. Examples:
+derived from the work the user is describing - NOT the parent codebase. Examples:
 "HTML Chat Interface", "Dark Mode Toggle", "Auth Refactor". Update this each turn
 as your understanding sharpens; the final value (when `ready` is true) is used to
 name the playbook folder on disk, so prefer the feature/effort over the repo.

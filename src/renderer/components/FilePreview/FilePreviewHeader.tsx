@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
 	FileCode,
 	Eye,
@@ -21,7 +21,8 @@ import { Spinner } from '../ui/Spinner';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { captureException } from '../../utils/sentry';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
-import { formatFileSize, formatDateTime } from './filePreviewUtils';
+import { formatFileSize, formatDateTime, countLines } from './filePreviewUtils';
+import { formatNumber } from '../../../shared/formatters';
 import type { PreviewTier } from './filePreviewUtils';
 import { formatTokenCount } from '../../utils/tokenCounter';
 import { PreviewTierChip } from './PreviewTierChip';
@@ -63,6 +64,8 @@ interface FilePreviewHeaderProps {
 	sshRemoteId?: string;
 	copyContentToClipboard: () => Promise<void>;
 	copyPathToClipboard: () => void;
+	/** Open the image annotator to edit the previewed image. Images only. */
+	onEditImage?: () => void;
 	headerBtnClass: string;
 	headerIconClass: string;
 	/** Whether the previewed file is HTML (.html / .htm). */
@@ -121,6 +124,7 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 	sshRemoteId,
 	copyContentToClipboard,
 	copyPathToClipboard,
+	onEditImage,
 	headerBtnClass,
 	headerIconClass,
 	isHtml,
@@ -138,6 +142,13 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 	const [showForwardPopup, setShowForwardPopup] = useState(false);
 	const backPopupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const forwardPopupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// Line count for plain-text files (not images/binaries). Cheap O(n) newline
+	// scan, memoized on content so it doesn't re-run on every header re-render.
+	const lineCount = useMemo(
+		() => (isEditableText ? countLines(file.content) : null),
+		[isEditableText, file.content]
+	);
 
 	// Clear pending popup timeouts on unmount
 	useEffect(() => {
@@ -264,12 +275,26 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 									onClick={() => setMarkdownEditMode(!markdownEditMode)}
 									className={headerBtnClass}
 									style={{ color: markdownEditMode ? theme.colors.accent : theme.colors.textDim }}
+									data-testid="edit-text-toggle"
 								>
 									{markdownEditMode ? (
 										<Eye className={headerIconClass} />
 									) : (
 										<Edit className={headerIconClass} />
 									)}
+								</button>
+							</HoverTooltip>
+						)}
+						{/* Edit image - opens the image annotator. Images only. */}
+						{toolbarVisibility.editImage && isImage && onEditImage && (
+							<HoverTooltip theme={theme} label="Edit image">
+								<button
+									onClick={onEditImage}
+									className={headerBtnClass}
+									style={{ color: theme.colors.textDim }}
+									data-testid="edit-image-button"
+								>
+									<Edit className={headerIconClass} />
 								</button>
 							</HoverTooltip>
 						)}
@@ -370,7 +395,7 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 				)}
 			</div>
 			{/* File Stats subbar - hidden on scroll */}
-			{((fileStats || tokenCount !== null || taskCounts) && showStatsBar) ||
+			{((fileStats || lineCount !== null || tokenCount !== null || taskCounts) && showStatsBar) ||
 			canGoBack ||
 			canGoForward ? (
 				<div
@@ -384,6 +409,12 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 								<span style={{ color: theme.colors.textMain }}>
 									{formatFileSize(fileStats.size)}
 								</span>
+							</div>
+						)}
+						{lineCount !== null && (
+							<div className="text-[10px]" style={{ color: theme.colors.textDim }}>
+								<span className="opacity-60">Lines:</span>{' '}
+								<span style={{ color: theme.colors.textMain }}>{formatNumber(lineCount)}</span>
 							</div>
 						)}
 						{tokenCount !== null && (

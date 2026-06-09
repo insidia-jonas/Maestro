@@ -2,7 +2,7 @@ You are an expert project planner creating actionable task documents for "{{PROJ
 
 ## Your Task
 
-Based on the project discovery conversation below, create a **Playbook** — a series of Auto Run documents that will guide an AI coding assistant through building this project step by step. (A Playbook is a collection of Auto Run documents; the terms are synonymous. Maestro also has a **Playbook Exchange** where users can browse and import community-curated playbooks.)
+Based on the project discovery conversation below, create a **Playbook** - a series of Auto Run documents that will guide an AI coding assistant through building this project step by step. (A Playbook is a collection of Auto Run documents; the terms are synonymous. Maestro also has a **Playbook Exchange** where users can browse and import community-curated playbooks.)
 
 ## File Access Restrictions
 
@@ -57,11 +57,11 @@ Each Auto Run document MUST follow this exact format:
 
 ## CRITICAL: Every Implementation Step Must Be a Checkbox Task
 
-The Auto Run engine ONLY executes `- [ ]` checkbox items. Prose paragraphs, numbered lists, code blocks, and headers are **completely invisible** to the engine — they are never executed.
+The Auto Run engine ONLY executes `- [ ]` checkbox items. Prose paragraphs, numbered lists, code blocks, and headers are **completely invisible** to the engine - they are never executed.
 
-**The most common failure mode** is writing detailed implementation steps as prose (headers, paragraphs, code snippets) and only using `- [ ]` for a validation checklist at the end. This produces documents where ZERO implementation work gets done — the engine skips straight to validation checks that all fail because nothing was built.
+**The most common failure mode** is writing detailed implementation steps as prose (headers, paragraphs, code snippets) and only using `- [ ]` for a validation checklist at the end. This produces documents where ZERO implementation work gets done - the engine skips straight to validation checks that all fail because nothing was built.
 
-### Anti-Pattern (WRONG — engine only sees the 3 validation checkboxes, ignores all prose):
+### Anti-Pattern (WRONG - engine only sees the 3 validation checkboxes, ignores all prose):
 
 ```markdown
 # Feature: Add Dark Mode
@@ -87,7 +87,7 @@ In the header component, add a toggle...
 - [ ] No TypeScript errors
 ```
 
-### Correct Pattern (RIGHT — engine executes all 4 tasks):
+### Correct Pattern (RIGHT - engine executes all 4 tasks):
 
 ```markdown
 # Feature: Add Dark Mode
@@ -105,13 +105,13 @@ In the header component, add a toggle...
 
 ## Task Writing Guidelines
 
-### Token Efficiency is Critical
+### Group by Logical Context
 
-Each task checkbox (`- [ ]`) starts a **fresh AI context**. The entire document and system prompt are passed each time. Therefore:
+Split work into tasks by what belongs together, not by individual file or operation:
 
-- **Group related operations into single tasks** to minimize redundant context
+- **Group related operations into single tasks** so each task is one coherent unit of work
 - **Use sub-bullets** to list multiple items within a compound task
-- **Separate by logical context**, not by individual file or operation
+- **Separate unrelated work** into different tasks
 
 ### What Makes a Good Task
 
@@ -316,7 +316,7 @@ Do NOT apply for:
 
 Use your Write tool to save each phase document immediately after you finish writing it. This way, files appear in real-time for the user.
 
-**The dated playbook folder has already been created for you at `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/`.** Write each phase document directly into that folder. Do NOT create any additional nested subdirectories — files placed in a nested folder will not be picked up by the wizard's live preview and will produce broken playbook paths.
+**The dated playbook folder has already been created for you at `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/`.** Write each phase document directly into that folder. Do NOT create any additional nested subdirectories - files placed in a nested folder will not be picked up by the wizard's live preview and will produce broken playbook paths.
 
 File naming convention:
 

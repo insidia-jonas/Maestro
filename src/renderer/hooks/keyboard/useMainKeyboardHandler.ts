@@ -3,6 +3,7 @@ import type { Session, AITab, ThinkingMode } from '../../types';
 import { getInitialRenameValue } from '../../utils/tabHelpers';
 import { useModalStore } from '../../stores/modalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { editClipboardImage } from '../../components/ImageAnnotator/editClipboardImage';
 
 // Font size keyboard shortcut constants
 const FONT_SIZE_STEP = 2;
@@ -268,12 +269,50 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				// Allow focusBrowserAddress (Cmd+L) to focus address bar when browser tab is active overlay
 				const isBrowserAddressShortcut =
 					ctx.isTabShortcut(e, 'focusBrowserAddress') && !!ctx.activeSession?.activeBrowserTabId;
+				// Allow browser-tab Cmd+F (in-page find) to reach its handler even when
+				// modals/overlays are open. The find bar is locally-scoped to the
+				// browser tab; the overlay-guard's broader "block app shortcuts"
+				// behavior would otherwise eat it.
+				const isBrowserFindShortcut =
+					(e.metaKey || e.ctrlKey) &&
+					!e.altKey &&
+					!e.shiftKey &&
+					e.key.toLowerCase() === 'f' &&
+					!!ctx.activeSession?.activeBrowserTabId;
+				// Allow Cmd+Left / Cmd+Right (browser history back/forward) to fall
+				// through when a browser tab is active. The address/find bar inputs
+				// still preserve macOS line navigation via the target check below.
+				const isBrowserNavShortcut =
+					(e.metaKey || e.ctrlKey) &&
+					!e.altKey &&
+					!e.shiftKey &&
+					(e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+					!!ctx.activeSession?.activeBrowserTabId;
+				// Allow Cmd+F to fall through and re-focus the file-tree filter input
+				// when the filter is already open and the files panel is focused. The
+				// open filter registers an overlay layer, so without this exception the
+				// overlay-guard below returns early and the re-focus branch never runs.
+				const isFileFilterRefocusShortcut =
+					(e.metaKey || e.ctrlKey) &&
+					!e.altKey &&
+					!e.shiftKey &&
+					keyLower === 'f' &&
+					ctx.activeFocus === 'right' &&
+					ctx.activeRightTab === 'files' &&
+					ctx.fileTreeFilterOpen;
 				// Allow font size shortcuts (Cmd+=/+, Cmd+-, Cmd+0) even when modals/overlays are open
 				const isFontSizeShortcut =
 					(e.metaKey || e.ctrlKey) &&
 					!e.altKey &&
 					!e.shiftKey &&
 					(e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0');
+				// Allow the openPromptComposer shortcut to fall through while the Prompt
+				// Composer is the open modal, so pressing it again cycles windowed ->
+				// full screen -> windowed (cyclePromptComposer) instead of being eaten
+				// by the modal guard below.
+				const isPromptComposerCycleShortcut =
+					ctx.isShortcut(e, 'openPromptComposer') &&
+					useModalStore.getState().modals.get('promptComposer')?.open === true;
 
 				if (ctx.hasOpenModal()) {
 					// TRUE MODAL is open - block most shortcuts from App.tsx
@@ -287,7 +326,8 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 						!isJumpToBottomShortcut &&
 						!isJumpToTerminalShortcut &&
 						!isMarkdownToggleShortcut &&
-						!isFontSizeShortcut
+						!isFontSizeShortcut &&
+						!isPromptComposerCycleShortcut
 					) {
 						return;
 					}
@@ -311,6 +351,9 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 						!isTabSwitcherShortcut &&
 						!isToggleModeShortcut &&
 						!isBrowserAddressShortcut &&
+						!isBrowserFindShortcut &&
+						!isBrowserNavShortcut &&
+						!isFileFilterRefocusShortcut &&
 						!isFontSizeShortcut
 					) {
 						return;
@@ -503,6 +546,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.handleSetLightboxImage(images[0], images, 'staged');
 					trackShortcut('openImageCarousel');
 				}
+			} else if (ctx.isShortcut(e, 'editClipboardImage')) {
+				e.preventDefault();
+				void editClipboardImage();
+				trackShortcut('editClipboardImage');
 			} else if (ctx.isShortcut(e, 'toggleTabStar')) {
 				e.preventDefault();
 				ctx.toggleTabStar();
@@ -645,8 +692,17 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.setChatRawTextMode(!ctx.chatRawTextMode);
 					trackShortcut('toggleMarkdownMode');
 				}
+			} else if (ctx.isShortcut(e, 'openBatchRunner')) {
+				// Open the Auto Run run modal (BatchRunnerModal) - works from anywhere
+				e.preventDefault();
+				if (useSettingsStore.getState().autoRunDisabled) return;
+				if (ctx.activeSession) {
+					ctx.handleOpenBatchRunner();
+					trackShortcut('openBatchRunner');
+				}
 			} else if (ctx.isShortcut(e, 'toggleAutoRunExpanded')) {
-				// Toggle Auto Run expanded/contracted view
+				// Toggle Auto Run expanded/contracted view. Works from anywhere so it
+				// doubles as a quick scratch-pad surface (mirrors the command palette entry).
 				e.preventDefault();
 				if (useSettingsStore.getState().autoRunDisabled) return;
 				ctx.rightPanelRef?.current?.toggleAutoRunExpanded();
@@ -774,6 +830,30 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.mainPanelRef?.current?.focusBrowserAddressBar();
 					trackShortcut('focusBrowserAddress');
 				}
+				// Cmd+Left / Cmd+Right: Browser history back/forward when a browser
+				// tab is active. We deliberately skip when focus is inside an
+				// editable element (URL bar, find bar, any other text input) so
+				// macOS line-navigation (Cmd+Left = beginning-of-line) keeps
+				// working there. File preview's own keydown handler runs first
+				// with stopPropagation when the preview is the active surface, so
+				// this never collides with filePreviewBack/Forward.
+				if (
+					(e.metaKey || e.ctrlKey) &&
+					!e.altKey &&
+					!e.shiftKey &&
+					(e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+					ctx.activeSession?.activeBrowserTabId &&
+					!isEditableTarget
+				) {
+					e.preventDefault();
+					if (e.key === 'ArrowLeft') {
+						ctx.mainPanelRef?.current?.browserBack();
+					} else {
+						ctx.mainPanelRef?.current?.browserForward();
+					}
+					trackShortcut(e.key === 'ArrowLeft' ? 'navBack' : 'navForward');
+					return;
+				}
 				// Cmd+R: Reload active browser tab (when a browser tab is active)
 				if (
 					ctx.isTabShortcut(e, 'toggleReadOnlyMode') &&
@@ -888,7 +968,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 						);
 						if (browserTab) {
 							ctx.setRenameTabId(browserTab.id);
-							ctx.setRenameTabInitialName(browserTab.title ?? '');
+							ctx.setRenameTabInitialName(browserTab.customTitle ?? '');
 							ctx.setRenameTabModalOpen(true);
 							trackShortcut('renameTab');
 						}
@@ -1059,9 +1139,30 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 
 			// Cmd+F contextual shortcuts - prioritize explicit focus over input mode
 			if (e.key === 'f' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+				// Browser-tab in-page find takes precedence whenever a browser tab is
+				// the active tab. Routed both here (when webview isn't focused) and via
+				// `onBrowserTabShortcutKey` (when it is).
+				if (ctx.activeSession?.activeBrowserTabId && !e.altKey) {
+					e.preventDefault();
+					ctx.mainPanelRef?.current?.openBrowserFind();
+					trackShortcut('searchOutput');
+					return;
+				}
 				if (ctx.activeFocus === 'right' && ctx.activeRightTab === 'files') {
 					e.preventDefault();
-					ctx.setFileTreeFilterOpen(true);
+					if (!ctx.fileTreeFilterOpen) {
+						ctx.setFileTreeFilterOpen(true);
+					}
+					// Re-focus the filter input (and put the caret at the end of any
+					// existing query) so Cmd+F while the filter is already open but
+					// focus has moved into the file list pulls focus back here.
+					setTimeout(() => {
+						const input = ctx.fileTreeFilterInputRef?.current;
+						if (!input) return;
+						input.focus();
+						const len = input.value.length;
+						input.setSelectionRange(len, len);
+					}, 0);
 					trackShortcut('filterFiles');
 				} else if (ctx.activeFocus === 'sidebar') {
 					// Sidebar filter - handled by SessionList component, just track here
@@ -1113,6 +1214,47 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				});
 				if (ctx.isTabShortcut(probe, 'focusBrowserAddress')) {
 					ctx.mainPanelRef?.current?.focusBrowserAddressBar();
+					return;
+				}
+				// Cmd+F arrives here when forwarded from the webview guest. Open the
+				// in-page find bar directly instead of re-dispatching through the
+				// window keydown handler (which would land in the activeFocus-gated
+				// Cmd+F switch below and miss the browser-tab case).
+				if (
+					(input.meta || input.control) &&
+					!input.alt &&
+					!input.shift &&
+					(input.key === 'f' || input.key === 'F')
+				) {
+					ctx.mainPanelRef?.current?.openBrowserFind();
+					return;
+				}
+				// Cmd+Left / Cmd+Right forwarded from the webview guest → browser
+				// history back/forward. Routed directly so the overlay-guard /
+				// re-dispatch path never sees it.
+				if (
+					(input.meta || input.control) &&
+					!input.alt &&
+					!input.shift &&
+					(input.key === 'ArrowLeft' || input.key === 'ArrowRight')
+				) {
+					if (input.key === 'ArrowLeft') {
+						ctx.mainPanelRef?.current?.browserBack();
+					} else {
+						ctx.mainPanelRef?.current?.browserForward();
+					}
+					return;
+				}
+				// Cmd+Shift+, / Cmd+Shift+. forwarded from the webview guest →
+				// breadcrumb back/forward through visited tabs. Handled directly
+				// because a synthetic window event from a focused webview doesn't
+				// reliably reach the navBack/navForward branch of the window handler.
+				if (ctx.isShortcut(probe, 'navBack')) {
+					ctx.handleNavBack();
+					return;
+				}
+				if (ctx.isShortcut(probe, 'navForward')) {
+					ctx.handleNavForward();
 					return;
 				}
 			}

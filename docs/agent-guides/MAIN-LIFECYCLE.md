@@ -637,14 +637,14 @@ Use this checklist any time Electron jumps majors (it last did so for the 28 →
 
 - [ ] Create a Claude Code agent in a non-trivial cwd, send a prompt, see streamed output
 - [ ] Same on Codex, OpenCode, Factory Droid (whichever are configured)
-- [ ] Resize the window mid-stream — output reflows without stalling
+- [ ] Resize the window mid-stream - output reflows without stalling
 - [ ] Kill the agent mid-stream (`Ctrl+C`); next agent starts cleanly
 
 **Command Terminal (PTY shell)**
 
 - [ ] Open a Command Terminal, run a long-running TUI (`vim`, `htop`)
 - [ ] DECRQM / cursor-mode escape sequences don't freeze the tab (xterm CSI parser regression)
-- [ ] Switch tabs back and forth — no orphaned PTYs
+- [ ] Switch tabs back and forth - no orphaned PTYs
 
 **SSH remote spawning**
 
@@ -652,8 +652,8 @@ Use this checklist any time Electron jumps majors (it last did so for the 28 →
 
 **Native modules (rebuild gate)**
 
-- [ ] `node-pty` loads (terminal works at all) — implies `electron-rebuild` succeeded
-- [ ] `better-sqlite3` loads — open Usage Dashboard / stats; queries return without "module did not self-register" or NODE_MODULE_VERSION mismatch errors
+- [ ] `node-pty` loads (terminal works at all) - implies `electron-rebuild` succeeded
+- [ ] `better-sqlite3` loads - open Usage Dashboard / stats; queries return without "module did not self-register" or NODE_MODULE_VERSION mismatch errors
 
 **Auto-updater**
 
@@ -667,13 +667,13 @@ Use this checklist any time Electron jumps majors (it last did so for the 28 →
 
 **File / system dialogs**
 
-- [ ] Open a folder via the project picker — folder selection dialog works
-- [ ] Drop a file onto the renderer — dropped paths reach IPC
+- [ ] Open a folder via the project picker - folder selection dialog works
+- [ ] Drop a file onto the renderer - dropped paths reach IPC
 
 **Webview (browser tab)**
 
 - [ ] Open the embedded browser tab, load `https://example.com`, navigate within
-- [ ] Try to navigate to a `file://` or `javascript:` URL — blocked per the existing security guards
+- [ ] Try to navigate to a `file://` or `javascript:` URL - blocked per the existing security guards
 
 **Packaging**
 

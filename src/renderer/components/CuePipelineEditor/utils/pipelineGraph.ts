@@ -72,10 +72,12 @@ const NODE_HEIGHT = 100; // approximate node height
 
 // Approximate node footprint used to compute the bounding box of the per-pipeline
 // translucent background card in All Pipelines view. Real nodes are a touch
-// narrower/shorter, so the box always fully encloses them.
-const NODE_BG_WIDTH = 320;
-const NODE_BG_HEIGHT = 100;
-const PIPELINE_GROUP_PADDING = 28;
+// narrower/shorter, so the box always fully encloses them. Exported so the
+// auto-arrange layout (pipelineAutoArrange.ts) sizes group cells with the exact
+// same footprint the renderer uses, keeping grid spacing pixel-accurate.
+export const NODE_BG_WIDTH = 320;
+export const NODE_BG_HEIGHT = 100;
+export const PIPELINE_GROUP_PADDING = 28;
 
 /**
  * Computes vertical offsets so pipeline groups don't overlap in the
@@ -347,16 +349,26 @@ export function convertToReactFlowNodes(
 					y: minY - PIPELINE_GROUP_PADDING,
 				},
 				data: groupData,
-				selectable: false,
 				// Group is the user-grabbable handle for the whole pipeline in
-				// pointer/select mode. ReactFlow honors per-node `draggable`
-				// even when the global `nodesDraggable` is false (which it is
-				// in All Pipelines view). In hand/pan mode we opt out so a
-				// left-drag on the group's empty area falls through to canvas
-				// pan — pan tool should never move groups.
+				// pointer/select mode. ReactFlow honors per-node `draggable` /
+				// `selectable` even when the global `nodesDraggable` /
+				// `elementsSelectable` are false (both are, in All Pipelines
+				// view), so the group participates while content nodes stay
+				// inert. In hand/pan mode we opt out so a left-drag on the
+				// group's empty area falls through to canvas pan - pan tool
+				// should never move groups.
+				selectable: !isHandMode,
 				draggable: !isHandMode,
 				focusable: false,
-				zIndex: -1,
+				// Never delete a pipeline via the canvas Delete key - selection
+				// makes that reachable, but removal must go through the toolbar.
+				deletable: false,
+				// In pointer/select mode the card sits ABOVE its content nodes so
+				// the entire body is a drag handle (the 8%-alpha fill keeps the
+				// content readable underneath). In hand/pan mode it drops behind
+				// (zIndex -1) so a left-drag on the card's empty area falls
+				// through to the canvas pan instead of being captured here.
+				zIndex: isHandMode ? -1 : 5,
 			});
 		}
 	}
@@ -420,6 +432,26 @@ export function convertToReactFlowNodes(
 				? resolvePipelineOffset(pipeline, pipelineYOffsets)
 				: { x: 0, y: 0 };
 
+		// In All-Pipelines view a pipeline moves as ONE unit by dragging its group
+		// card. Content nodes paint on top of that card, so without this a drag is
+		// only grabbable on the card's empty margins — and dense/small cards (a
+		// two-node pipeline like "BJJ Sensei") have almost none, making them feel
+		// un-draggable. Give content nodes `pointer-events: none` so a drag
+		// anywhere on the pipeline (including over its nodes) falls through to the
+		// draggable group card beneath (zIndex -1) and moves the whole pipeline.
+		// ReactFlow spreads a node's `style` AFTER its own computed `pointerEvents`
+		// on the wrapper, so this reliably wins. Also opt them out of selection/drag
+		// so a stray pointer can't pick up a single node in a view that can't edit
+		// one anyway.
+		const contentNodeExtras =
+			selectedPipelineId === null
+				? {
+						selectable: false,
+						draggable: false,
+						style: { pointerEvents: 'none' as const },
+					}
+				: {};
+
 		for (const pNode of pipeline.nodes) {
 			const compositeId = `${pipeline.id}:${pNode.id}`;
 
@@ -468,6 +500,7 @@ export function convertToReactFlowNodes(
 					},
 					data: nodeData,
 					dragHandle: '.drag-handle',
+					...contentNodeExtras,
 				});
 			} else if (pNode.type === 'agent') {
 				const agentData = pNode.data as AgentNodeData;
@@ -512,6 +545,7 @@ export function convertToReactFlowNodes(
 					},
 					data: nodeData,
 					dragHandle: '.drag-handle',
+					...contentNodeExtras,
 				});
 			} else if (pNode.type === 'command') {
 				const cmdData = pNode.data as CommandNodeData;
@@ -536,6 +570,7 @@ export function convertToReactFlowNodes(
 					},
 					data: nodeData,
 					dragHandle: '.drag-handle',
+					...contentNodeExtras,
 				});
 			} else if (pNode.type === 'error') {
 				const errData = pNode.data as ErrorNodeData;
@@ -557,6 +592,7 @@ export function convertToReactFlowNodes(
 					data: nodeData,
 					dragHandle: '.drag-handle',
 					selectable: false,
+					...contentNodeExtras,
 				});
 			}
 		}

@@ -101,6 +101,7 @@ import type {
 	CreateSessionConfig,
 	DeleteSessionCallback,
 	RenameSessionCallback,
+	UpdateSessionCwdCallback,
 	GetGitStatusCallback,
 	GetGitDiffCallback,
 	GetGitBranchesForSessionCallback,
@@ -570,6 +571,10 @@ export class WebServer {
 		this.callbackRegistry.setRenameSessionCallback(callback);
 	}
 
+	setUpdateSessionCwdCallback(callback: UpdateSessionCwdCallback): void {
+		this.callbackRegistry.setUpdateSessionCwdCallback(callback);
+	}
+
 	setGetGitStatusCallback(callback: GetGitStatusCallback): void {
 		this.callbackRegistry.setGetGitStatusCallback(callback);
 	}
@@ -921,6 +926,8 @@ export class WebServer {
 			deleteSession: async (sessionId: string) => this.callbackRegistry.deleteSession(sessionId),
 			renameSession: async (sessionId: string, newName: string) =>
 				this.callbackRegistry.renameSession(sessionId, newName),
+			updateSessionCwd: async (sessionId: string, newCwd: string) =>
+				this.callbackRegistry.updateSessionCwd(sessionId, newCwd),
 			getGitStatus: async (sessionId: string) => this.callbackRegistry.getGitStatus(sessionId),
 			getGitDiff: async (sessionId: string, filePath?: string) =>
 				this.callbackRegistry.getGitDiff(sessionId, filePath),

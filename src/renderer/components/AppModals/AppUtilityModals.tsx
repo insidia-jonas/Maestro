@@ -92,9 +92,9 @@ export interface AppUtilityModalsProps {
 	onOpenTabSwitcher: () => void;
 	// Bulk tab close operations
 	onCloseAllTabs?: () => void;
-	onCloseOtherTabs?: () => void;
-	onCloseTabsLeft?: () => void;
-	onCloseTabsRight?: () => void;
+	onCloseOtherTabs?: (pivotTabId?: string) => void;
+	onCloseTabsLeft?: (pivotTabId?: string) => void;
+	onCloseTabsRight?: (pivotTabId?: string) => void;
 	setPlaygroundOpen?: (open: boolean) => void;
 	onRefreshGitFileState: () => Promise<void>;
 	onDebugReleaseQueuedItem: () => void;
@@ -153,6 +153,9 @@ export interface AppUtilityModalsProps {
 	// Document Graph - quick re-open last graph
 	lastGraphFocusFile?: string;
 	onOpenLastDocumentGraph?: () => void;
+	// Document Graph - view the active markdown file
+	currentGraphFile?: string;
+	onOpenCurrentFileInGraph?: () => void;
 
 	// Symphony
 	onOpenSymphony?: () => void;
@@ -260,6 +263,7 @@ export interface AppUtilityModalsProps {
 	onRemoveQueueItem: (sessionId: string, itemId: string) => void;
 	onSwitchQueueSession: (sessionId: string, tabId?: string) => void;
 	onReorderQueueItems: (sessionId: string, fromIndex: number, toIndex: number) => void;
+	onTogglePauseQueueItem: (sessionId: string, itemId: string) => void;
 	// New tab creation (for QuickActionsModal)
 	onQuickActionsNewTab?: () => void;
 	onQuickActionsNewFileTab?: () => void;
@@ -267,6 +271,9 @@ export interface AppUtilityModalsProps {
 	onQuickActionsNewTerminalTab?: () => void;
 	// Next unread / draft tab navigation (shared with Alt+Cmd+Down)
 	onGoToNextUnread?: () => void;
+	// Session/tab history navigation (shared with Cmd+Shift+, / Cmd+Shift+.)
+	onNavBack?: () => void;
+	onNavForward?: () => void;
 }
 
 /**
@@ -384,6 +391,9 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	// Document Graph - quick re-open last graph
 	lastGraphFocusFile,
 	onOpenLastDocumentGraph,
+	// Document Graph - view the active markdown file
+	currentGraphFile,
+	onOpenCurrentFileInGraph,
 	// Symphony
 	onOpenSymphony,
 	// Director's Notes
@@ -464,12 +474,15 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	onRemoveQueueItem,
 	onSwitchQueueSession,
 	onReorderQueueItems,
+	onTogglePauseQueueItem,
 	// New tab creation (for QuickActionsModal)
 	onQuickActionsNewTab,
 	onQuickActionsNewFileTab,
 	onQuickActionsNewBrowserTab,
 	onQuickActionsNewTerminalTab,
 	onGoToNextUnread,
+	onNavBack,
+	onNavForward,
 }: AppUtilityModalsProps) {
 	// Read per-modal data from the modal store for modals that support it.
 	// `presetDocuments` is set by the inline wizard's "Start Auto Run" button so
@@ -575,6 +588,8 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onOpenPlaybookExchange={onOpenMarketplace}
 					lastGraphFocusFile={lastGraphFocusFile}
 					onOpenLastDocumentGraph={onOpenLastDocumentGraph}
+					currentGraphFile={currentGraphFile}
+					onOpenCurrentFileInGraph={onOpenCurrentFileInGraph}
 					onOpenSymphony={onOpenSymphony}
 					onOpenDirectorNotes={onOpenDirectorNotes}
 					onOpenMaestroCue={onOpenMaestroCue}
@@ -585,6 +600,8 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onNewBrowserTab={onQuickActionsNewBrowserTab}
 					onNewTerminalTab={onQuickActionsNewTerminalTab}
 					onGoToNextUnread={onGoToNextUnread}
+					onNavBack={onNavBack}
+					onNavForward={onNavForward}
 				/>
 			)}
 
@@ -661,7 +678,6 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					lastModifiedAt={activeSession.batchRunnerPromptModifiedAt}
 					showConfirmation={showConfirmation}
 					folderPath={activeSession.autoRunFolderPath}
-					currentDocument={activeSession.autoRunSelectedFile || ''}
 					presetDocuments={batchRunnerPresetDocuments}
 					allDocuments={autoRunDocumentList}
 					documentTree={autoRunDocumentTree}
@@ -750,6 +766,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onRemoveItem={onRemoveQueueItem}
 					onSwitchSession={onSwitchQueueSession}
 					onReorderItems={onReorderQueueItems}
+					onToggleItemPause={onTogglePauseQueueItem}
 				/>
 			)}
 		</>

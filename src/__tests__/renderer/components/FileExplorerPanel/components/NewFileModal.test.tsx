@@ -42,6 +42,7 @@ vi.mock('../../../../../renderer/constants/modalPriorities', () => ({
 
 const defaultProps = {
 	theme: mockTheme,
+	kind: 'file' as const,
 	parentFolderLabel: '"src/components"',
 	value: '',
 	setValue: vi.fn(),
@@ -64,6 +65,12 @@ describe('NewFileModal', () => {
 	it('shows the Enter file name placeholder', () => {
 		render(<NewFileModal {...defaultProps} />);
 		expect(screen.getByPlaceholderText('Enter file name...')).toBeTruthy();
+	});
+
+	it('uses folder copy when kind is folder', () => {
+		render(<NewFileModal {...defaultProps} kind="folder" />);
+		expect(screen.getByTestId('modal-title').textContent).toContain('New folder in');
+		expect(screen.getByPlaceholderText('Enter folder name...')).toBeTruthy();
 	});
 
 	it('calls onCreate when confirm is clicked', () => {

@@ -10,11 +10,12 @@ import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { useModalStore } from '../../stores/modalStore';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { gitService } from '../../services/git';
+import { useGitDetail } from '../../contexts/GitStatusContext';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { getOpenInLabel } from '../../utils/platformUtils';
 import { useListNavigation } from '../../hooks';
 import { useUIStore } from '../../stores/uiStore';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useSettingsStore, selectIsLeaderboardRegistered } from '../../stores/settingsStore';
 import { useBatchStore, selectActiveBatchSessionIds } from '../../stores/batchStore';
 import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 import { useFeedbackDraftStore } from '../../stores/feedbackDraftStore';
@@ -139,6 +140,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		onOpenPlaybookExchange,
 		lastGraphFocusFile,
 		onOpenLastDocumentGraph,
+		currentGraphFile,
+		onOpenCurrentFileInGraph,
 		onOpenSymphony,
 		onOpenDirectorNotes,
 		onOpenMaestroCue,
@@ -149,10 +152,24 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		onNewBrowserTab,
 		onNewTerminalTab,
 		onGoToNextUnread,
+		onNavBack,
+		onNavForward,
 	} = props;
+
+	// Git status refresh — used to re-sync polling cache when `git diff` comes
+	// back empty despite the widget advertising changes (e.g. files were
+	// reverted or committed since the last poll).
+	const { refreshGitStatus } = useGitDetail();
 
 	// UI store actions for search commands (avoid threading more props through 3-layer chain)
 	const setActiveFocus = useUIStore((s) => s.setActiveFocus);
+	// Sourced from the modal store directly to skip the 3-layer prop chain.
+	const openModal = useModalStore((s) => s.openModal);
+	const closeModal = useModalStore((s) => s.closeModal);
+	const setDebugAgentProbeOpen = useCallback(
+		(open: boolean) => (open ? openModal('debugAgentProbe') : closeModal('debugAgentProbe')),
+		[openModal, closeModal]
+	);
 	const storeSetSessionFilterOpen = useUIStore((s) => s.setSessionFilterOpen);
 	const storeSetOutputSearchOpen = useUIStore((s) => s.setOutputSearchOpen);
 	const storeSetFileTreeFilterOpen = useFileExplorerStore((s) => s.setFileTreeFilterOpen);
@@ -162,6 +179,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const setIdleNotificationEnabled = useSettingsStore((s) => s.setIdleNotificationEnabled);
 	const bionifyReadingMode = useSettingsStore((s) => s.bionifyReadingMode);
 	const setBionifyReadingMode = useSettingsStore((s) => s.setBionifyReadingMode);
+	const showStarredSessionsSection = useSettingsStore((s) => s.showStarredSessionsSection);
+	const setShowStarredSessionsSection = useSettingsStore((s) => s.setShowStarredSessionsSection);
 	const enterToSendAI = useSettingsStore((s) => s.enterToSendAI);
 	const storeSetHistorySearchFilterOpen = useUIStore((s) => s.setHistorySearchFilterOpen);
 	const setSuccessFlashNotification = useUIStore((s) => s.setSuccessFlashNotification);
@@ -171,6 +190,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const setUngroupedCollapsed = useSettingsStore((s) => s.setUngroupedCollapsed);
 	const groupChatsExpanded = useSettingsStore((s) => s.groupChatsExpanded);
 	const setGroupChatsExpanded = useSettingsStore((s) => s.setGroupChatsExpanded);
+	const isLeaderboardRegistered = useSettingsStore(selectIsLeaderboardRegistered);
 	const activeBatchSessionIds = useBatchStore(useShallow(selectActiveBatchSessionIds));
 
 	const [search, setSearch] = useState('');
@@ -308,6 +328,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			platform: window.maestro?.platform || 'darwin',
 			openPath: window.maestro?.shell?.openPath,
 			onGoToNextUnread,
+			onNavBack,
+			onNavForward,
 			shortcuts: {
 				newInstance: shortcuts.newInstance,
 				openWizard: shortcuts.openWizard,
@@ -315,6 +337,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 				toggleRightPanel: shortcuts.toggleRightPanel,
 				nextUnreadTab: shortcuts.nextUnreadTab,
 				killInstance: shortcuts.killInstance,
+				navBack: shortcuts.navBack,
+				navForward: shortcuts.navForward,
 			},
 		}),
 		...buildNewTabCommands({
@@ -421,6 +445,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			isFilePreviewOpen,
 			ghCliAvailable,
 			lastGraphFocusFile,
+			currentGraphFile,
 			hasActiveSessionCapability,
 			setQuickActionOpen,
 			setSuccessFlashNotification,
@@ -439,6 +464,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			onOpenMaestroCue,
 			onConfigureCue,
 			onOpenLastDocumentGraph,
+			onOpenCurrentFileInGraph,
 			onPublishGist,
 			bionifyReadingMode,
 			setBionifyReadingMode,
@@ -446,6 +472,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setAudioFeedbackEnabled,
 			idleNotificationEnabled,
 			setIdleNotificationEnabled,
+			showStarredSessionsSection,
+			setShowStarredSessionsSection,
 			shortcuts: {
 				usageDashboard: shortcuts.usageDashboard,
 				agentSessions: shortcuts.agentSessions,
@@ -456,6 +484,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 				directorNotes: shortcuts.directorNotes,
 				maestroCue: shortcuts.maestroCue,
 				fuzzyFileSearch: shortcuts.fuzzyFileSearch,
+				editClipboardImage: shortcuts.editClipboardImage,
 			},
 			tabShortcuts,
 		}),
@@ -480,6 +509,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setSettingsTab,
 			setShortcutsHelpOpen,
 			setAboutModalOpen,
+			onOpenLeaderboardRegistration: () => openModal('leaderboard'),
+			isLeaderboardRegistered,
 			setFeedbackModalOpen,
 			setLogViewerOpen,
 			setProcessMonitorOpen,
@@ -507,6 +538,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			onQuickCreateWorktree,
 			onOpenCreatePR,
 			onRefreshGitFileState,
+			onRefreshGitStatus: refreshGitStatus,
 			shortcuts: {
 				viewGitDiff: shortcuts.viewGitDiff,
 				viewGitLog: shortcuts.viewGitLog,
@@ -563,6 +595,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setQuickActionOpen,
 			setPlaygroundOpen,
 			setDebugApplicationStatsOpen,
+			setDebugAgentProbeOpen,
 			setDebugWizardModalOpen,
 			onDebugReleaseQueuedItem,
 			getInstallationId: () => window.maestro.leaderboard.getInstallationId(),

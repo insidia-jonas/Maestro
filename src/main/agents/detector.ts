@@ -520,16 +520,17 @@ export class AgentDetector {
 			switch (agentId) {
 				case 'claude-code': {
 					if (optionKey === 'effort') {
-						// Claude Code: parse --help output to extract effort levels
 						const command =
 							(await this.getAgent(agentId))?.path ||
 							(await this.getAgent(agentId))?.command ||
 							'claude';
 						const env = getExpandedEnv();
-						const result = await execFileNoThrow(command, ['--help'], undefined, env);
-						if (result.exitCode === 0) {
-							// Match: --effort <level>  Effort level ... (low, medium, high, max)
-							const match = result.stdout.match(/--effort\s+<\w+>\s+.*?\(([^)]+)\)/);
+
+						// Primary: parse --help output. Older CLI builds list the levels
+						// inline, e.g. `--effort <level>  Effort level ... (low, medium, high, max)`.
+						const help = await execFileNoThrow(command, ['--help'], undefined, env);
+						if (help.exitCode === 0) {
+							const match = help.stdout.match(/--effort\s+<\w+>\s+.*?\(([^)]+)\)/);
 							if (match) {
 								const levels = match[1]
 									.split(',')
@@ -543,8 +544,47 @@ export class AgentDetector {
 								return ['', ...levels]; // Empty string = use default
 							}
 						}
-						logger.debug('Could not parse effort levels from Claude --help output', LOG_CONTEXT);
-						return [];
+
+						// Fallback: newer CLI builds dropped the parenthetical from --help but
+						// still validate the flag. Probe with an invalid value and read back the
+						// valid set the CLI names. Two known phrasings, depending on the build:
+						//   - commander rejection (non-zero exit):
+						//     `error: option '--effort <level>' argument 'x' is invalid. It must be one of: low, medium, high, xhigh, max`
+						//   - soft warning (exit 0, still runs --version):
+						//     `Warning: Unknown --effort value 'x' - ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.`
+						const probe = await execFileNoThrow(
+							command,
+							['--effort', '__maestro_probe__', '--version'],
+							undefined,
+							env
+						);
+						const probeOutput = `${probe.stderr}\n${probe.stdout}`;
+						const probeMatch = probeOutput.match(
+							/--effort\b[^\n]*?(?:must be one of|valid values):\s*([^\n]+)/i
+						);
+						if (probeMatch) {
+							const levels = probeMatch[1]
+								.split(',')
+								.map((s) => s.trim().replace(/[.\s]+$/, ''))
+								.filter((s) => s.length > 0);
+							if (levels.length > 0) {
+								logger.info(
+									`Discovered ${levels.length} effort levels for ${agentId} from validation probe`,
+									LOG_CONTEXT,
+									{ levels }
+								);
+								return ['', ...levels]; // Empty string = use default
+							}
+						}
+
+						logger.debug(
+							'Could not discover effort levels for Claude Code; using static fallback',
+							LOG_CONTEXT
+						);
+						// Fall through to the static-options fallback below rather than
+						// returning [] - that keeps the effort pill/dropdown populated even
+						// when the CLI reworded its --help/validation output yet again.
+						break;
 					}
 					break;
 				}

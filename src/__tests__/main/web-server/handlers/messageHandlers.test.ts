@@ -109,6 +109,7 @@ function createMockCallbacks(): MessageHandlerCallbacks {
 		createSession: vi.fn().mockResolvedValue({ sessionId: 'new-session-1' }),
 		deleteSession: vi.fn().mockResolvedValue(true),
 		renameSession: vi.fn().mockResolvedValue(true),
+		updateSessionCwd: vi.fn().mockResolvedValue({ success: true }),
 		getGitStatus: vi.fn().mockResolvedValue({ files: [], branch: 'main' }),
 		getGitDiff: vi.fn().mockResolvedValue({ diff: '' }),
 		getGitBranchesForSession: vi
@@ -2652,6 +2653,84 @@ describe('WebSocketMessageHandler', () => {
 				sinceMs: undefined,
 				tail: undefined,
 			});
+		});
+	});
+
+	describe('Update Session Cwd (Web → Desktop)', () => {
+		it('forwards the new cwd to the callback and echoes it in the result', async () => {
+			(callbacks.updateSessionCwd as any).mockResolvedValue({ success: true });
+
+			handler.handleMessage(client, {
+				type: 'update_session_cwd',
+				sessionId: 'session-1',
+				newCwd: '/Users/me/cases/archive/2024-Q4/case-123',
+				requestId: 'req-1',
+			});
+
+			await new Promise((resolve) => setImmediate(resolve));
+
+			expect(callbacks.updateSessionCwd).toHaveBeenCalledWith(
+				'session-1',
+				'/Users/me/cases/archive/2024-Q4/case-123'
+			);
+			expect(client.socket.send).toHaveBeenCalledWith(
+				expect.stringContaining('"type":"update_session_cwd_result"')
+			);
+			const payload = JSON.parse((client.socket.send as any).mock.calls[0][0]);
+			expect(payload).toMatchObject({
+				type: 'update_session_cwd_result',
+				success: true,
+				sessionId: 'session-1',
+				newCwd: '/Users/me/cases/archive/2024-Q4/case-123',
+				requestId: 'req-1',
+			});
+		});
+
+		it('surfaces the renderer-supplied error when the update is refused', async () => {
+			(callbacks.updateSessionCwd as any).mockResolvedValue({
+				success: false,
+				error: 'Agent process is running; stop it before changing cwd',
+			});
+
+			handler.handleMessage(client, {
+				type: 'update_session_cwd',
+				sessionId: 'session-1',
+				newCwd: '/tmp/elsewhere',
+			});
+
+			await new Promise((resolve) => setImmediate(resolve));
+
+			const payload = JSON.parse((client.socket.send as any).mock.calls[0][0]);
+			expect(payload).toMatchObject({
+				type: 'update_session_cwd_result',
+				success: false,
+				error: 'Agent process is running; stop it before changing cwd',
+			});
+		});
+
+		it('rejects update with missing sessionId', () => {
+			handler.handleMessage(client, {
+				type: 'update_session_cwd',
+				newCwd: '/tmp/foo',
+			});
+
+			expect(callbacks.updateSessionCwd).not.toHaveBeenCalled();
+			const payload = JSON.parse((client.socket.send as any).mock.calls[0][0]);
+			expect(payload.type).toBe('error');
+			expect(payload.message).toContain('sessionId');
+		});
+
+		it('rejects update with empty newCwd', () => {
+			handler.handleMessage(client, {
+				type: 'update_session_cwd',
+				sessionId: 'session-1',
+				newCwd: '   ',
+			});
+
+			expect(callbacks.updateSessionCwd).not.toHaveBeenCalled();
+			const payload = JSON.parse((client.socket.send as any).mock.calls[0][0]);
+			expect(payload.type).toBe('error');
+			expect(payload.message).toContain('newCwd');
 		});
 	});
 });

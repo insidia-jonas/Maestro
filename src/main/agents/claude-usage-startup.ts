@@ -10,7 +10,7 @@
  * lazily when an `auto`-mode tab actually needs the data.
  *
  * Why "per CLAUDE_CONFIG_DIR account":
- *   The Max-plan quota is bucketed per Anthropic account, and Maestro users
+ *   The Claude plan quota is bucketed per Anthropic account, and Maestro users
  *   commonly switch accounts via `CLAUDE_CONFIG_DIR=/Users/foo/.claude-gmail`
  *   vs `.claude-smash`. Each canonical path is its own snapshot key. We
  *   resolve the effective env per session (agent-level customEnvVars merged
@@ -35,12 +35,13 @@
  *     `extraResources` in `package.json` for mac/win/linux).
  */
 
-import fs from 'fs';
+import * as fs from 'fs';
+import os from 'os';
 import path from 'path';
 import Store from 'electron-store';
 
 import type { AgentDetector } from './detector';
-import type { AgentConfigsData } from '../stores/types';
+import type { AgentConfigsData, SessionsData } from '../stores/types';
 import type { MaestroSettings } from '../ipc/handlers/persistence';
 import { logger } from '../utils/logger';
 import { sampleUsage } from './claude-usage-sampler';
@@ -59,7 +60,11 @@ export const STARTUP_SESSION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export const USAGE_SNAPSHOT_STALE_MS = 5 * 60 * 1000;
 
 export interface StartupUsageSamplingDeps {
-	sessionsStore: Store<{ sessions: any[] }>;
+	// Read-only slice of the sessions store: the sampler only enumerates stored
+	// sessions, never writes. Typing it as `Pick<Store<SessionsData>, 'get'>`
+	// (rather than a looser `Store<{ sessions: any[] }>`) lets the real store
+	// instance assign without an `as unknown as` cast at the call site.
+	sessionsStore: Pick<Store<SessionsData>, 'get'>;
 	agentConfigsStore: Store<AgentConfigsData>;
 	settingsStore: Store<MaestroSettings>;
 	agentDetector: AgentDetector;
@@ -87,6 +92,49 @@ interface SamplingTarget {
 	configDirKey: string;
 	cwd: string;
 	customEnvVars: Record<string, string>;
+}
+
+const ACCOUNT_DIR_EXCLUDE_RE =
+	/(^|[-_.])(backup|bak|old|archive|archived|stage|local|server)([-_.]|$)/i;
+
+function isLikelyClaudeAccountDirName(name: string): boolean {
+	return name === '.claude' || name.startsWith('.claude-');
+}
+
+/**
+ * Discover local Claude Code account directories, mirroring the common
+ * `/token-cockpit` setup where each account lives in a separate
+ * `~/.claude-*` directory. Backups and local/server scratch dirs are skipped
+ * so the dashboard lists active accounts, not migration leftovers.
+ */
+export async function discoverClaudeConfigDirs(homeDir = os.homedir()): Promise<string[]> {
+	let entries: fs.Dirent[];
+	try {
+		entries = await fs.promises.readdir(homeDir, { withFileTypes: true });
+	} catch (err) {
+		logger.warn('Failed to discover Claude config dirs', LOG_CONTEXT, {
+			homeDir,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return [];
+	}
+
+	const dirs: string[] = [];
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		if (!isLikelyClaudeAccountDirName(entry.name)) continue;
+		if (ACCOUNT_DIR_EXCLUDE_RE.test(entry.name)) continue;
+
+		const dir = path.join(homeDir, entry.name);
+		try {
+			await fs.promises.access(path.join(dir, '.claude.json'), fs.constants.R_OK);
+		} catch {
+			continue;
+		}
+		dirs.push(dir);
+	}
+
+	return dirs.sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -242,8 +290,10 @@ function buildTarget(
  *   - 'startup' (default): only sessions that will spawn through maestro-p
  *     AND were created within the 7-day window. Keeps boot fast.
  *   - 'manual': every Claude Code session, ignoring the maestro-p filter and
- *     7-day window. Falls back to default ~/.claude when no Claude Code
- *     sessions exist so the Refresh button never returns "nothing happened".
+ *     7-day window. Still scoped to accounts a configured agent explicitly
+ *     references (session- or agent-level CLAUDE_CONFIG_DIR) - we never
+ *     discover unconfigured ~/.claude-* dirs on disk, since sampling a stale
+ *     leftover account would pop an OAuth browser the user never asked for.
  *
  * Never throws — every failure surfaces as a warn log and a skipped entry.
  */
@@ -300,6 +350,15 @@ export async function runStartupUsageSampling(deps: StartupUsageSamplingDeps): P
 			targetsByKey.set(target.configDirKey, target);
 		}
 	}
+
+	// NB: manual mode does NOT sweep the filesystem for ~/.claude-* account
+	// dirs. A blind sweep would spawn `maestro-p --status` against every
+	// leftover/stale account on disk, and any whose Keychain tokens have
+	// expired launch the Claude TUI's OAuth browser flow on each refresh tick.
+	// We sample only what a configured agent explicitly references, exactly
+	// like the startup path - see buildTarget()'s "don't guess the account"
+	// guard. (discoverClaudeConfigDirs() still backs the account-key listing
+	// IPC handler, which lists keys without spawning anything.)
 
 	if (targetsByKey.size === 0) {
 		logger.info('Skipping Claude usage sampling: no eligible accounts to sample', LOG_CONTEXT, {

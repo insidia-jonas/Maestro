@@ -204,6 +204,9 @@ export const MODAL_PRIORITIES = {
 	/** Debug: View Application Stats modal */
 	DEBUG_APPLICATION_STATS: 604,
 
+	/** Debug: Re-Probe Agents modal */
+	DEBUG_AGENT_PROBE: 603,
+
 	/** Windows warning modal - shown on startup for Windows users */
 	WINDOWS_WARNING: 615,
 
@@ -264,6 +267,10 @@ export const MODAL_PRIORITIES = {
 
 	/** Save markdown modal */
 	SAVE_MARKDOWN: 160,
+
+	/** Image save destination modal (overwrite vs save-as) - above the annotator
+	 * so it layers correctly if the annotator is still settling closed. */
+	IMAGE_SAVE: 168,
 
 	/** Image annotator modal - above lightbox so Escape closes annotator first */
 	IMAGE_ANNOTATOR: 165,

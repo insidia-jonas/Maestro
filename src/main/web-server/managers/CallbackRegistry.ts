@@ -59,6 +59,7 @@ import type {
 	CreateSessionConfig,
 	DeleteSessionCallback,
 	RenameSessionCallback,
+	UpdateSessionCwdCallback,
 	WebSettings,
 	SettingValue,
 	GroupData,
@@ -163,6 +164,7 @@ export interface WebServerCallbacks {
 	createSession: CreateSessionCallback | null;
 	deleteSession: DeleteSessionCallback | null;
 	renameSession: RenameSessionCallback | null;
+	updateSessionCwd: UpdateSessionCwdCallback | null;
 	getGitStatus: GetGitStatusCallback | null;
 	getGitDiff: GetGitDiffCallback | null;
 	getGitBranchesForSession: GetGitBranchesForSessionCallback | null;
@@ -243,6 +245,7 @@ export class CallbackRegistry {
 		createSession: null,
 		deleteSession: null,
 		renameSession: null,
+		updateSessionCwd: null,
 		getGitStatus: null,
 		getGitDiff: null,
 		getGitBranchesForSession: null,
@@ -574,6 +577,16 @@ export class CallbackRegistry {
 	async renameSession(sessionId: string, newName: string): Promise<boolean> {
 		if (!this.callbacks.renameSession) return false;
 		return this.callbacks.renameSession(sessionId, newName);
+	}
+
+	async updateSessionCwd(
+		sessionId: string,
+		newCwd: string
+	): Promise<{ success: boolean; error?: string }> {
+		if (!this.callbacks.updateSessionCwd) {
+			return { success: false, error: 'Session cwd updates not configured' };
+		}
+		return this.callbacks.updateSessionCwd(sessionId, newCwd);
 	}
 
 	async getGitStatus(sessionId: string): Promise<GitStatusResult> {
@@ -954,6 +967,10 @@ export class CallbackRegistry {
 
 	setRenameSessionCallback(callback: RenameSessionCallback): void {
 		this.callbacks.renameSession = callback;
+	}
+
+	setUpdateSessionCwdCallback(callback: UpdateSessionCwdCallback): void {
+		this.callbacks.updateSessionCwd = callback;
 	}
 
 	setGetGitStatusCallback(callback: GetGitStatusCallback): void {

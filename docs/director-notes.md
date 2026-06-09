@@ -4,10 +4,10 @@ description: Aggregate history from all agents into a unified timeline with AI-p
 icon: clapperboard
 ---
 
-Director's Notes is your bird's-eye view of everything happening across all your AI agents. Instead of switching between tabs to check what each agent has been doing, Director's Notes aggregates all history entries into a single, searchable, filterable timeline — and can generate an AI-powered synopsis of recent activity.
+Director's Notes is your bird's-eye view of everything happening across all your AI agents. Instead of switching between tabs to check what each agent has been doing, Director's Notes aggregates all history entries into a single, searchable, filterable timeline - and can generate an AI-powered synopsis of recent activity.
 
 <Note>
-Director's Notes is an **Encore Feature** — it's disabled by default. Enable it in **Settings > Encore Features** to access the shortcut, menu entry, and command palette action.
+Director's Notes is an **Encore Feature** - it's disabled by default. Enable it in **Settings > Encore Features** to access the shortcut, menu entry, and command palette action.
 </Note>
 
 ![Encore Features settings panel](./screenshots/encore-features.png)
@@ -29,7 +29,7 @@ Director's Notes has three tabs:
 
 ### Unified History
 
-The primary view — a chronological list of all history entries from every agent, newest first.
+The primary view - a chronological list of all history entries from every agent, newest first.
 
 ![Director's Notes Unified History](./screenshots/directors-notes-history.png)
 
@@ -47,8 +47,8 @@ A centered aggregate stats bar displays key metrics across the current dataset:
 **Entry Details:**
 Each entry shows:
 
-- **Agent name** — which Maestro agent produced the entry
-- **Task name pill** — clickable link to the originating session
+- **Agent name** - which Maestro agent produced the entry
+- **Task name pill** - clickable link to the originating session
 - **Type badge** (AUTO or USER)
 - **Summary** of what was accomplished
 - **Duration** and **cost** (when available)
@@ -57,7 +57,7 @@ Each entry shows:
 Click any entry to open the **Detail Modal** with full response text, token breakdown, and navigation controls (Prev/Next or arrow keys).
 
 **Session Navigation:**
-Click the session pill on any entry to jump directly to that agent's tab — Director's Notes closes and focuses the agent with the relevant session loaded.
+Click the session pill on any entry to jump directly to that agent's tab - Director's Notes closes and focuses the agent with the relevant session loaded.
 
 **Infinite Scroll:**
 Entries load progressively (100 at a time). Scroll to load more as needed.
@@ -70,10 +70,10 @@ An AI-generated synopsis of recent activity across all agents. This tab uses a c
 
 **Controls:**
 
-- **Lookback slider** — Adjust from 1 to 90 days to control the analysis window
-- **Refresh** — Regenerate the synopsis with current settings
-- **Save** — Export the synopsis as a markdown file
-- **Copy** — Copy the raw markdown to clipboard
+- **Lookback slider** - Adjust from 1 to 90 days to control the analysis window
+- **Refresh** - Regenerate the synopsis with current settings
+- **Save** - Export the synopsis as a markdown file
+- **Copy** - Copy the raw markdown to clipboard
 
 **Stats Bar:**
 After generation, a stats bar shows:
@@ -85,9 +85,9 @@ After generation, a stats bar shows:
 **Synopsis Content:**
 The AI produces a structured report organized by agent/project with sections for:
 
-- **Accomplishments** — What was completed
-- **Challenges** — Issues encountered or unresolved
-- **Next Steps** — Recommended follow-up actions
+- **Accomplishments** - What was completed
+- **Challenges** - Issues encountered or unresolved
+- **Next Steps** - Recommended follow-up actions
 
 The synopsis is rendered as rich markdown with full formatting support.
 
@@ -95,7 +95,7 @@ The synopsis is rendered as rich markdown with full formatting support.
 Configure which AI provider generates the synopsis in **Settings > Encore Features**. Any installed agent (Claude Code, Codex, OpenCode) can be used. The default lookback window is also configurable there.
 
 <Note>
-The AI Overview tab becomes available once the synopsis has finished generating. A spinning indicator on the tab shows generation is in progress. Results are cached for the session — switching tabs won't trigger a regeneration.
+The AI Overview tab becomes available once the synopsis has finished generating. A spinning indicator on the tab shows generation is in progress. Results are cached for the session - switching tabs won't trigger a regeneration.
 </Note>
 
 ### Help
@@ -146,7 +146,7 @@ Access Director's Notes settings via **Settings > Encore Features** (enable Dire
 - **Search by agent name** in Unified History to isolate work from a specific project
 - **Right-click the activity graph** to quickly change the time window without scrolling
 - **Save or copy the synopsis** to include in standup notes, PRs, or project documentation
-- **Session navigation** lets you jump directly from a history entry to the agent that produced it — great for resuming or reviewing work
+- **Session navigation** lets you jump directly from a history entry to the agent that produced it - great for resuming or reviewing work
 
 ## Pulling Notes from the CLI
 

@@ -12,6 +12,7 @@ interface BuildDebugCommandsArgs {
 	setQuickActionOpen: (open: boolean) => void;
 	setPlaygroundOpen?: (open: boolean) => void;
 	setDebugApplicationStatsOpen?: (open: boolean) => void;
+	setDebugAgentProbeOpen?: (open: boolean) => void;
 	setDebugWizardModalOpen?: (open: boolean) => void;
 	onDebugReleaseQueuedItem?: () => void;
 	getInstallationId: () => Promise<string | null | undefined>;
@@ -49,6 +50,7 @@ export function buildDebugCommands({
 	setQuickActionOpen,
 	setPlaygroundOpen,
 	setDebugApplicationStatsOpen,
+	setDebugAgentProbeOpen,
 	setDebugWizardModalOpen,
 	onDebugReleaseQueuedItem,
 	getInstallationId,
@@ -170,6 +172,18 @@ export function buildDebugCommands({
 			subtext: 'Memory and data footprint per loaded agent',
 			action: () => {
 				setDebugApplicationStatsOpen(true);
+				setQuickActionOpen(false);
+			},
+		});
+	}
+
+	if (setDebugAgentProbeOpen) {
+		commands.push({
+			id: 'debugAgentProbe',
+			label: 'Debug: Re-Probe Agents',
+			subtext: 'Re-detect each agent binary and refresh readiness',
+			action: () => {
+				setDebugAgentProbeOpen(true);
 				setQuickActionOpen(false);
 			},
 		});

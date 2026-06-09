@@ -224,6 +224,11 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 					state: s.state,
 					inputMode: s.inputMode,
 					cwd: s.cwd,
+					// Claude token-source selection, so web-initiated group chat
+					// participants honor the maestro-p TUI / API / dynamic choice.
+					enableMaestroP: s.enableMaestroP,
+					maestroPMode: s.maestroPMode,
+					maestroPPath: s.maestroPPath,
 					groupId: s.groupId || null,
 					groupName: group?.name || null,
 					groupEmoji: group?.emoji || null,
@@ -1415,6 +1420,53 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 					ipcMain.removeListener(responseChannel, handleResponse);
 					logger.warn(`renameSession callback timed out for session ${sessionId}`, 'WebServer');
 					resolve(false);
+				}, 5000);
+			});
+		});
+
+		// Set up callback for web server to update a session's working directory.
+		// Mirrors renameSession's IPC request-response shape but returns a
+		// structured result so the renderer can refuse mid-flight updates (e.g.
+		// while the agent process is alive) without losing the reason.
+		server.setUpdateSessionCwdCallback(async (sessionId: string, newCwd: string) => {
+			const mainWindow = getMainWindow();
+			if (!mainWindow) {
+				logger.warn('mainWindow is null for updateSessionCwd', 'WebServer');
+				return { success: false, error: 'Desktop window unavailable' };
+			}
+
+			return new Promise((resolve) => {
+				const responseChannel = `remote:updateSessionCwd:response:${randomUUID()}`;
+				let resolved = false;
+
+				const handleResponse = (
+					_event: Electron.IpcMainEvent,
+					result: { success?: boolean; error?: string } | undefined
+				) => {
+					if (resolved) return;
+					resolved = true;
+					clearTimeout(timeoutId);
+					resolve({
+						success: Boolean(result?.success),
+						error: result?.error,
+					});
+				};
+
+				ipcMain.once(responseChannel, handleResponse);
+				if (!isWebContentsAvailable(mainWindow)) {
+					logger.warn('webContents is not available for updateSessionCwd', 'WebServer');
+					ipcMain.removeListener(responseChannel, handleResponse);
+					resolve({ success: false, error: 'Desktop renderer unavailable' });
+					return;
+				}
+				mainWindow.webContents.send('remote:updateSessionCwd', sessionId, newCwd, responseChannel);
+
+				const timeoutId = setTimeout(() => {
+					if (resolved) return;
+					resolved = true;
+					ipcMain.removeListener(responseChannel, handleResponse);
+					logger.warn(`updateSessionCwd callback timed out for session ${sessionId}`, 'WebServer');
+					resolve({ success: false, error: 'Renderer did not respond in time' });
 				}, 5000);
 			});
 		});

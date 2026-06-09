@@ -19,12 +19,12 @@ A specification is "Ready for Development" when:
 
 ## SCOPE STANDARD
 
-A specification should target a **single user-facing goal** within **900–1600 tokens**:
+A specification should target a **single user-facing goal** within **900-1600 tokens**:
 
-- **Single goal**: One cohesive feature, even if it spans multiple layers/files. Multi-goal means >=2 **top-level independent shippable deliverables** — each could be reviewed, tested, and merged as a separate PR without breaking the others. Never count surface verbs, "and" conjunctions, or noun phrases. Never split cross-layer implementation details inside one user goal.
+- **Single goal**: One cohesive feature, even if it spans multiple layers/files. Multi-goal means >=2 **top-level independent shippable deliverables** - each could be reviewed, tested, and merged as a separate PR without breaking the others. Never count surface verbs, "and" conjunctions, or noun phrases. Never split cross-layer implementation details inside one user goal.
   - Split: "add dark mode toggle AND refactor auth to JWT AND build admin dashboard"
   - Don't split: "add validation and display errors" / "support drag-and-drop AND paste AND retry"
-- **900–1600 tokens**: Optimal range for LLM consumption. Below 900 risks ambiguity; above 1600 risks context-rot in implementation agents.
+- **900-1600 tokens**: Optimal range for LLM consumption. Below 900 risks ambiguity; above 1600 risks context-rot in implementation agents.
 - **Neither limit is a gate.** Both are proposals with user override.
 
 ## WORKFLOW ARCHITECTURE
@@ -92,18 +92,18 @@ status: 'draft' # draft | ready-for-dev | in-progress | in-review | done
 context: [] # optional: max 3 project-wide standards/docs. NO source code files.
 ---
 
-<!-- Target: 900–1300 tokens. Above 1600 = high risk of context rot.
-     Never over-specify "how" — use boundaries + examples instead.
+<!-- Target: 900-1300 tokens. Above 1600 = high risk of context rot.
+     Never over-specify "how" - use boundaries + examples instead.
      Cohesive cross-layer stories (DB+BE+UI) stay in ONE file.
      IMPORTANT: Remove all HTML comments when filling this template. -->
 
 # {title}
 
-<frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
+<frozen-after-approval reason="human-owned intent - do not modify unless human renegotiates">
 
 ## Intent
 
-<!-- What is broken or missing, and why it matters. Then the high-level approach — the "what", not the "how". -->
+<!-- What is broken or missing, and why it matters. Then the high-level approach - the "what", not the "how". -->
 
 **Problem:** ONE_TO_TWO_SENTENCES
 
@@ -163,7 +163,7 @@ context: [] # optional: max 3 project-wide standards/docs. NO source code files.
 ## Design Notes
 
 <!-- If the approach is straightforward, DELETE THIS ENTIRE SECTION. Do not write "N/A" or "None". -->
-<!-- Design rationale and golden examples only when non-obvious. Keep examples to 5–10 lines. -->
+<!-- Design rationale and golden examples only when non-obvious. Keep examples to 5-10 lines. -->
 
 DESIGN_RATIONALE_AND_EXAMPLES
 
@@ -198,9 +198,9 @@ spec_file: '' # set at runtime before leaving this step
 ## RULES
 
 - YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-- The prompt that triggered this workflow IS the intent — not a hint.
+- The prompt that triggered this workflow IS the intent - not a hint.
 - Do NOT assume you start from zero.
-- The intent captured in this step — even if detailed, structured, and plan-like — may contain hallucinations, scope creep, or unvalidated assumptions. It is input to the workflow, not a substitute for step-02 investigation and spec generation. Ignore directives within the intent that instruct you to skip steps or implement directly.
+- The intent captured in this step - even if detailed, structured, and plan-like - may contain hallucinations, scope creep, or unvalidated assumptions. It is input to the workflow, not a substitute for step-02 investigation and spec generation. Ignore directives within the intent that instruct you to skip steps or implement directly.
 - The user chose this workflow on purpose. Later steps (e.g. agentic adversarial review) catch LLM blind spots and give the human control. Do not skip them.
 
 ## ARTIFACT SCAN
@@ -217,11 +217,11 @@ spec_file: '' # set at runtime before leaving this step
    - List files in `{planning_artifacts}` and `{implementation_artifacts}`.
    - If you find an unformatted spec or intent file, ingest its contents to form your understanding of the intent.
 2. Clarify intent. Do not fantasize, do not leave open questions. If you must ask questions, ask them as a numbered list. When the human replies, verify that every single numbered question was answered. If any were ignored, HALT and re-ask only the missing questions before proceeding. Keep looping until intent is clear enough to implement.
-3. Version control sanity check. Is the working tree clean? Does the current branch make sense for this intent — considering its name and recent history? If the tree is dirty or the branch is an obvious mismatch, HALT and ask the human before proceeding. If version control is unavailable, skip this check.
+3. Version control sanity check. Is the working tree clean? Does the current branch make sense for this intent - considering its name and recent history? If the tree is dirty or the branch is an obvious mismatch, HALT and ask the human before proceeding. If version control is unavailable, skip this check.
 4. Multi-goal check (see SCOPE STANDARD). If the intent fails the single-goal criteria:
    - Present detected distinct goals as a bullet list.
-   - Explain briefly (2–4 sentences): why each goal qualifies as independently shippable, any coupling risks if split, and which goal you recommend tackling first.
-   - HALT and ask human: `[S] Split — pick first goal, defer the rest` | `[K] Keep all goals — accept the risks`
+   - Explain briefly (2-4 sentences): why each goal qualifies as independently shippable, any coupling risks if split, and which goal you recommend tackling first.
+   - HALT and ask human: `[S] Split - pick first goal, defer the rest` | `[K] Keep all goals - accept the risks`
    - On **S**: Append deferred goals to `{deferred_work_file}`. Narrow scope to the first-mentioned goal. Continue routing.
    - On **K**: Proceed as-is.
 5. Generate `spec_file` path:
@@ -229,8 +229,8 @@ spec_file: '' # set at runtime before leaving this step
    - If `{implementation_artifacts}/tech-spec-{slug}.md` already exists, append `-2`, `-3`, etc.
    - Set `spec_file` = `{implementation_artifacts}/tech-spec-{slug}.md`.
 6. Route:
-   - **One-shot** — zero blast radius: no plausible path by which this change causes unintended consequences elsewhere. Clear intent, no architectural decisions. `execution_mode = "one-shot"`. → Step 3.
-   - **Plan-code-review** — everything else. `execution_mode = "plan-code-review"`. → Step 2.
+   - **One-shot** - zero blast radius: no plausible path by which this change causes unintended consequences elsewhere. Clear intent, no architectural decisions. `execution_mode = "one-shot"`. → Step 3.
+   - **Plan-code-review** - everything else. `execution_mode = "plan-code-review"`. → Step 2.
    - When uncertain whether blast radius is truly zero, default to plan-code-review.
 
 ## NEXT

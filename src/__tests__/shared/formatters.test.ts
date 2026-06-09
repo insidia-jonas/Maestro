@@ -9,6 +9,7 @@ import {
 	formatTokens,
 	formatTokensCompact,
 	formatRelativeTime,
+	formatCacheAge,
 	formatAgeShort,
 	formatActiveTime,
 	formatElapsedTime,
@@ -193,6 +194,33 @@ describe('shared/formatters', () => {
 				expect(formatRelativeTime(now - 60 * 60000, { includeSeconds: true })).toBe('1h ago');
 				expect(formatRelativeTime(now - 24 * 60 * 60000, { includeSeconds: true })).toBe('1d ago');
 			});
+		});
+	});
+
+	// ==========================================================================
+	// formatCacheAge tests
+	// ==========================================================================
+	describe('formatCacheAge', () => {
+		it('should format null and zero as just now', () => {
+			expect(formatCacheAge(null)).toBe('just now');
+			expect(formatCacheAge(0)).toBe('just now');
+		});
+
+		it('should format sub-minute durations as just now', () => {
+			expect(formatCacheAge(15_000)).toBe('just now');
+			expect(formatCacheAge(59_999)).toBe('just now');
+		});
+
+		it('should format minutes below one hour', () => {
+			expect(formatCacheAge(60_000)).toBe('1m ago');
+			expect(formatCacheAge(45 * 60_000)).toBe('45m ago');
+			expect(formatCacheAge(59 * 60_000)).toBe('59m ago');
+		});
+
+		it('should format whole hours without rolling into days', () => {
+			expect(formatCacheAge(60 * 60_000)).toBe('1h ago');
+			expect(formatCacheAge(2 * 60 * 60_000)).toBe('2h ago');
+			expect(formatCacheAge(25 * 60 * 60_000)).toBe('25h ago');
 		});
 	});
 
@@ -558,6 +586,22 @@ describe('shared/formatters', () => {
 		it('respects custom target/max', () => {
 			expect(abbreviateGroupName('Engineering', { max: 5 })).toBe('Engnr');
 			expect(abbreviateGroupName('TenChars10', { max: 5 })).toBe('TnChr');
+		});
+
+		// Issue #1017: groups named like "[ARP] Auditoria Relatório Pessoal" used to
+		// fall into the multi-word initials path, which took just the leading "[" of
+		// the bracketed word and produced "[ARP" with the closing bracket dropped.
+		it('uses a bracketed tag prefix as the preferred short form', () => {
+			expect(abbreviateGroupName('[ARP] Auditoria Relatório Pessoal')).toBe('ARP');
+			expect(abbreviateGroupName('[CEDR] Conteúdo Educação Designer Reuniões')).toBe('CEDR');
+			expect(abbreviateGroupName('[GU] Generic User')).toBe('GU');
+			// Bracket prefix is honored even when the name is already short.
+			expect(abbreviateGroupName('[ARP]')).toBe('ARP');
+			// Tag itself is over max → fall through to initials, which skip the
+			// leading bracket entirely (no lopped "[" in the output).
+			expect(abbreviateGroupName('[VeryLongTagName] X', { max: 5 })).toBe('VX');
+			// Pure-numbering prefix is not a tag → dropped, initials of the rest win.
+			expect(abbreviateGroupName('[1] Aleyemma/Money-Sessions')).toBe('AMS');
 		});
 	});
 
