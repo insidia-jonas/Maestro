@@ -71,6 +71,7 @@ export interface GroupChatSessionInfo {
 	name: string;
 	toolType: string;
 	cwd: string;
+	projectRoot?: string;
 	customArgs?: string;
 	customEnvVars?: Record<string, string>;
 	customModel?: string;
@@ -1292,7 +1293,7 @@ export async function routeModeratorResponse(
 			const matchingSession = sessions.find(
 				(s) => mentionMatches(s.name, participantName) || s.name === participantName
 			);
-			const cwd = matchingSession?.cwd || os.homedir();
+			const cwd = matchingSession?.cwd || matchingSession?.projectRoot || process.cwd();
 			logger.debug(`[GroupChat:Debug] CWD for participant: ${cwd}`);
 
 			// Resolve agent configuration
@@ -1853,7 +1854,7 @@ export async function respawnParticipantWithRecovery(
 	const matchingSession = sessions.find(
 		(s) => mentionMatches(s.name, participantName) || s.name === participantName
 	);
-	const cwd = matchingSession?.cwd || os.homedir();
+	const cwd = matchingSession?.cwd || matchingSession?.projectRoot || process.cwd();
 
 	// Build the prompt with recovery context
 	const readOnlyNote = readOnly

@@ -1002,6 +1002,7 @@ describe('group-chat-router', () => {
 				name: 'RemoteAgent',
 				toolType: 'claude-code',
 				cwd: '/home/user/project',
+				projectRoot: '/home/user/project',
 				sshRemoteName: 'PedTome',
 				sshRemoteConfig,
 			};
@@ -1037,6 +1038,7 @@ describe('group-chat-router', () => {
 				name: 'SSHWorker',
 				toolType: 'claude-code',
 				cwd: '/home/user/project',
+				projectRoot: '/home/user/project',
 				sshRemoteName: 'PedTome',
 				sshRemoteConfig,
 			};
@@ -1086,6 +1088,7 @@ describe('group-chat-router', () => {
 				name: 'LocalAgent',
 				toolType: 'claude-code',
 				cwd: '/Users/dev/project',
+				projectRoot: '/Users/dev/project',
 			};
 			setGetSessionsCallback(() => [localSession]);
 			setSshStore(mockSshStore);
@@ -1099,6 +1102,89 @@ describe('group-chat-router', () => {
 
 			// SSH wrapper should NOT be called for local sessions
 			expect(mockWrapSpawnWithSsh).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('participant cwd fallback chain', () => {
+		it('uses session cwd when available (cwd-first)', async () => {
+			const chat = await createTestChatWithModerator('CWD Fallback Test');
+			const session: GroupChatSessionInfo = {
+				id: 'ses-cwd-1',
+				name: 'CwdAgent',
+				toolType: 'claude-code',
+				cwd: '/explicit/cwd',
+				projectRoot: '/project/root',
+			};
+			setGetSessionsCallback(() => [session]);
+			await addParticipant(chat.id, 'CwdAgent', 'claude-code', mockProcessManager);
+			mockProcessManager.spawn.mockClear();
+
+			await routeModeratorResponse(
+				chat.id,
+				'@CwdAgent: do the thing',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const spawnCall = mockProcessManager.spawn.mock.calls.find((call) =>
+				call[0]?.prompt?.includes('do the thing')
+			);
+			expect(spawnCall).toBeDefined();
+			expect(spawnCall![0].cwd).toBe('/explicit/cwd');
+		});
+
+		it('falls back to projectRoot when cwd is empty', async () => {
+			const chat = await createTestChatWithModerator('ProjectRoot Fallback Test');
+			const session: GroupChatSessionInfo = {
+				id: 'ses-pr-1',
+				name: 'PrAgent',
+				toolType: 'claude-code',
+				cwd: '',
+				projectRoot: '/project/root',
+			};
+			setGetSessionsCallback(() => [session]);
+			await addParticipant(chat.id, 'PrAgent', 'claude-code', mockProcessManager);
+			mockProcessManager.spawn.mockClear();
+
+			await routeModeratorResponse(
+				chat.id,
+				'@PrAgent: do the thing',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const spawnCall = mockProcessManager.spawn.mock.calls.find((call) =>
+				call[0]?.prompt?.includes('do the thing')
+			);
+			expect(spawnCall).toBeDefined();
+			expect(spawnCall![0].cwd).toBe('/project/root');
+		});
+
+		it('falls back to process.cwd() when both cwd and projectRoot are empty', async () => {
+			const chat = await createTestChatWithModerator('ProcessCwd Fallback Test');
+			const session: GroupChatSessionInfo = {
+				id: 'ses-none-1',
+				name: 'NoneAgent',
+				toolType: 'claude-code',
+				cwd: '',
+				projectRoot: '',
+			};
+			setGetSessionsCallback(() => [session]);
+			await addParticipant(chat.id, 'NoneAgent', 'claude-code', mockProcessManager);
+			mockProcessManager.spawn.mockClear();
+
+			await routeModeratorResponse(
+				chat.id,
+				'@NoneAgent: do the thing',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const spawnCall = mockProcessManager.spawn.mock.calls.find((call) =>
+				call[0]?.prompt?.includes('do the thing')
+			);
+			expect(spawnCall).toBeDefined();
+			expect(spawnCall![0].cwd).toBe(process.cwd());
 		});
 	});
 
