@@ -36,4 +36,18 @@ export const AGENT_TILES: AgentTile[] = [
 		description: "GitHub's AI coding assistant",
 		brandColor: '#24292F',
 	},
+	{
+		id: 'grok-build',
+		name: 'Grok Build',
+		supported: true,
+		description: "xAI's agentic coding CLI",
+		brandColor: '#000000',
+	},
+	{
+		id: 'gemini-cli',
+		name: 'Gemini CLI',
+		supported: true,
+		description: "Google's Gemini coding CLI",
+		brandColor: '#4285F4',
+	},
 ];

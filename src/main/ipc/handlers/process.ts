@@ -3,7 +3,6 @@ import Store from 'electron-store';
 import type { AgentConfigsData } from '../../stores/types';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { ProcessManager } from '../../process-manager';

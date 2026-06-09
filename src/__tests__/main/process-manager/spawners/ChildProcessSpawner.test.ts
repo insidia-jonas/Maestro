@@ -21,7 +21,7 @@ function createMockChildProcess() {
 		pid: 12345,
 		stdout: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
 		stderr: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
-		stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() },
+		stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn(), writable: true, destroyed: false },
 		on: vi.fn(),
 		killed: false,
 		exitCode: null,
@@ -741,8 +741,10 @@ describe('ChildProcessSpawner', () => {
 			// Prompt should NOT be in args (sent via stdin instead)
 			expect(spawnArgs).not.toContain('--');
 
-			// The modified prompt with image prefix should be sent via stdin
-			const writtenData = mockChildProcess.stdin.write.mock.calls[0][0];
+			// The modified prompt with image prefix is delivered via stdin.
+			// Raw stdin mode writes and closes in a single stdin.end(data) call.
+			expect(mockChildProcess.stdin.end).toHaveBeenCalled();
+			const writtenData = mockChildProcess.stdin.end.mock.calls[0][0];
 			expect(writtenData).toContain('[Attached images:');
 			expect(writtenData).toContain('/tmp/maestro-image-0.png');
 			expect(writtenData).toContain('describe this image');
@@ -806,28 +808,31 @@ describe('ChildProcessSpawner', () => {
 		});
 	});
 
-	describe('gemini-cli raw stdin prompt delivery', () => {
-		it('sends prompt via raw stdin when toolType is gemini-cli', () => {
+	describe('gemini-cli CLI-argument prompt delivery', () => {
+		it('delivers prompt via -p CLI argument when toolType is gemini-cli', () => {
 			const { spawner } = createTestContext();
 
 			spawner.spawn(
 				createBaseConfig({
 					toolType: 'gemini-cli',
 					command: 'gemini',
-					args: ['--output-format', 'stream-json', '--skip-trust', '-y', '-p', ''],
+					args: ['--output-format', 'stream-json', '--skip-trust', '-y'],
+					promptArgs: (p: string) => ['-p', p],
 					prompt: 'Explain the architecture of this project',
 				})
 			);
 
 			const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
-			// batchModeArgs include `-p ""` placeholder — prompt must NOT be in CLI args
+			// Prompt delivered as a -p CLI argument (the raw-stdin experiment was removed)
 			expect(spawnArgs).toContain('-p');
-			expect(spawnArgs).not.toContain('Explain the architecture of this project');
-			// Prompt delivered via raw stdin write + end
-			expect(mockChildProcess.stdin.write).toHaveBeenCalledWith(
+			expect(spawnArgs).toContain('Explain the architecture of this project');
+			// NOT delivered via raw stdin
+			expect(mockChildProcess.stdin.write).not.toHaveBeenCalledWith(
 				'Explain the architecture of this project'
 			);
-			expect(mockChildProcess.stdin.end).toHaveBeenCalled();
+			expect(mockChildProcess.stdin.end).not.toHaveBeenCalledWith(
+				'Explain the architecture of this project\n'
+			);
 			// Must NOT use stream-json stdin path
 			expect(buildStreamJsonMessage).not.toHaveBeenCalled();
 		});
@@ -839,11 +844,12 @@ describe('ChildProcessSpawner', () => {
 				createBaseConfig({
 					toolType: 'gemini-cli',
 					command: 'gemini',
-					args: ['--output-format', 'stream-json', '--skip-trust', '-y', '-p', ''],
+					args: ['--output-format', 'stream-json', '--skip-trust', '-y'],
+					promptArgs: (p: string) => ['-p', p],
 				})
 			);
 
-			// No prompt → forceRawPromptViaStdin is false → no raw stdin write
+			// No prompt → nothing is delivered via raw stdin
 			expect(mockChildProcess.stdin.write).not.toHaveBeenCalled();
 		});
 	});

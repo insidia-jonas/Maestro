@@ -149,6 +149,38 @@ export function AgentLogo({
 				</svg>
 			);
 
+		case 'grok-build':
+			// Grok Build (xAI) — lightning bolt logo
+			return (
+				<svg
+					className="w-12 h-12"
+					viewBox="0 0 48 48"
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+					style={{ opacity }}
+				>
+					<path d="M28 4L12 26h10l-4 18L36 22H26l2-18z" fill={color} />
+				</svg>
+			);
+
+		case 'gemini-cli':
+			// Gemini — Google's sparkle/star logo
+			return (
+				<svg
+					className="w-12 h-12"
+					viewBox="0 0 48 48"
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+					style={{ opacity }}
+				>
+					{/* Gemini sparkle logo */}
+					<path
+						d="M24 4C24 4 24 20 24 24C24 28 4 24 4 24C4 24 20 24 24 24C28 24 24 44 24 44C24 44 24 28 24 24C24 20 44 24 44 24C44 24 28 24 24 24"
+						fill={color}
+					/>
+				</svg>
+			);
+
 		default:
 			return (
 				<div className="w-12 h-12 rounded-full border-2" style={{ borderColor: color, opacity }} />

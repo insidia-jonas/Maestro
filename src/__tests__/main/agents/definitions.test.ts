@@ -210,12 +210,13 @@ describe('agent-definitions', () => {
 			expect(args).toEqual(['--session', 'session-789']);
 		});
 
-		it('should disable Gemini resume and send headless prompts via stdin', () => {
+		it('should disable Gemini resume and deliver headless prompts via CLI argument', () => {
 			const gemini = getAgentDefinition('gemini-cli');
 			expect(gemini?.resumeArgs).toBeUndefined();
-			expect(gemini?.promptArgs).toBeUndefined();
-			expect(gemini?.batchModeArgs).toEqual(['--approval-mode', 'yolo', '-p', '']);
-			expect(gemini?.readOnlyArgs).toEqual(['-p', '', '--approval-mode', 'plan']);
+			// Prompt delivered via -p CLI argument; the raw-stdin experiment was removed.
+			expect(gemini?.promptArgs?.('hello world')).toEqual(['-p', 'hello world']);
+			expect(gemini?.batchModeArgs).toEqual(['--approval-mode', 'yolo']);
+			expect(gemini?.readOnlyArgs).toEqual(['--approval-mode', 'plan']);
 			expect(gemini?.yoloModeArgs).toEqual(['-y']);
 		});
 
