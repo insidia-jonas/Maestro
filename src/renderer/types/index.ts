@@ -64,7 +64,7 @@ import type { AgentError, SessionCliActivity } from '../../shared/types';
 
 export type SessionState = 'idle' | 'busy' | 'waiting_input' | 'connecting' | 'error';
 export type FileChangeType = 'modified' | 'added' | 'deleted';
-export type RightPanelTab = 'files' | 'history' | 'autorun';
+export type RightPanelTab = 'files' | 'history' | 'autorun' | 'parking';
 /**
  * Tabs in the Usage Dashboard modal. Shared so the in-memory uiStore can
  * remember the last-selected tab across dashboard opens (resets on restart).
@@ -815,6 +815,33 @@ export interface Session {
 	// Whether operations are paused due to an agent error
 	// When true, new messages are blocked until the error is resolved
 	agentErrorPaused?: boolean;
+
+	// Agent Parking state - set when the agent hits a rate/usage limit.
+	// Instead of the blocking error modal, the agent is "parked": shown with a
+	// cooldown badge in the Left Bar and listed in the Parking tab. A main-process
+	// scheduler auto-retries the parked work (hourly for `short`, once near
+	// `resetAt` for `long`) and clears this on success. Cleared on manual un-park.
+	rateLimitPark?: {
+		kind: 'short' | 'long';
+		/** When the agent was parked (epoch ms). */
+		parkedAt: number;
+		/** Next scheduled automatic retry (epoch ms). */
+		retryAt: number;
+		/** Known limit reset time (epoch ms), if the agent reported one. */
+		resetAt?: number;
+		/** Whether retryAt/resetAt came from a parsed reset (vs. a default). */
+		resetKnown: boolean;
+		/** Human-readable reason, e.g. "Weekly usage limit", "Rate limit (429)". */
+		reason: string;
+		/** The tab whose work was parked (to resume the right tab). */
+		tabId?: string;
+		/** The prompt that was running when parked, re-sent on auto-retry. */
+		prompt?: string;
+		/** How many automatic retries have fired so far. */
+		attempts: number;
+		/** True while an auto-retry is in flight (cleared on success or re-park). */
+		retrying?: boolean;
+	};
 
 	// SSH Remote execution status
 	// Tracks the SSH remote being used for this session's agent execution

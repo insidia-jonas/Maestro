@@ -637,6 +637,90 @@ describe('agentStore', () => {
 		});
 	});
 
+	describe('Agent Parking (rate-limit cooldown)', () => {
+		const PARK = {
+			kind: 'short' as const,
+			cooldownMs: 60 * 60 * 1000,
+			resetKnown: false,
+			reason: 'Rate limit (429)',
+			tabId: 'tab-1',
+			prompt: 'do the thing',
+		};
+
+		it('parkRateLimit parks the agent without an error frame', () => {
+			const session = createMockSession({ id: 'session-1', state: 'busy' });
+			useSessionStore.getState().setSessions([session]);
+
+			useAgentStore.getState().parkRateLimit('session-1', PARK);
+
+			const s = useSessionStore.getState().sessions[0];
+			expect(s.rateLimitPark?.kind).toBe('short');
+			expect(s.rateLimitPark?.attempts).toBe(0);
+			expect(s.rateLimitPark?.prompt).toBe('do the thing');
+			expect(s.agentError).toBeUndefined();
+			expect(s.agentErrorPaused).toBe(true);
+			expect(s.state).toBe('idle');
+			// modal/IPC is told to clear
+			expect(mockClearError).toHaveBeenCalledWith('session-1');
+		});
+
+		it('re-parking increments attempts and keeps the original prompt', () => {
+			const session = createMockSession({ id: 'session-1' });
+			useSessionStore.getState().setSessions([session]);
+
+			useAgentStore.getState().parkRateLimit('session-1', PARK);
+			// a renewed limit with a different prompt should not overwrite the original
+			useAgentStore.getState().parkRateLimit('session-1', { ...PARK, prompt: 'other' });
+
+			const s = useSessionStore.getState().sessions[0];
+			expect(s.rateLimitPark?.attempts).toBe(1);
+			expect(s.rateLimitPark?.prompt).toBe('do the thing');
+		});
+
+		it('retryParkedRateLimit re-enqueues the prompt and marks retrying', () => {
+			const session = createMockSession({ id: 'session-1', activeTabId: 'tab-1' });
+			useSessionStore.getState().setSessions([session]);
+			useAgentStore.getState().parkRateLimit('session-1', PARK);
+
+			useAgentStore.getState().retryParkedRateLimit('session-1');
+
+			const s = useSessionStore.getState().sessions[0];
+			expect(s.rateLimitPark?.retrying).toBe(true);
+			expect(s.agentErrorPaused).toBe(false);
+			expect(s.executionQueue).toHaveLength(1);
+			expect(s.executionQueue[0]).toMatchObject({
+				type: 'message',
+				text: 'do the thing',
+				tabId: 'tab-1',
+			});
+		});
+
+		it('retryParkedRateLimit is a no-op without a captured prompt', () => {
+			const session = createMockSession({ id: 'session-1' });
+			useSessionStore.getState().setSessions([session]);
+			useAgentStore.getState().parkRateLimit('session-1', { ...PARK, prompt: undefined });
+
+			useAgentStore.getState().retryParkedRateLimit('session-1');
+
+			const s = useSessionStore.getState().sessions[0];
+			expect(s.rateLimitPark?.retrying).toBeFalsy();
+			expect(s.executionQueue).toHaveLength(0);
+		});
+
+		it('unparkRateLimit clears the park and unblocks the session', () => {
+			const session = createMockSession({ id: 'session-1' });
+			useSessionStore.getState().setSessions([session]);
+			useAgentStore.getState().parkRateLimit('session-1', PARK);
+
+			useAgentStore.getState().unparkRateLimit('session-1');
+
+			const s = useSessionStore.getState().sessions[0];
+			expect(s.rateLimitPark).toBeUndefined();
+			expect(s.agentErrorPaused).toBe(false);
+			expect(s.state).toBe('idle');
+		});
+	});
+
 	describe('restartAgentAfterError', () => {
 		it('clears error and kills the AI process', async () => {
 			const session = createMockSession({

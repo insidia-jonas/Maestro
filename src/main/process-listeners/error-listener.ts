@@ -7,6 +7,7 @@ import type { ProcessManager } from '../process-manager';
 import type { AgentError } from '../../shared/types';
 import type { ProcessListenerDependencies } from './types';
 import { capabilitySnapshots } from '../agents/capability-snapshot';
+import { classifyRateLimit } from '../parsers/rate-limit-classify';
 
 /**
  * Sets up the agent-error listener.
@@ -31,6 +32,22 @@ export function setupErrorListener(
 			message: agentError.message,
 			recoverable: agentError.recoverable,
 		});
+
+		// Agent Parking: classify rate limits into short (hourly) vs long
+		// (weekly/monthly) and attach a cooldown/reset so the renderer can park
+		// the agent instead of showing the blocking modal. Classify from the
+		// richest text available (the matched error line, else the message).
+		if (agentError.type === 'rate_limited' && !agentError.rateLimit) {
+			const text = agentError.raw?.errorLine || agentError.raw?.stderr || agentError.message || '';
+			const c = classifyRateLimit(text, Date.now());
+			agentError.rateLimit = {
+				kind: c.kind,
+				cooldownMs: c.cooldownMs,
+				resetAt: c.resetAt,
+				resetKnown: c.resetKnown,
+			};
+		}
+
 		safeSend('agent:error', sessionId, agentError);
 
 		// Reactive capability classification: an auth-expired event means the

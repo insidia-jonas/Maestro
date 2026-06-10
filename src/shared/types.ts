@@ -494,6 +494,23 @@ export interface AgentError {
 
 	/** Parsed JSON error details (if the error contains structured JSON) */
 	parsedJson?: unknown;
+
+	/**
+	 * For `rate_limited` errors: how to park the agent (Agent Parking feature).
+	 * Populated by the main process via classifyRateLimit(). When present, the
+	 * renderer parks the agent (cooldown badge + Parking tab) instead of showing
+	 * the blocking error modal. `short` penalties auto-retry hourly; `long`
+	 * (weekly/monthly/quota) retry once near `resetAt`.
+	 */
+	rateLimit?: {
+		kind: 'short' | 'long';
+		/** Milliseconds from the error timestamp until the next auto-retry. */
+		cooldownMs: number;
+		/** Absolute epoch ms when the limit is known to reset, if reported. */
+		resetAt?: number;
+		/** True when a reset time/duration was parsed (vs. a default cooldown). */
+		resetKnown: boolean;
+	};
 }
 
 /**

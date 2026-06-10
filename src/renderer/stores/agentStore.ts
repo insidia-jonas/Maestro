@@ -118,6 +118,37 @@ export interface AgentStoreActions {
 	 */
 	authenticateAfterError: (sessionId: string) => void;
 
+	// === Agent Parking (rate-limit cooldown) ===
+
+	/**
+	 * Park an agent that hit a rate/usage limit instead of showing the blocking
+	 * error modal. Sets `rateLimitPark`, pauses the session, and clears the error
+	 * frame. Re-parking (a retry that failed again) increments `attempts` and
+	 * keeps the original prompt/tab.
+	 */
+	parkRateLimit: (
+		sessionId: string,
+		park: {
+			kind: 'short' | 'long';
+			cooldownMs: number;
+			resetAt?: number;
+			resetKnown: boolean;
+			reason: string;
+			tabId?: string;
+			prompt?: string;
+		}
+	) => void;
+
+	/** Clear an agent's park (manual un-park or success). */
+	unparkRateLimit: (sessionId: string) => void;
+
+	/**
+	 * Fire an automatic retry for a parked agent: unblock sending, mark the park
+	 * `retrying`, and re-enqueue the parked prompt onto its tab. A renewed limit
+	 * re-parks via the error listener; success clears the park via the data listener.
+	 */
+	retryParkedRateLimit: (sessionId: string) => void;
+
 	// === Queue Processing ===
 
 	/**
@@ -284,6 +315,76 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 
 	retryAfterError: (sessionId) => {
 		get().clearAgentError(sessionId);
+	},
+
+	parkRateLimit: (sessionId, p) => {
+		const now = Date.now();
+		updateSession(sessionId, (s) => {
+			const prev = s.rateLimitPark;
+			return {
+				...s,
+				// Parked is a paused state, not an error: drop the error frame so the
+				// modal trigger and red state clear; the cooldown badge takes over.
+				agentError: undefined,
+				agentErrorTabId: undefined,
+				agentErrorPaused: true,
+				state: 'idle' as SessionState,
+				rateLimitPark: {
+					kind: p.kind,
+					parkedAt: now,
+					retryAt: now + Math.max(0, p.cooldownMs),
+					resetAt: p.resetAt,
+					resetKnown: p.resetKnown,
+					reason: p.reason,
+					// Preserve the original parked work across re-parks.
+					tabId: prev?.tabId ?? p.tabId,
+					prompt: prev?.prompt ?? p.prompt,
+					attempts: prev ? prev.attempts + 1 : 0,
+					retrying: false,
+				},
+			};
+		});
+		// Make sure any open error modal for this session closes.
+		window.maestro.agentError.clearError(sessionId).catch(() => {
+			// best-effort; nothing to recover if the bridge call fails
+		});
+	},
+
+	unparkRateLimit: (sessionId) => {
+		updateSession(sessionId, (s) =>
+			s.rateLimitPark
+				? { ...s, rateLimitPark: undefined, agentErrorPaused: false, state: 'idle' as SessionState }
+				: s
+		);
+	},
+
+	retryParkedRateLimit: (sessionId) => {
+		const session = getSession(sessionId);
+		const park = session?.rateLimitPark;
+		if (!session || !park) return;
+		const targetTabId = park.tabId ?? session.activeTabId;
+		// Without a captured prompt+tab there is nothing to re-send, so an
+		// auto-retry can't test availability. Leave the agent parked for a
+		// manual retry from the Parking tab instead of stranding it as "retrying".
+		if (!park.prompt || !targetTabId) return;
+		updateSession(sessionId, (cur) => {
+			if (!cur.rateLimitPark) return cur;
+			return {
+				...cur,
+				agentErrorPaused: false,
+				rateLimitPark: { ...cur.rateLimitPark, retrying: true },
+				executionQueue: [
+					...cur.executionQueue,
+					{
+						id: generateId(),
+						timestamp: Date.now(),
+						tabId: targetTabId,
+						type: 'message' as const,
+						text: park.prompt,
+					},
+				],
+			};
+		});
 	},
 
 	restartAgentAfterError: async (sessionId) => {

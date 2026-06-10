@@ -20,6 +20,7 @@
 import { useEffect } from 'react';
 import { useSessionStore } from '../../../stores/sessionStore';
 import { useModalStore } from '../../../stores/modalStore';
+import { useAgentStore } from '../../../stores/agentStore';
 import { useGroupChatStore } from '../../../stores/groupChatStore';
 import { notifyToast } from '../../../stores/notificationStore';
 import {
@@ -138,6 +139,56 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 			});
 
 			const isSessionNotFound = agentError.type === 'session_not_found';
+
+			// Agent Parking: a classified rate limit parks the agent (cooldown
+			// badge + Parking tab) instead of the blocking error modal. Scoped to
+			// interactive sessions; an active Auto Run batch keeps its own
+			// pause/resume flow so we don't strand a running batch.
+			const batchActive = deps.getBatchStateRef.current?.(actualSessionId)?.isRunning ?? false;
+			if (agentError.type === 'rate_limited' && agentError.rateLimit && !batchActive) {
+				const session = getSessions().find((s) => s.id === actualSessionId);
+				if (session) {
+					const targetTab = tabIdFromSession
+						? session.aiTabs.find((t) => t.id === tabIdFromSession)
+						: getActiveTab(session);
+					const lastUserPrompt = targetTab
+						? [...targetTab.logs].reverse().find((l) => l.source === 'user')?.text
+						: undefined;
+					const kind = agentError.rateLimit.kind;
+					const reason = agentError.message || (kind === 'long' ? 'Usage limit' : 'Rate limit');
+					useAgentStore.getState().parkRateLimit(actualSessionId, {
+						kind,
+						cooldownMs: agentError.rateLimit.cooldownMs,
+						resetAt: agentError.rateLimit.resetAt,
+						resetKnown: agentError.rateLimit.resetKnown,
+						reason,
+						tabId: targetTab?.id,
+						prompt: lastUserPrompt,
+					});
+					// Show the park in the transcript instead of an error frame.
+					if (targetTab) {
+						const parkLog: LogEntry = {
+							id: generateId(),
+							timestamp: agentError.timestamp,
+							source: 'system',
+							text: `⏸ Parked: ${reason}. Auto-retry ${kind === 'short' ? 'hourly' : 'near reset time'}.`,
+						};
+						setSessions((prev) =>
+							prev.map((s) =>
+								s.id === actualSessionId
+									? {
+											...s,
+											aiTabs: s.aiTabs.map((t) =>
+												t.id === targetTab.id ? { ...t, logs: [...t.logs, parkLog] } : t
+											),
+										}
+									: s
+							)
+						);
+					}
+					return; // skip the error modal + error state entirely
+				}
+			}
 
 			if (tabIdFromSession) {
 				deps.activeHiddenToolRef.current?.delete(`${actualSessionId}:${tabIdFromSession}`);

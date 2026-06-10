@@ -23,6 +23,7 @@ import type { FileTreeChanges } from '../utils/fileExplorer';
 import { FileExplorerPanel } from './FileExplorerPanel';
 import { HistoryPanel, HistoryPanelHandle } from './HistoryPanel';
 import { AutoRun, AutoRunHandle } from './AutoRun';
+import { ParkingPanel } from './ParkingPanel';
 import { AutoRunExpandedModal } from './AutoRun/AutoRunExpandedModal';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { ConfirmModal } from './ConfirmModal';
@@ -129,6 +130,9 @@ export const RightPanel = memo(
 		// === State from stores (direct subscriptions — no prop drilling) ===
 		const session = useSessionStore(selectActiveSession);
 		const setSessions = useSessionStore((s) => s.setSessions);
+		// Agent Parking: number of rate-limit-parked agents across all sessions.
+		// Shown as a count badge on the always-visible "Parking" tab.
+		const parkedCount = useSessionStore((s) => s.sessions.filter((x) => x.rateLimitPark).length);
 
 		const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
 		const activeRightTab = useUIStore((s) => s.activeRightTab);
@@ -452,20 +456,28 @@ export const RightPanel = memo(
 
 				{/* Tab Header */}
 				<div className="flex border-b h-16" style={{ borderColor: theme.colors.border }}>
-					{(['files', 'history', ...(autoRunDisabled ? [] : ['autorun'])] as const).map((tab) => (
-						<button
-							key={tab}
-							onClick={() => setActiveRightTab(tab as RightPanelTab)}
-							className="flex-1 text-xs font-bold border-b-2 transition-colors"
-							style={{
-								borderColor: activeRightTab === tab ? theme.colors.accent : 'transparent',
-								color: activeRightTab === tab ? theme.colors.textMain : theme.colors.textDim,
-							}}
-							data-tour={`${tab}-tab`}
-						>
-							{tab === 'autorun' ? 'Auto Run' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-						</button>
-					))}
+					{(['files', 'history', ...(autoRunDisabled ? [] : ['autorun']), 'parking'] as const).map(
+						(tab) => (
+							<button
+								key={tab}
+								onClick={() => setActiveRightTab(tab as RightPanelTab)}
+								className="flex-1 text-xs font-bold border-b-2 transition-colors"
+								style={{
+									borderColor: activeRightTab === tab ? theme.colors.accent : 'transparent',
+									color: activeRightTab === tab ? theme.colors.textMain : theme.colors.textDim,
+								}}
+								data-tour={`${tab}-tab`}
+							>
+								{tab === 'autorun'
+									? 'Auto Run'
+									: tab === 'parking'
+										? parkedCount > 0
+											? `Parking (${parkedCount})`
+											: 'Parking'
+										: tab.charAt(0).toUpperCase() + tab.slice(1)}
+							</button>
+						)
+					)}
 
 					<button
 						onClick={() => setRightPanelOpen(!rightPanelOpen)}
@@ -543,6 +555,12 @@ export const RightPanel = memo(
 							onOpenBrowserTabAt={onOpenBrowserTabAt}
 						/>
 					</div>
+
+					{activeRightTab === 'parking' && (
+						<div data-tour="parking-panel" className="h-full">
+							<ParkingPanel theme={theme} />
+						</div>
+					)}
 
 					{activeRightTab === 'history' && (
 						<div data-tour="history-panel" className="h-full">

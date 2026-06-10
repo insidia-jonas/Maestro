@@ -18,6 +18,7 @@
 
 import { useEffect } from 'react';
 import { useSessionStore } from '../../../stores/sessionStore';
+import { useAgentStore } from '../../../stores/agentStore';
 import { REGEX_AI_TAB } from '../../../utils/sessionIdParser';
 import { getActiveTab, getWriteModeTab } from '../../../utils/tabHelpers';
 import { logger } from '../../../utils/logger';
@@ -84,6 +85,13 @@ export function useAgentDataListener(deps: UseAgentDataListenerDeps): void {
 			}
 
 			deps.activeHiddenToolRef.current?.delete(`${actualSessionId}:${targetTabId}`);
+
+			// Agent Parking: real AI output after an auto-retry means the limit
+			// lifted — un-park the agent so the cooldown badge clears.
+			const parkedSession = getSessions().find((s) => s.id === actualSessionId);
+			if (parkedSession?.rateLimitPark?.retrying) {
+				useAgentStore.getState().unparkRateLimit(actualSessionId);
+			}
 
 			setSessions((prev) =>
 				prev.map((s) => {
