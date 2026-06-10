@@ -346,7 +346,15 @@ export class AgentDetector {
 					//    Includes [1m] variants for 1M extended context window
 					//    (requires extra usage enabled at claude.ai/settings/usage)
 					// 2. Historical model usage from ~/.claude/stats-cache.json
-					const models: string[] = ['sonnet', 'opus', 'haiku', 'opus[1m]', 'sonnet[1m]'];
+					const models: string[] = [
+						'sonnet',
+						'opus',
+						'haiku',
+						'fable',
+						'opus[1m]',
+						'sonnet[1m]',
+						'fable[1m]',
+					];
 					try {
 						const statsPath = path.join(os.homedir(), '.claude', 'stats-cache.json');
 						const statsContent = fs.readFileSync(statsPath, 'utf8');

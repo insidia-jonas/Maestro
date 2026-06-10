@@ -205,7 +205,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 				type: 'text',
 				label: 'Model',
 				description:
-					'Model override (e.g., "sonnet", "opus", "haiku", or full name like "claude-sonnet-4-6"). Leave empty to use the default.',
+					'Model override (e.g., "sonnet", "opus", "haiku", "fable", or full name like "claude-fable-5"). Leave empty to use the default.',
 				default: '',
 				argBuilder: (value: string) => {
 					if (value && value.trim()) {
