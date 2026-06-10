@@ -16,6 +16,7 @@ import { Clock, RotateCw, X, ParkingSquare } from 'lucide-react';
 import type { Session, Theme } from '../types';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStore } from '../stores/agentStore';
+import { useGroupChatStore } from '../stores/groupChatStore';
 import { getAgentDisplayName } from '../../shared/agentMetadata';
 
 interface ParkingPanelProps {
@@ -48,19 +49,31 @@ export function ParkingPanel({ theme }: ParkingPanelProps) {
 	const sessions = useSessionStore((s) => s.sessions);
 	const parked = sessions.filter((s): s is Session => !!s.rateLimitPark);
 
+	const groupChats = useGroupChatStore((s) => s.groupChats);
+	const groupChatParks = useGroupChatStore((s) => s.groupChatParks);
+	const gcParked = [...groupChatParks.values()];
+	const gcName = (id: string) => groupChats.find((c) => c.id === id)?.name ?? 'Group chat';
+
+	const total = parked.length + gcParked.length;
+
 	// Tick once a second so the countdowns stay live while the tab is open.
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
-		if (parked.length === 0) return;
+		if (total === 0) return;
 		const id = setInterval(() => setNow(Date.now()), 1000);
 		return () => clearInterval(id);
-	}, [parked.length]);
+	}, [total]);
 
 	const retry = (id: string) => useAgentStore.getState().retryParkedRateLimit(id);
 	const unpark = (id: string) => useAgentStore.getState().unparkRateLimit(id);
-	const unparkAll = () => parked.forEach((s) => unpark(s.id));
+	const gcRetry = (id: string) => useGroupChatStore.getState().retryParkedGroupChat(id);
+	const gcUnpark = (id: string) => useGroupChatStore.getState().unparkGroupChat(id);
+	const unparkAll = () => {
+		parked.forEach((s) => unpark(s.id));
+		gcParked.forEach((p) => gcUnpark(p.groupChatId));
+	};
 
-	if (parked.length === 0) {
+	if (total === 0) {
 		return (
 			<div
 				className="flex flex-col items-center justify-center h-full gap-2 text-center select-none"
@@ -80,7 +93,7 @@ export function ParkingPanel({ theme }: ParkingPanelProps) {
 		<div className="flex flex-col gap-2 py-2 select-none">
 			<div className="flex items-center justify-between px-1">
 				<span className="text-xs font-bold" style={{ color: theme.colors.textDim }}>
-					Parked agents ({parked.length})
+					Parked ({total})
 				</span>
 				<button
 					onClick={unparkAll}
@@ -90,6 +103,73 @@ export function ParkingPanel({ theme }: ParkingPanelProps) {
 					Un-park all
 				</button>
 			</div>
+
+			{gcParked.map((park) => {
+				const isLong = park.kind === 'long';
+				const badgeColor = isLong ? theme.colors.error : theme.colors.accent;
+				return (
+					<div
+						key={park.groupChatId}
+						className="rounded border p-2.5 flex flex-col gap-1.5"
+						style={{ backgroundColor: theme.colors.bgMain, borderColor: theme.colors.border }}
+					>
+						<div className="flex items-center justify-between gap-2">
+							<span
+								className="text-sm font-medium truncate"
+								style={{ color: theme.colors.textMain }}
+								title={gcName(park.groupChatId)}
+							>
+								{gcName(park.groupChatId)}
+							</span>
+							<span
+								className="text-[10px] px-1.5 py-0.5 rounded shrink-0 font-bold uppercase"
+								style={{ backgroundColor: `${badgeColor}22`, color: badgeColor }}
+							>
+								Group chat
+							</span>
+						</div>
+						<div className="text-xs truncate" style={{ color: theme.colors.textDim }}>
+							{park.who} · {park.reason}
+						</div>
+						<div
+							className="flex items-center gap-1.5 text-xs"
+							style={{ color: theme.colors.textDim }}
+						>
+							<Clock className="w-3 h-3" />
+							{park.retrying ? (
+								<span style={{ color: theme.colors.accent }}>retrying…</span>
+							) : park.retryMessage ? (
+								<span>Next try {formatCountdown(park.retryAt, now)}</span>
+							) : (
+								<span>Manual retry only</span>
+							)}
+							{park.resetKnown && park.resetAt && (
+								<span className="opacity-70">· resets {formatResetClock(park.resetAt)}</span>
+							)}
+							{park.attempts > 0 && <span className="opacity-70">· {park.attempts}×</span>}
+						</div>
+						<div className="flex items-center gap-1.5 pt-0.5">
+							<button
+								onClick={() => gcRetry(park.groupChatId)}
+								disabled={park.retrying || !park.retryMessage}
+								className="flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors disabled:opacity-40"
+								style={{ backgroundColor: `${theme.colors.accent}22`, color: theme.colors.accent }}
+							>
+								<RotateCw className="w-3 h-3" />
+								Retry now
+							</button>
+							<button
+								onClick={() => gcUnpark(park.groupChatId)}
+								className="flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors hover:bg-white/5"
+								style={{ color: theme.colors.textDim }}
+							>
+								<X className="w-3 h-3" />
+								Un-park
+							</button>
+						</div>
+					</div>
+				);
+			})}
 
 			{parked.map((s) => {
 				const park = s.rateLimitPark!;

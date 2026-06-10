@@ -142,6 +142,7 @@ import { useSymphonyContribution } from './hooks/symphony/useSymphonyContributio
 import { useCueAutoDiscovery } from './hooks/useCueAutoDiscovery';
 import { useCueVisibilityWiring } from './hooks/cue/useCueVisibilityWiring';
 import { useRateLimitParking } from './hooks/agent/useRateLimitParking';
+import { useGroupChatParking } from './hooks/groupChat/useGroupChatParking';
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
@@ -822,6 +823,8 @@ function MaestroConsoleInner() {
 	// Agent Parking scheduler: auto-retries rate-limit-parked agents on their
 	// cooldown (hourly for short penalties, near reset for weekly/monthly).
 	useRateLimitParking();
+	// Same, for rate-limit-parked group chats (re-sends the last user turn).
+	useGroupChatParking();
 
 	// --- TAB HANDLERS (extracted hook) ---
 	const {

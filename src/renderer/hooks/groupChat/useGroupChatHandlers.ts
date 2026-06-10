@@ -208,6 +208,15 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 			if (id === useGroupChatStore.getState().activeGroupChatId) {
 				setGroupChatState(state);
 			}
+			// Agent Parking success: a retrying parked chat that reaches idle without a
+			// fresh rate-limit (which would have re-parked + cleared `retrying`) means
+			// the round completed — un-park it.
+			if (state === 'idle') {
+				const park = useGroupChatStore.getState().groupChatParks.get(id);
+				if (park?.retrying) {
+					useGroupChatStore.getState().unparkGroupChat(id);
+				}
+			}
 		});
 
 		const unsubParticipants = window.maestro.groupChat.onParticipantsChanged((id, participants) => {
@@ -377,6 +386,9 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 			return next;
 		});
 		if (targetChatId === activeGroupChatId) setGCState('moderator-thinking');
+
+		// Remember this turn so Agent Parking can re-send it on a rate-limit retry.
+		useGroupChatStore.getState().recordModeratorMessage(targetChatId, nextItem.text || '');
 
 		window.maestro.groupChat
 			.sendToModerator(targetChatId, nextItem.text || '', nextItem.images, nextItem.readOnlyMode)
@@ -768,6 +780,8 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 				next.set(activeGroupChatId, 'moderator-thinking');
 				return next;
 			});
+			// Remember this turn so Agent Parking can re-send it on a rate-limit retry.
+			useGroupChatStore.getState().recordModeratorMessage(activeGroupChatId, content);
 			try {
 				await window.maestro.groupChat.sendToModerator(
 					activeGroupChatId,

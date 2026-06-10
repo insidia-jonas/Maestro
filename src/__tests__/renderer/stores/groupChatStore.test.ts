@@ -6,7 +6,7 @@
  * error handling, convenience methods, and non-React access helpers.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useGroupChatStore } from '../../../renderer/stores/groupChatStore';
 import type {
 	GroupChatRightTab,
@@ -75,6 +75,8 @@ function resetStore() {
 		groupChatParticipantColors: {},
 		groupChatStagedImages: [],
 		groupChatError: null,
+		groupChatParks: new Map(),
+		lastModeratorMessage: new Map(),
 	});
 }
 
@@ -401,6 +403,78 @@ describe('groupChatStore', () => {
 			expect(useGroupChatStore.getState().groupChatError).not.toBeNull();
 			useGroupChatStore.getState().clearGroupChatError();
 			expect(useGroupChatStore.getState().groupChatError).toBeNull();
+		});
+	});
+
+	// ==========================================================================
+	// Agent Parking
+	// ==========================================================================
+
+	describe('Agent Parking', () => {
+		const PARK = {
+			kind: 'short' as const,
+			cooldownMs: 60 * 60 * 1000,
+			resetKnown: false,
+			reason: 'Rate limit (429)',
+		};
+
+		it('parks a chat and captures the last moderator message for retry', () => {
+			const s = useGroupChatStore.getState();
+			s.recordModeratorMessage('gc-1', 'do the work');
+			s.parkGroupChat('gc-1', 'Moderator', PARK);
+
+			const park = useGroupChatStore.getState().groupChatParks.get('gc-1');
+			expect(park?.who).toBe('Moderator');
+			expect(park?.kind).toBe('short');
+			expect(park?.attempts).toBe(0);
+			expect(park?.retryMessage).toBe('do the work');
+		});
+
+		it('re-parking increments attempts and keeps the captured message', () => {
+			const s = useGroupChatStore.getState();
+			s.recordModeratorMessage('gc-1', 'do the work');
+			s.parkGroupChat('gc-1', 'Moderator', PARK);
+			s.parkGroupChat('gc-1', 'osint-backend', PARK);
+
+			const park = useGroupChatStore.getState().groupChatParks.get('gc-1');
+			expect(park?.attempts).toBe(1);
+			expect(park?.retryMessage).toBe('do the work');
+		});
+
+		it('retryParkedGroupChat re-sends to the moderator and marks retrying', () => {
+			const sendToModerator = vi.fn().mockResolvedValue(undefined);
+			(window as unknown as { maestro: unknown }).maestro = {
+				groupChat: { sendToModerator },
+			};
+			const s = useGroupChatStore.getState();
+			s.recordModeratorMessage('gc-1', 'do the work');
+			s.parkGroupChat('gc-1', 'Moderator', PARK);
+
+			s.retryParkedGroupChat('gc-1');
+
+			expect(sendToModerator).toHaveBeenCalledWith('gc-1', 'do the work');
+			expect(useGroupChatStore.getState().groupChatParks.get('gc-1')?.retrying).toBe(true);
+		});
+
+		it('retryParkedGroupChat is a no-op without a captured message', () => {
+			const sendToModerator = vi.fn();
+			(window as unknown as { maestro: unknown }).maestro = {
+				groupChat: { sendToModerator },
+			};
+			const s = useGroupChatStore.getState();
+			s.parkGroupChat('gc-1', 'Moderator', PARK); // no recordModeratorMessage
+
+			s.retryParkedGroupChat('gc-1');
+
+			expect(sendToModerator).not.toHaveBeenCalled();
+		});
+
+		it('unparkGroupChat clears the park', () => {
+			const s = useGroupChatStore.getState();
+			s.recordModeratorMessage('gc-1', 'msg');
+			s.parkGroupChat('gc-1', 'Moderator', PARK);
+			s.unparkGroupChat('gc-1');
+			expect(useGroupChatStore.getState().groupChatParks.has('gc-1')).toBe(false);
 		});
 	});
 

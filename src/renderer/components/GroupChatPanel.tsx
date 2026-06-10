@@ -17,6 +17,7 @@ import type {
 	QueuedItem,
 } from '../types';
 import { GroupChatHeader } from './GroupChatHeader';
+import { GroupChatParkBanner } from './GroupChatParkBanner';
 import { GroupChatMessages, type GroupChatMessagesHandle } from './GroupChatMessages';
 import { GroupChatInput } from './GroupChatInput';
 
@@ -133,6 +134,8 @@ export function GroupChatPanel({
 				onToggleRightPanel={onToggleRightPanel}
 				shortcuts={shortcuts}
 			/>
+
+			<GroupChatParkBanner theme={theme} groupChatId={groupChat.id} />
 
 			<GroupChatMessages
 				ref={messagesRef}

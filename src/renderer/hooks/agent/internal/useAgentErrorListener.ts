@@ -93,18 +93,49 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 				}
 
 				const gcStore = useGroupChatStore.getState();
+				const who = isModeratorError ? 'Moderator' : participantOrModerator;
+
+				// Agent Parking: a classified rate limit parks the whole chat (cooldown
+				// banner + Parking tab) and auto-retries the round, instead of erroring.
+				if (agentError.type === 'rate_limited' && agentError.rateLimit) {
+					const kind = agentError.rateLimit.kind;
+					const reason = agentError.message || (kind === 'long' ? 'Usage limit' : 'Rate limit');
+					gcStore.parkGroupChat(groupChatId, who, {
+						kind,
+						cooldownMs: agentError.rateLimit.cooldownMs,
+						resetAt: agentError.rateLimit.resetAt,
+						resetKnown: agentError.rateLimit.resetKnown,
+						reason,
+					});
+					gcStore.setGroupChatMessages((prev) => [
+						...prev,
+						{
+							timestamp: new Date(agentError.timestamp).toISOString(),
+							from: 'system',
+							content: `⏸ Parked (${who}): ${reason}. Auto-retry ${
+								kind === 'short' ? 'hourly' : 'near reset time'
+							}.`,
+						},
+					]);
+					gcStore.setGroupChatState('idle');
+					gcStore.setGroupChatStates((prev) => {
+						const next = new Map(prev);
+						next.set(groupChatId, 'idle');
+						return next;
+					});
+					return;
+				}
+
 				gcStore.setGroupChatError({
 					groupChatId,
 					error: agentError,
-					participantName: isModeratorError ? 'Moderator' : participantOrModerator,
+					participantName: who,
 				});
 
 				const errorMessage: GroupChatMessage = {
 					timestamp: new Date(agentError.timestamp).toISOString(),
 					from: 'system',
-					content: `⚠️ ${
-						isModeratorError ? 'Moderator' : participantOrModerator
-					} error: ${agentError.message}`,
+					content: `⚠️ ${who} error: ${agentError.message}`,
 				};
 				gcStore.setGroupChatMessages((prev) => [...prev, errorMessage]);
 

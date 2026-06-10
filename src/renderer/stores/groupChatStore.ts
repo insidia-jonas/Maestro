@@ -30,6 +30,29 @@ export interface GroupChatErrorState {
 	participantName?: string;
 }
 
+/**
+ * Agent Parking for a group chat: when the moderator or a participant hits a
+ * rate/usage limit, the whole chat is parked (cooldown badge + Parking tab)
+ * instead of erroring. On cooldown the last user turn is re-sent to the
+ * moderator, which re-drives the round. Keyed per group chat.
+ */
+export interface GroupChatPark {
+	groupChatId: string;
+	/** Who tripped the limit — "Moderator" or a participant name. */
+	who: string;
+	kind: 'short' | 'long';
+	parkedAt: number;
+	retryAt: number;
+	resetAt?: number;
+	resetKnown: boolean;
+	reason: string;
+	attempts: number;
+	/** True while an auto-retry turn is in flight. */
+	retrying?: boolean;
+	/** The last user message to re-send to the moderator on retry. */
+	retryMessage?: string;
+}
+
 export interface GroupChatStoreState {
 	// Entity data
 	groupChats: GroupChat[];
@@ -59,6 +82,11 @@ export interface GroupChatStoreState {
 
 	// Error
 	groupChatError: GroupChatErrorState | null;
+
+	// Agent Parking (rate-limit cooldown), keyed per group chat
+	groupChatParks: Map<string, GroupChatPark>;
+	/** Last user message sent to each chat's moderator (re-sent on park retry). */
+	lastModeratorMessage: Map<string, string>;
 }
 
 export interface GroupChatStoreActions {
@@ -126,6 +154,26 @@ export interface GroupChatStoreActions {
 			| ((prev: GroupChatErrorState | null) => GroupChatErrorState | null)
 	) => void;
 
+	// Agent Parking
+	/** Park a group chat on a rate limit (captures the last user turn for retry). */
+	parkGroupChat: (
+		groupChatId: string,
+		who: string,
+		park: {
+			kind: 'short' | 'long';
+			cooldownMs: number;
+			resetAt?: number;
+			resetKnown: boolean;
+			reason: string;
+		}
+	) => void;
+	/** Clear a chat's park (manual un-park or success). */
+	unparkGroupChat: (groupChatId: string) => void;
+	/** Re-send the parked chat's last user turn to the moderator. */
+	retryParkedGroupChat: (groupChatId: string) => void;
+	/** Record the last user message sent to a chat's moderator (for park retry). */
+	recordModeratorMessage: (groupChatId: string, message: string) => void;
+
 	// Convenience methods
 	/** Clear the current error. Focus side-effect (ref.focus) must be handled by caller. */
 	clearGroupChatError: () => void;
@@ -167,6 +215,8 @@ export const useGroupChatStore = create<GroupChatStore>()((set) => ({
 	groupChatStagedImages: [],
 	participantLiveOutput: new Map(),
 	groupChatError: null,
+	groupChatParks: new Map(),
+	lastModeratorMessage: new Map(),
 
 	// --- Actions ---
 	setGroupChats: (v) => set((s) => ({ groupChats: resolve(v, s.groupChats) })),
@@ -209,6 +259,67 @@ export const useGroupChatStore = create<GroupChatStore>()((set) => ({
 				return { participantLiveOutput: next };
 			}
 			return { participantLiveOutput: new Map() };
+		}),
+
+	parkGroupChat: (groupChatId, who, p) =>
+		set((s) => {
+			const now = Date.now();
+			const prev = s.groupChatParks.get(groupChatId);
+			const next = new Map(s.groupChatParks);
+			next.set(groupChatId, {
+				groupChatId,
+				who,
+				kind: p.kind,
+				parkedAt: now,
+				retryAt: now + Math.max(0, p.cooldownMs),
+				resetAt: p.resetAt,
+				resetKnown: p.resetKnown,
+				reason: p.reason,
+				// Preserve attempts + the captured user turn across re-parks.
+				attempts: prev ? prev.attempts + 1 : 0,
+				retrying: false,
+				retryMessage: prev?.retryMessage ?? s.lastModeratorMessage.get(groupChatId),
+			});
+			return { groupChatParks: next };
+		}),
+
+	unparkGroupChat: (groupChatId) =>
+		set((s) => {
+			if (!s.groupChatParks.has(groupChatId)) return s;
+			const next = new Map(s.groupChatParks);
+			next.delete(groupChatId);
+			return { groupChatParks: next };
+		}),
+
+	retryParkedGroupChat: (groupChatId) => {
+		const s = useGroupChatStore.getState();
+		const park = s.groupChatParks.get(groupChatId);
+		if (!park || !park.retryMessage) return;
+		// Mark retrying and re-drive the round by re-sending the last user turn.
+		set((st) => {
+			const next = new Map(st.groupChatParks);
+			const cur = next.get(groupChatId);
+			if (cur) next.set(groupChatId, { ...cur, retrying: true });
+			const states = new Map(st.groupChatStates);
+			states.set(groupChatId, 'moderator-thinking');
+			return {
+				groupChatParks: next,
+				groupChatStates: states,
+				...(st.activeGroupChatId === groupChatId
+					? { groupChatState: 'moderator-thinking' as GroupChatState }
+					: {}),
+			};
+		});
+		window.maestro.groupChat.sendToModerator(groupChatId, park.retryMessage).catch(() => {
+			// A failed re-send surfaces as a fresh agent-error → re-park.
+		});
+	},
+
+	recordModeratorMessage: (groupChatId, message) =>
+		set((s) => {
+			const next = new Map(s.lastModeratorMessage);
+			next.set(groupChatId, message);
+			return { lastModeratorMessage: next };
 		}),
 
 	clearGroupChatError: () => set({ groupChatError: null }),

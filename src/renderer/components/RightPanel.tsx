@@ -34,6 +34,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useFileExplorerStore } from '../stores/fileExplorerStore';
 import { useBatchStore } from '../stores/batchStore';
 import { useSessionStore, selectActiveSession } from '../stores/sessionStore';
+import { useGroupChatStore } from '../stores/groupChatStore';
 import type { FileNode } from '../types/fileTree';
 import { RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH } from '../constants/rightPanel';
 
@@ -130,9 +131,13 @@ export const RightPanel = memo(
 		// === State from stores (direct subscriptions — no prop drilling) ===
 		const session = useSessionStore(selectActiveSession);
 		const setSessions = useSessionStore((s) => s.setSessions);
-		// Agent Parking: number of rate-limit-parked agents across all sessions.
+		// Agent Parking: number of rate-limit-parked agents (sessions + group chats).
 		// Shown as a count badge on the always-visible "Parking" tab.
-		const parkedCount = useSessionStore((s) => s.sessions.filter((x) => x.rateLimitPark).length);
+		const parkedSessionCount = useSessionStore(
+			(s) => s.sessions.filter((x) => x.rateLimitPark).length
+		);
+		const parkedGroupChatCount = useGroupChatStore((s) => s.groupChatParks.size);
+		const parkedCount = parkedSessionCount + parkedGroupChatCount;
 
 		const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
 		const activeRightTab = useUIStore((s) => s.activeRightTab);
