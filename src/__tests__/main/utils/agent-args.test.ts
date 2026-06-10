@@ -992,4 +992,20 @@ describe('escapeAtMentionsForAgent', () => {
 		);
 		expect(result).toBe('trigger it via `!autorun \\@test-gem:file.md`');
 	});
+
+	it('escapes punctuation-wrapped mentions (bold, parens, quotes)', () => {
+		// Regression: the moderator bolded a mention as **@test-gem** in a
+		// summary; the whitespace-only pattern missed it and Gemini hung on
+		// the file-include search again.
+		const result = escapeAtMentionsForAgent(
+			'gemini-cli',
+			'**@test-gem** answered, ping (@Backend) and "@docs" next'
+		);
+		expect(result).toBe('**\\@test-gem** answered, ping (\\@Backend) and "\\@docs" next');
+	});
+
+	it('does not double-escape already escaped mentions', () => {
+		const prompt = 'already handled \\@test-gem here';
+		expect(escapeAtMentionsForAgent('gemini-cli', prompt)).toBe(prompt);
+	});
 });

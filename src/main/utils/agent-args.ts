@@ -269,8 +269,14 @@ export function applyAgentConfigOverrides(
 	};
 }
 
-/** Matches `@token` at the start of the prompt or after whitespace (mention-style references). */
-const AT_REFERENCE_PATTERN = /(^|\s)@(?=\S)/g;
+/**
+ * Matches `@token` at the start of the prompt or after any non-word character
+ * (mention-style references). Covers punctuation-wrapped mentions like
+ * `**@name**`, `(@name)`, or backtick-quoted forms - moderators routinely bold
+ * mentions in summaries. Excludes `@` preceded by a word character (email
+ * addresses, mid-word `@`) and by a backslash (already escaped).
+ */
+const AT_REFERENCE_PATTERN = /(^|[^\w\\])@(?=\S)/g;
 
 /**
  * Escape `@name` mentions in prompts bound for Gemini CLI.
