@@ -1123,6 +1123,13 @@ Respond with ONLY the summary text, no additional commentary.`;
 				) {
 					throw new Error('initialPrompt must be a string (max 10 000 chars)');
 				}
+				// Validate moderatorPrompt if provided
+				if (
+					config.moderatorPrompt != null &&
+					(typeof config.moderatorPrompt !== 'string' || config.moderatorPrompt.length > 10_000)
+				) {
+					throw new Error('moderatorPrompt must be a string (max 10 000 chars)');
+				}
 				// Load chat to validate participant names
 				const chat = await loadGroupChat(groupChatId);
 				if (!chat) throw new Error(`Group chat not found: ${groupChatId}`);
@@ -1134,15 +1141,23 @@ Respond with ONLY the summary text, no additional commentary.`;
 					if (!msg.generate && (!msg.content || msg.content.length > 10_000)) {
 						throw new Error('Message content required (max 10 000 chars) when generate is off');
 					}
+					if (
+						msg.agentPrompt != null &&
+						(typeof msg.agentPrompt !== 'string' || msg.agentPrompt.length > 10_000)
+					) {
+						throw new Error('agentPrompt must be a string (max 10 000 chars)');
+					}
 				}
 				// Build a normalized clone — never mutate the incoming IPC object
 				const normalizedConfig: WakeUpConfig = {
 					useSystemPrompt: !!config.useSystemPrompt,
 					initialPrompt: config.initialPrompt || undefined,
+					moderatorPrompt: config.moderatorPrompt || undefined,
 					messages: config.messages.map((msg) => ({
 						targetParticipant: msg.targetParticipant,
 						content: msg.content,
 						generate: !!msg.generate,
+						agentPrompt: msg.agentPrompt || undefined,
 					})),
 					intervalMs: interval,
 				};

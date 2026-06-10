@@ -55,6 +55,7 @@ export function WakeUpModal({ theme, isOpen, groupChat, onClose }: WakeUpModalPr
 	const [intervalMs, setIntervalMs] = useState(60_000);
 	const [useSystemPrompt, setUseSystemPrompt] = useState(true);
 	const [initialPrompt, setInitialPrompt] = useState('');
+	const [moderatorPrompt, setModeratorPrompt] = useState('');
 	const [messages, setMessages] = useState<WakeUpMessage[]>([defaultMessage()]);
 
 	// ── Progress state ─────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ export function WakeUpModal({ theme, isOpen, groupChat, onClose }: WakeUpModalPr
 			setIntervalMs(cfg.intervalMs);
 			setUseSystemPrompt(cfg.useSystemPrompt);
 			setInitialPrompt(cfg.initialPrompt ?? '');
+			setModeratorPrompt(cfg.moderatorPrompt ?? '');
 			setMessages(cfg.messages.length > 0 ? cfg.messages : [defaultMessage()]);
 		}
 		// Check if a sequence is already running
@@ -128,6 +130,7 @@ export function WakeUpModal({ theme, isOpen, groupChat, onClose }: WakeUpModalPr
 		const config: WakeUpConfig = {
 			useSystemPrompt,
 			initialPrompt: useSystemPrompt ? undefined : initialPrompt,
+			moderatorPrompt: moderatorPrompt.trim() ? moderatorPrompt : undefined,
 			messages,
 			intervalMs,
 		};
@@ -139,7 +142,7 @@ export function WakeUpModal({ theme, isOpen, groupChat, onClose }: WakeUpModalPr
 				prev.map((c) => (c.id === groupChat.id ? { ...c, wakeUpConfig: config } : c))
 			);
 		setIsRunning(true);
-	}, [groupChat.id, useSystemPrompt, initialPrompt, messages, intervalMs]);
+	}, [groupChat.id, useSystemPrompt, initialPrompt, moderatorPrompt, messages, intervalMs]);
 
 	const handleStop = useCallback(async () => {
 		await window.maestro.groupChat.stopWakeUp(groupChat.id);
@@ -321,6 +324,22 @@ export function WakeUpModal({ theme, isOpen, groupChat, onClose }: WakeUpModalPr
 					</div>
 				)}
 
+				{/* ── Moderator prompt ─────────────────────────────────────── */}
+				<div>
+					<label className="block text-xs mb-1.5 font-medium" style={{ color: labelColor }}>
+						Moderator prompt (optional)
+					</label>
+					<textarea
+						value={moderatorPrompt}
+						onChange={(e) => setModeratorPrompt(e.target.value)}
+						disabled={isRunning}
+						rows={2}
+						className="w-full rounded border px-2.5 py-1.5 text-xs resize-none select-text"
+						style={inputStyle}
+						placeholder="Appended to the moderator's system prompt while the sequence runs..."
+					/>
+				</div>
+
 				{/* ── Message rows ─────────────────────────────────────────── */}
 				<div>
 					<div className="flex items-center justify-between mb-1.5">
@@ -403,6 +422,17 @@ export function WakeUpModal({ theme, isOpen, groupChat, onClose }: WakeUpModalPr
 										placeholder={`Message for ${msg.targetParticipant || 'agent'}...`}
 									/>
 								)}
+
+								{/* Row 3: Per-agent prompt (optional) */}
+								<textarea
+									value={msg.agentPrompt ?? ''}
+									onChange={(e) => updateMessage(idx, { agentPrompt: e.target.value })}
+									disabled={isRunning}
+									rows={2}
+									className="w-full rounded border px-2 py-1 text-xs resize-none select-text"
+									style={inputStyle}
+									placeholder={`Optional agent prompt for ${msg.targetParticipant || 'this agent'} (appended to its system prompt during the sequence)...`}
+								/>
 							</div>
 						))}
 					</div>

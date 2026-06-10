@@ -108,6 +108,18 @@ Right-click on a group chat in the sidebar to access the context menu:
 | **Rename** | Change the group chat name                                                                   |
 | **Delete** | Remove the group chat and its conversation history                                           |
 
+## Wake-up Calls
+
+Wake-up calls send a timed sequence of messages into a group chat, useful for keeping long-running multi-agent work moving without babysitting it. Right-click a group chat in the sidebar and select **Wake up call** to configure a sequence:
+
+- **Interval** - Delay between messages (30 seconds to 15 minutes presets)
+- **Initial context** - Either reference the moderator's system prompt or write a custom initial prompt that is sent before the timed messages
+- **Messages (1-5)** - Each message targets one participant. Write the content yourself, or check the wand toggle to let the moderator generate a contextually relevant message at send time
+- **Moderator prompt (optional)** - Extra instructions appended to the moderator's system prompt on every turn while the sequence runs
+- **Per-agent prompt (optional)** - Each message can carry its own agent prompt. While the sequence is active, that text is appended to the target participant's instructions every time it is engaged, so every agent can be addressed with separate guidance
+
+While a sequence runs, the modal shows progress (step counter, last recipient) with Pause, Resume, and Stop controls. The configuration is saved with the group chat, so you can re-run the same sequence later.
+
 ## Input Features
 
 The Group Chat input supports the same features as direct agent conversations:

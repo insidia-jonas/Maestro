@@ -13,6 +13,7 @@ import { normalizeMentionName } from '../../shared/group-chat-types';
 import { loadGroupChat, updateGroupChat } from './group-chat-storage';
 import { isModeratorActive, spawnModerator, type IProcessManager } from './group-chat-moderator';
 import { routeUserMessage } from './group-chat-router';
+import { setWakeUpPromptOverrides, clearWakeUpPromptOverrides } from './wake-up-prompt-overrides';
 import { groupChatEmitters } from '../ipc/handlers/groupChat';
 import { logger } from '../utils/logger';
 import type { AgentDetector } from '../agents';
@@ -86,6 +87,16 @@ export async function startWakeUp(
 	};
 	activeSequences.set(groupChatId, seq);
 
+	// Register per-agent and moderator prompt overrides for the router.
+	// Active for the lifetime of the sequence (cleared on stop/finish).
+	setWakeUpPromptOverrides(
+		groupChatId,
+		cleanConfig.moderatorPrompt,
+		cleanConfig.messages
+			.filter((m) => !!m.agentPrompt?.trim())
+			.map((m) => ({ participantName: m.targetParticipant, prompt: m.agentPrompt! }))
+	);
+
 	logger.info(
 		`Starting wake-up sequence for ${groupChatId}: ${totalSteps} messages, interval ${cleanConfig.intervalMs}ms`,
 		LOG_CONTEXT
@@ -124,6 +135,7 @@ export function stopWakeUp(groupChatId: string): void {
 	emitProgress(groupChatId, seq, undefined, undefined);
 
 	activeSequences.delete(groupChatId);
+	clearWakeUpPromptOverrides(groupChatId);
 
 	// Fix 2: Fire-and-forget cleanup of persisted pause state
 	clearPersistedPauseState(groupChatId);
@@ -271,6 +283,7 @@ function scheduleNext(groupChatId: string, delayOverride?: number): void {
 		seq.state.nextFireAt = undefined;
 		emitProgress(groupChatId, seq, undefined, undefined);
 		activeSequences.delete(groupChatId);
+		clearWakeUpPromptOverrides(groupChatId);
 		logger.info(`Wake-up sequence completed for ${groupChatId}`, LOG_CONTEXT);
 		return;
 	}

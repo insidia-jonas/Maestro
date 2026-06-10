@@ -127,6 +127,13 @@ export interface WakeUpMessage {
 	targetParticipant: string;
 	/** When true, the moderator generates the content at send time instead of using `content` */
 	generate: boolean;
+	/**
+	 * Optional per-agent system prompt. While the wake-up sequence is active,
+	 * this text is appended to the target participant's prompt every time the
+	 * participant is spawned, so each agent can be addressed with its own
+	 * instructions.
+	 */
+	agentPrompt?: string;
 }
 
 /**
@@ -138,6 +145,11 @@ export interface WakeUpConfig {
 	useSystemPrompt: boolean;
 	/** Long initial prompt sent before the sequenced messages (used when useSystemPrompt is false) */
 	initialPrompt?: string;
+	/**
+	 * Optional moderator system prompt. While the wake-up sequence is active,
+	 * this text is appended to the moderator's system prompt on every turn.
+	 */
+	moderatorPrompt?: string;
 	/** 1–5 messages sent sequentially at the configured interval */
 	messages: WakeUpMessage[];
 	/** Delay between messages in milliseconds */
