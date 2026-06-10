@@ -640,6 +640,114 @@ describe('useGroupChatHandlers', () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// Execution queue processor — per-chat routing
+	// -----------------------------------------------------------------------
+	describe('execution queue processor', () => {
+		const queuedItem = (tabId: string, text: string) => ({
+			id: `q-${text}`,
+			timestamp: 1,
+			tabId,
+			type: 'message' as const,
+			text,
+			tabName: tabId,
+			readOnlyMode: false,
+		});
+
+		it('flushes a queued item to the active chat when it is idle', async () => {
+			useGroupChatStore.setState({
+				activeGroupChatId: 'gc-1',
+				groupChatState: 'idle',
+				groupChatStates: new Map([['gc-1', 'idle']]),
+				groupChatExecutionQueue: [queuedItem('gc-1', 'Hello')],
+			});
+
+			await act(async () => {
+				renderHook(() => useGroupChatHandlers());
+			});
+
+			expect(mockGroupChat.sendToModerator).toHaveBeenCalledWith('gc-1', 'Hello', undefined, false);
+			expect(useGroupChatStore.getState().groupChatExecutionQueue).toHaveLength(0);
+		});
+
+		it('does NOT flush a queued item to a different chat after the user switches', async () => {
+			// Item was queued for gc-1 (busy). User switched to gc-2 (idle).
+			// The old bug sent the gc-1 item to gc-2; it must not.
+			useGroupChatStore.setState({
+				activeGroupChatId: 'gc-2',
+				groupChatState: 'idle',
+				groupChatStates: new Map([
+					['gc-1', 'moderator-thinking'],
+					['gc-2', 'idle'],
+				]),
+				groupChatExecutionQueue: [queuedItem('gc-1', 'For chat one')],
+			});
+
+			await act(async () => {
+				renderHook(() => useGroupChatHandlers());
+			});
+
+			expect(mockGroupChat.sendToModerator).not.toHaveBeenCalled();
+			// Item stays queued until gc-1 itself goes idle
+			expect(useGroupChatStore.getState().groupChatExecutionQueue).toHaveLength(1);
+		});
+
+		it('flushes the queued item to its OWN chat when that background chat goes idle', async () => {
+			useGroupChatStore.setState({
+				activeGroupChatId: 'gc-2',
+				groupChatState: 'idle',
+				groupChatStates: new Map([
+					['gc-1', 'moderator-thinking'],
+					['gc-2', 'idle'],
+				]),
+				groupChatExecutionQueue: [queuedItem('gc-1', 'For chat one')],
+			});
+
+			await act(async () => {
+				renderHook(() => useGroupChatHandlers());
+			});
+			expect(mockGroupChat.sendToModerator).not.toHaveBeenCalled();
+
+			// gc-1 (still the background chat) finishes and goes idle
+			await act(async () => {
+				useGroupChatStore.getState().setGroupChatStates((prev) => {
+					const next = new Map(prev);
+					next.set('gc-1', 'idle');
+					return next;
+				});
+			});
+
+			expect(mockGroupChat.sendToModerator).toHaveBeenCalledWith(
+				'gc-1',
+				'For chat one',
+				undefined,
+				false
+			);
+			expect(useGroupChatStore.getState().groupChatStates.get('gc-1')).toBe('moderator-thinking');
+		});
+
+		it('marks the target chat busy, not the active chat, when flushing a background item', async () => {
+			useGroupChatStore.setState({
+				activeGroupChatId: 'gc-2',
+				groupChatState: 'idle',
+				groupChatStates: new Map([
+					['gc-1', 'idle'],
+					['gc-2', 'idle'],
+				]),
+				groupChatExecutionQueue: [queuedItem('gc-1', 'bg')],
+			});
+
+			await act(async () => {
+				renderHook(() => useGroupChatHandlers());
+			});
+
+			expect(mockGroupChat.sendToModerator).toHaveBeenCalledWith('gc-1', 'bg', undefined, false);
+			// Target chat (gc-1) busy; the active chat's singular state stays idle
+			expect(useGroupChatStore.getState().groupChatStates.get('gc-1')).toBe('moderator-thinking');
+			expect(useGroupChatStore.getState().groupChatState).toBe('idle');
+		});
+	});
+
+	// -----------------------------------------------------------------------
 	// handleGroupChatDraftChange
 	// -----------------------------------------------------------------------
 	describe('handleGroupChatDraftChange', () => {

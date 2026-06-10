@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Settings, ChevronDown, Check } from 'lucide-react';
+import { X, Settings, ChevronDown, Check, Wand2 } from 'lucide-react';
 import { GhostIconButton } from './ui/GhostIconButton';
 import { isBetaAgent } from '../../shared/agentMetadata';
 import type { Theme, AgentConfig, ModeratorConfig, GroupChat } from '../types';
@@ -28,6 +28,8 @@ interface GroupChatModalCreateProps {
 	isOpen: boolean;
 	onClose: () => void;
 	onCreate: (name: string, moderatorAgentId: string, moderatorConfig?: ModeratorConfig) => void;
+	/** Switch to the guided wizard (docks existing agents + generates prompt). */
+	onUseWizard?: () => void;
 	groupChat?: undefined;
 	onSave?: undefined;
 }
@@ -321,6 +323,23 @@ export function GroupChatModal(props: GroupChatModalProps): JSX.Element | null {
 						Maestro to bring them into the discussion. We're still working on this feature, but
 						right now Claude appears to be the best performing moderator.
 					</div>
+				)}
+
+				{/* Guided wizard entry (create mode only) */}
+				{isCreate && props.onUseWizard && (
+					<button
+						onClick={props.onUseWizard}
+						className="mb-6 w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border transition-colors hover:bg-white/5 text-sm"
+						style={{ borderColor: theme.colors.accent, color: theme.colors.accent }}
+					>
+						<Wand2 className="w-4 h-4 shrink-0" />
+						<span className="text-left">
+							<span className="font-medium">Use the setup wizard</span>
+							<span className="block text-xs" style={{ color: theme.colors.textDim }}>
+								Dock existing agents and auto-generate the moderator prompt
+							</span>
+						</span>
+					</button>
 				)}
 
 				{/* Name Input (edit mode: before moderator, create mode: after) */}

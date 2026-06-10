@@ -141,6 +141,7 @@ import { useSessionRecovery } from './hooks/agent/useSessionRecovery';
 import { useSymphonyContribution } from './hooks/symphony/useSymphonyContribution';
 import { useCueAutoDiscovery } from './hooks/useCueAutoDiscovery';
 import { useCueVisibilityWiring } from './hooks/cue/useCueVisibilityWiring';
+import { useRateLimitParking } from './hooks/agent/useRateLimitParking';
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
@@ -323,6 +324,7 @@ function MaestroConsoleInner() {
 		setSendToAgentModalOpen,
 		// Group Chat Modals
 		setShowNewGroupChatModal,
+		setShowGroupChatWizard,
 		showDeleteGroupChatModal,
 		showRenameGroupChatModal,
 		showEditGroupChatModal,
@@ -817,6 +819,10 @@ function MaestroConsoleInner() {
 	// subsystem so it pauses background work when the window is hidden.
 	useCueVisibilityWiring();
 
+	// Agent Parking scheduler: auto-retries rate-limit-parked agents on their
+	// cooldown (hourly for short penalties, near reset for weekly/monthly).
+	useRateLimitParking();
+
 	// --- TAB HANDLERS (extracted hook) ---
 	const {
 		activeTab,
@@ -951,6 +957,7 @@ function MaestroConsoleInner() {
 		handleOpenGroupChat,
 		handleCloseGroupChat,
 		handleCreateGroupChat,
+		handleCreateGroupChatWithWizard,
 		handleUpdateGroupChat,
 		handleArchiveGroupChat,
 		deleteGroupChatWithConfirmation,
@@ -3077,6 +3084,12 @@ function MaestroConsoleInner() {
 					// AppGroupChatModals props
 					onCloseNewGroupChatModal={handleCloseNewGroupChatModal}
 					onCreateGroupChat={handleCreateGroupChat}
+					onOpenGroupChatWizard={() => {
+						handleCloseNewGroupChatModal();
+						setShowGroupChatWizard(true);
+					}}
+					onCloseGroupChatWizard={() => setShowGroupChatWizard(false)}
+					onCompleteGroupChatWizard={handleCreateGroupChatWithWizard}
 					showDeleteGroupChatModal={showDeleteGroupChatModal}
 					onCloseDeleteGroupChatModal={handleCloseDeleteGroupChatModal}
 					onConfirmDeleteGroupChat={handleConfirmDeleteGroupChat}

@@ -10,7 +10,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { GroupChatMessagesHandle } from '../../components/GroupChatMessages';
 import type { GroupChatRightTab } from '../../components/GroupChatRightPanel';
 import type { RecoveryAction } from '../../components/AgentErrorModal';
-import type { QueuedItem } from '../../types';
+import type { QueuedItem, ModeratorConfig } from '../../types';
+import { moderatorPromptFilename } from '../../utils/generateModeratorPrompt';
 import { useGroupChatStore } from '../../stores/groupChatStore';
 import { useModalStore } from '../../stores/modalStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -71,6 +72,19 @@ export interface GroupChatHandlersReturn {
 	) => Promise<void>;
 	deleteGroupChatWithConfirmation: (id: string) => void;
 	handleDeleteAllArchivedGroupChats: () => void;
+
+	/**
+	 * Create a group chat via the wizard: writes the generated moderator prompt
+	 * file to ~/.maestro/prompts/, wires it into the moderator config, creates
+	 * the chat, and docks the selected existing sessions as participants.
+	 */
+	handleCreateGroupChatWithWizard: (input: {
+		name: string;
+		moderatorAgentId: string;
+		moderatorConfig?: ModeratorConfig;
+		promptContent: string;
+		participants: { name: string; agentId: string; cwd?: string }[];
+	}) => Promise<void>;
 
 	// Navigation
 	handleProcessMonitorNavigateToGroupChat: (groupChatId: string) => void;
@@ -143,6 +157,7 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 	// --- Reactive reads (for effects only) ---
 	const activeGroupChatId = useGroupChatStore((s) => s.activeGroupChatId);
 	const groupChatState = useGroupChatStore((s) => s.groupChatState);
+	const groupChatStates = useGroupChatStore((s) => s.groupChatStates);
 	const groupChatExecutionQueue = useGroupChatStore((s) => s.groupChatExecutionQueue);
 	const groupChatError = useGroupChatStore((s) => s.groupChatError);
 
@@ -328,39 +343,54 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 	// =======================================================================
 
 	useEffect(() => {
-		if (groupChatState === 'idle' && groupChatExecutionQueue.length > 0 && activeGroupChatId) {
-			const {
-				setGroupChatExecutionQueue,
-				setGroupChatState: setGCState,
-				setGroupChatStates: setGCStates,
-				setGroupChatMessages: setGCMessages,
-			} = useGroupChatStore.getState();
+		if (groupChatExecutionQueue.length === 0) return;
 
-			const [nextItem, ...remainingQueue] = groupChatExecutionQueue;
-			setGroupChatExecutionQueue(remainingQueue);
+		const {
+			setGroupChatExecutionQueue,
+			setGroupChatState: setGCState,
+			setGroupChatStates: setGCStates,
+			setGroupChatMessages: setGCMessages,
+		} = useGroupChatStore.getState();
 
-			setGCState('moderator-thinking');
-			setGCStates((prev) => {
-				const next = new Map(prev);
-				next.set(activeGroupChatId, 'moderator-thinking');
-				return next;
-			});
-			window.maestro.groupChat
-				.sendToModerator(
-					activeGroupChatId,
-					nextItem.text || '',
-					nextItem.images,
-					nextItem.readOnlyMode
-				)
-				.catch((err: unknown) => {
-					const msg = err instanceof Error ? err.message : String(err);
-					// Reset to idle so user can retry
+		// A queued message runs in the chat it was typed into (item.tabId), and
+		// only once THAT chat is idle — never the currently-active chat. This
+		// keeps each group chat's queue ordered and prevents a prompt queued for
+		// chat A from firing against chat B after the user switches chats.
+		// The per-chat state map is kept current for every chat (active or not)
+		// by the global onStateChange listener, so a background chat going idle
+		// re-triggers this effect and flushes its own next item.
+		const chatIsIdle = (chatId: string): boolean =>
+			chatId === activeGroupChatId
+				? groupChatState === 'idle'
+				: (groupChatStates.get(chatId) ?? 'idle') === 'idle';
+
+		const idx = groupChatExecutionQueue.findIndex((item) => !!item.tabId && chatIsIdle(item.tabId));
+		if (idx === -1) return; // every queued item's target chat is still busy
+
+		const nextItem = groupChatExecutionQueue[idx];
+		const targetChatId = nextItem.tabId as string;
+		setGroupChatExecutionQueue(groupChatExecutionQueue.filter((_, i) => i !== idx));
+
+		setGCStates((prev) => {
+			const next = new Map(prev);
+			next.set(targetChatId, 'moderator-thinking');
+			return next;
+		});
+		if (targetChatId === activeGroupChatId) setGCState('moderator-thinking');
+
+		window.maestro.groupChat
+			.sendToModerator(targetChatId, nextItem.text || '', nextItem.images, nextItem.readOnlyMode)
+			.catch((err: unknown) => {
+				const msg = err instanceof Error ? err.message : String(err);
+				// Reset the TARGET chat to idle so the user can retry
+				setGCStates((prev) => {
+					const next = new Map(prev);
+					next.set(targetChatId, 'idle');
+					return next;
+				});
+				if (targetChatId === activeGroupChatId) {
 					setGCState('idle');
-					setGCStates((prev) => {
-						const next = new Map(prev);
-						next.set(activeGroupChatId, 'idle');
-						return next;
-					});
+					// Only surface the error banner when the user is looking at that chat
 					setGCMessages((prev) => [
 						...prev,
 						{
@@ -369,9 +399,9 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 							content: `⚠️ Moderator is not available. Try sending your message again. (${msg})`,
 						},
 					]);
-				});
-		}
-	}, [groupChatState, groupChatExecutionQueue, activeGroupChatId]);
+				}
+			});
+	}, [groupChatState, groupChatStates, groupChatExecutionQueue, activeGroupChatId]);
 
 	// =======================================================================
 	// Navigate to group chat from ProcessMonitor
@@ -524,6 +554,67 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 				if (!isValidationError) {
 					throw err; // Unexpected — let Sentry capture via unhandledrejection
 				}
+			}
+		},
+		[handleOpenGroupChat]
+	);
+
+	const handleCreateGroupChatWithWizard = useCallback(
+		async (input: {
+			name: string;
+			moderatorAgentId: string;
+			moderatorConfig?: ModeratorConfig;
+			promptContent: string;
+			participants: { name: string; agentId: string; cwd?: string }[];
+		}) => {
+			const { setGroupChats } = useGroupChatStore.getState();
+			const { closeModal } = useModalStore.getState();
+			try {
+				// 1. Write the generated moderator prompt file to ~/.maestro/prompts/.
+				const home = await window.maestro.fs.homeDir();
+				const promptPath = `${home}/.maestro/prompts/${moderatorPromptFilename(input.name)}`;
+				await window.maestro.fs.writeFile(promptPath, input.promptContent);
+
+				// 2. Wire the prompt file into the moderator config (preserve existing args).
+				const cfg: ModeratorConfig = { ...(input.moderatorConfig ?? {}) };
+				const spf = `--system-prompt-file ${promptPath}`;
+				cfg.customArgs = cfg.customArgs?.trim() ? `${cfg.customArgs.trim()} ${spf}` : spf;
+
+				// 3. Create the group chat.
+				const chat = await window.maestro.groupChat.create(input.name, input.moderatorAgentId, cfg);
+
+				// 4. Dock the selected existing sessions as participants. Each
+				// participant matches its session by name, so model/args/SSH/cwd
+				// come straight from that session's own config.
+				for (const p of input.participants) {
+					try {
+						await window.maestro.groupChat.addParticipant(chat.id, p.name, p.agentId, p.cwd);
+					} catch (err) {
+						logger.error('[GroupChatWizard] addParticipant failed', undefined, {
+							participant: p.name,
+							error: err instanceof Error ? err.message : String(err),
+						});
+					}
+				}
+
+				// 5. Reload (participants changed) and surface the new chat.
+				const fresh = (await window.maestro.groupChat.load(chat.id)) ?? chat;
+				setGroupChats((prev) => [fresh, ...prev.filter((c) => c.id !== fresh.id)]);
+				closeModal('groupChatWizard');
+				handleOpenGroupChat(chat.id);
+				notifyToast({
+					color: 'green',
+					title: 'Group Chat',
+					message: `"${input.name}" created with ${input.participants.length} docked agent(s)`,
+				});
+			} catch (err) {
+				closeModal('groupChatWizard');
+				notifyToast({
+					color: 'red',
+					title: 'Group Chat',
+					message: 'Wizard failed to create the group chat',
+				});
+				throw err;
 			}
 		},
 		[handleOpenGroupChat]
@@ -842,6 +933,7 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 		handleOpenGroupChat,
 		handleCloseGroupChat,
 		handleCreateGroupChat,
+		handleCreateGroupChatWithWizard,
 		handleDeleteGroupChat,
 		handleArchiveGroupChat,
 		handleRenameGroupChat,

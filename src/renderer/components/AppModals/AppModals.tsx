@@ -369,6 +369,15 @@ export interface AppModalsProps {
 		moderatorAgentId: string,
 		moderatorConfig?: ModeratorConfig
 	) => void;
+	onOpenGroupChatWizard: () => void;
+	onCloseGroupChatWizard: () => void;
+	onCompleteGroupChatWizard: (input: {
+		name: string;
+		moderatorAgentId: string;
+		moderatorConfig?: ModeratorConfig;
+		promptContent: string;
+		participants: { name: string; agentId: string; cwd?: string }[];
+	}) => Promise<void>;
 	showDeleteGroupChatModal: string | null;
 	onCloseDeleteGroupChatModal: () => void;
 	onConfirmDeleteGroupChat: () => void;
@@ -489,6 +498,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		batchRunnerModalOpen,
 		gitLogOpen,
 		showNewGroupChatModal,
+		showGroupChatWizard,
 		showGroupChatInfo,
 		leaderboardRegistrationOpen,
 		mergeSessionModalOpen,
@@ -563,6 +573,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 			batchRunnerModalOpen: s.modals.get('batchRunner')?.open ?? false,
 			gitLogOpen: s.modals.get('gitLog')?.open ?? false,
 			showNewGroupChatModal: s.modals.get('newGroupChat')?.open ?? false,
+			showGroupChatWizard: s.modals.get('groupChatWizard')?.open ?? false,
 			showGroupChatInfo: s.modals.get('groupChatInfo')?.open ?? false,
 			leaderboardRegistrationOpen: s.modals.get('leaderboard')?.open ?? false,
 			mergeSessionModalOpen: s.modals.get('mergeSession')?.open ?? false,
@@ -814,6 +825,9 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		// Group Chat modals
 		onCloseNewGroupChatModal,
 		onCreateGroupChat,
+		onOpenGroupChatWizard,
+		onCloseGroupChatWizard,
+		onCompleteGroupChatWizard,
 		showDeleteGroupChatModal,
 		onCloseDeleteGroupChatModal,
 		onConfirmDeleteGroupChat,
@@ -1177,6 +1191,10 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				showNewGroupChatModal={showNewGroupChatModal}
 				onCloseNewGroupChatModal={onCloseNewGroupChatModal}
 				onCreateGroupChat={onCreateGroupChat}
+				showGroupChatWizard={showGroupChatWizard}
+				onOpenGroupChatWizard={onOpenGroupChatWizard}
+				onCloseGroupChatWizard={onCloseGroupChatWizard}
+				onCompleteGroupChatWizard={onCompleteGroupChatWizard}
 				showDeleteGroupChatModal={showDeleteGroupChatModal}
 				onCloseDeleteGroupChatModal={onCloseDeleteGroupChatModal}
 				onConfirmDeleteGroupChat={onConfirmDeleteGroupChat}

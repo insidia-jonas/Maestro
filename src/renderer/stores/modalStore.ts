@@ -264,6 +264,7 @@ export type ModalId =
 	| 'deleteWorktree'
 	// Group Chat
 	| 'newGroupChat'
+	| 'groupChatWizard'
 	| 'deleteGroupChat'
 	| 'renameGroupChat'
 	| 'editGroupChat'
@@ -876,6 +877,8 @@ export function getModalActions() {
 		// Group Chat Modals
 		setShowNewGroupChatModal: (open: boolean) =>
 			open ? openModal('newGroupChat') : closeModal('newGroupChat'),
+		setShowGroupChatWizard: (open: boolean) =>
+			open ? openModal('groupChatWizard') : closeModal('groupChatWizard'),
 		setShowDeleteGroupChatModal: (id: string | null) =>
 			id ? openModal('deleteGroupChat', { groupChatId: id }) : closeModal('deleteGroupChat'),
 		setShowRenameGroupChatModal: (id: string | null) =>
@@ -1002,6 +1005,7 @@ export function useModalActions() {
 	const mergeSessionModalOpen = useModalStore(selectModalOpen('mergeSession'));
 	const sendToAgentModalOpen = useModalStore(selectModalOpen('sendToAgent'));
 	const newGroupChatModalOpen = useModalStore(selectModalOpen('newGroupChat'));
+	const groupChatWizardOpen = useModalStore(selectModalOpen('groupChatWizard'));
 	const deleteGroupChatData = useModalStore(selectModalData('deleteGroupChat'));
 	const renameGroupChatData = useModalStore(selectModalData('renameGroupChat'));
 	const editGroupChatData = useModalStore(selectModalData('editGroupChat'));
@@ -1177,6 +1181,7 @@ export function useModalActions() {
 
 		// Group Chat Modals
 		showNewGroupChatModal: newGroupChatModalOpen,
+		showGroupChatWizard: groupChatWizardOpen,
 		showDeleteGroupChatModal: deleteGroupChatData?.groupChatId ?? null,
 		showRenameGroupChatModal: renameGroupChatData?.groupChatId ?? null,
 		showEditGroupChatModal: editGroupChatData?.groupChatId ?? null,

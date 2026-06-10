@@ -3,6 +3,7 @@ import type { Theme, GroupChat, GroupChatMessage, ModeratorConfig } from '../../
 
 // Group Chat Modal Components
 import { GroupChatModal } from '../GroupChatModal';
+import { GroupChatWizard } from '../GroupChatWizard';
 import { DeleteGroupChatModal } from '../DeleteGroupChatModal';
 import { RenameGroupChatModal } from '../RenameGroupChatModal';
 import { GroupChatInfoOverlay } from '../GroupChatInfoOverlay';
@@ -23,6 +24,18 @@ export interface AppGroupChatModalsProps {
 		moderatorAgentId: string,
 		moderatorConfig?: ModeratorConfig
 	) => void;
+
+	// GroupChatWizard
+	showGroupChatWizard: boolean;
+	onOpenGroupChatWizard: () => void;
+	onCloseGroupChatWizard: () => void;
+	onCompleteGroupChatWizard: (input: {
+		name: string;
+		moderatorAgentId: string;
+		moderatorConfig?: ModeratorConfig;
+		promptContent: string;
+		participants: { name: string; agentId: string; cwd?: string }[];
+	}) => Promise<void>;
 
 	// DeleteGroupChatModal
 	showDeleteGroupChatModal: string | null;
@@ -73,6 +86,11 @@ export const AppGroupChatModals = memo(function AppGroupChatModals({
 	showNewGroupChatModal,
 	onCloseNewGroupChatModal,
 	onCreateGroupChat,
+	// GroupChatWizard
+	showGroupChatWizard,
+	onOpenGroupChatWizard,
+	onCloseGroupChatWizard,
+	onCompleteGroupChatWizard,
 	// DeleteGroupChatModal
 	showDeleteGroupChatModal,
 	onCloseDeleteGroupChatModal,
@@ -126,6 +144,16 @@ export const AppGroupChatModals = memo(function AppGroupChatModals({
 					isOpen={showNewGroupChatModal}
 					onClose={onCloseNewGroupChatModal}
 					onCreate={onCreateGroupChat}
+					onUseWizard={onOpenGroupChatWizard}
+				/>
+			)}
+
+			{/* --- GROUP CHAT WIZARD --- */}
+			{showGroupChatWizard && (
+				<GroupChatWizard
+					theme={theme}
+					onClose={onCloseGroupChatWizard}
+					onComplete={onCompleteGroupChatWizard}
 				/>
 			)}
 
