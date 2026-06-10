@@ -72,6 +72,7 @@ describe('Exit Listener', () => {
 				checkAndTrackParticipantResponse: vi.fn().mockReturnValue({ isStale: false, count: 1 }),
 				isParticipantTimedOut: vi.fn().mockReturnValue(false),
 				clearTimedOutParticipant: vi.fn(),
+				noteParticipantStdoutActivity: vi.fn(),
 			},
 			groupChatStorage: {
 				loadGroupChat: vi.fn().mockResolvedValue(createMockGroupChat()),

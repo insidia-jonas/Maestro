@@ -300,7 +300,31 @@ export class ProcessManager extends EventEmitter {
 					);
 					proc.childProcess.kill('SIGTERM');
 				} else {
-					proc.childProcess.kill('SIGTERM');
+					const child = proc.childProcess;
+					child.kill('SIGTERM');
+
+					// Escalate to SIGKILL if the process ignores SIGTERM. Some agent
+					// CLIs install no-op SIGTERM handlers (e.g. Gemini CLI's relaunch
+					// wrapper), so without escalation a timed-out batch agent survives
+					// the kill and leaks indefinitely.
+					const escalationTimer = setTimeout(() => {
+						try {
+							child.kill('SIGKILL');
+							logger.warn(
+								'[ProcessManager] Child process did not exit after SIGTERM, escalated to SIGKILL',
+								'ProcessManager',
+								{ sessionId, pid }
+							);
+						} catch {
+							// Process already exited — expected after normal SIGTERM
+						}
+					}, PTY_KILL_ESCALATION_MS);
+					escalationTimer.unref?.();
+
+					// Cancel escalation if the child exits on its own
+					child.once('exit', () => {
+						clearTimeout(escalationTimer);
+					});
 				}
 			}
 			this.processes.delete(sessionId);

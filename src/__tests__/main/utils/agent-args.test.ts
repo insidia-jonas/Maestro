@@ -9,6 +9,7 @@ import {
 	buildAgentArgs,
 	applyAgentConfigOverrides,
 	getContextWindowValue,
+	escapeAtMentionsForAgent,
 } from '../../../main/utils/agent-args';
 import type { AgentConfig } from '../../../main/agents';
 
@@ -953,5 +954,42 @@ describe('getContextWindowValue', () => {
 
 		const result = getContextWindowValue(agent, { contextWindow: 50000 }, undefined);
 		expect(result).toBe(50000);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// escapeAtMentionsForAgent
+// ---------------------------------------------------------------------------
+describe('escapeAtMentionsForAgent', () => {
+	it('escapes @mentions at start and after whitespace for gemini-cli', () => {
+		const result = escapeAtMentionsForAgent(
+			'gemini-cli',
+			'@test-gem please ping @Backend-Agent\nand @docs too'
+		);
+		expect(result).toBe('\\@test-gem please ping \\@Backend-Agent\nand \\@docs too');
+	});
+
+	it('leaves prompts unchanged for other agents', () => {
+		const prompt = '@test-gem please reply';
+		expect(escapeAtMentionsForAgent('claude-code', prompt)).toBe(prompt);
+		expect(escapeAtMentionsForAgent('codex', prompt)).toBe(prompt);
+	});
+
+	it('does not touch email addresses or mid-word @', () => {
+		const prompt = 'Contact jonas@example.com about foo@bar';
+		expect(escapeAtMentionsForAgent('gemini-cli', prompt)).toBe(prompt);
+	});
+
+	it('does not escape a bare trailing @ with no token after it', () => {
+		const prompt = 'Ends with a lone @ ';
+		expect(escapeAtMentionsForAgent('gemini-cli', prompt)).toBe(prompt);
+	});
+
+	it('escapes the !autorun directive mention form', () => {
+		const result = escapeAtMentionsForAgent(
+			'gemini-cli',
+			'trigger it via `!autorun @test-gem:file.md`'
+		);
+		expect(result).toBe('trigger it via `!autorun \\@test-gem:file.md`');
 	});
 });

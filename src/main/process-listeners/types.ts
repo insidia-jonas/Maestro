@@ -116,6 +116,7 @@ export interface ProcessListenerDependencies {
 			participantName: string,
 			responseHash: string
 		) => { isStale: boolean; count: number };
+		noteParticipantStdoutActivity: (sessionId: string) => void;
 	};
 	/** Group chat storage functions */
 	groupChatStorage: {

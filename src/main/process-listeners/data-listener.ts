@@ -30,10 +30,24 @@ export function setupDataListener(
 	processManager: ProcessManager,
 	deps: Pick<
 		ProcessListenerDependencies,
-		'safeSend' | 'getWebServer' | 'outputBuffer' | 'outputParser' | 'debugLog' | 'patterns'
+		| 'safeSend'
+		| 'getWebServer'
+		| 'outputBuffer'
+		| 'outputParser'
+		| 'debugLog'
+		| 'patterns'
+		| 'groupChatRouter'
 	>
 ): void {
-	const { safeSend, getWebServer, outputBuffer, outputParser, debugLog, patterns } = deps;
+	const {
+		safeSend,
+		getWebServer,
+		outputBuffer,
+		outputParser,
+		debugLog,
+		patterns,
+		groupChatRouter,
+	} = deps;
 	const {
 		REGEX_MODERATOR_SESSION,
 		REGEX_AI_SUFFIX,
@@ -49,6 +63,8 @@ export function setupDataListener(
 		if (!sessionId.startsWith(GROUP_CHAT_PREFIX)) return;
 		const participantInfo = outputParser.parseParticipantSessionId(sessionId);
 		if (participantInfo) {
+			// First stdout chunk disarms the participant's stall watchdog
+			groupChatRouter.noteParticipantStdoutActivity(sessionId);
 			groupChatEmitters.emitParticipantLiveOutput?.(
 				participantInfo.groupChatId,
 				participantInfo.participantName,

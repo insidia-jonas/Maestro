@@ -41,11 +41,16 @@ import { AgentDetector } from '../agents';
 import { powerManager } from '../power-manager';
 import { logger } from '../utils/logger';
 import { captureException } from '../utils/sentry';
-import { buildAgentArgs, applyAgentConfigOverrides } from '../utils/agent-args';
+import {
+	buildAgentArgs,
+	applyAgentConfigOverrides,
+	escapeAtMentionsForAgent,
+} from '../utils/agent-args';
 import { getPrompt } from '../prompt-manager';
 import type { SshRemoteSettingsStore } from '../utils/ssh-remote-resolver';
 import { setGetCustomShellPathCallback } from './group-chat-config';
 import { spawnGroupChatAgent } from './spawnGroupChatAgent';
+import { getWakeUpModeratorPrompt, getWakeUpParticipantPrompt } from './wake-up-prompt-overrides';
 import { getClaudeTokenMode } from '../../shared/claudeTokenMode';
 
 // Import emitters from IPC handlers (will be populated after handlers are registered)
@@ -163,6 +168,40 @@ export function clearTimedOutParticipant(sessionId: string): void {
 const PARTICIPANT_RESPONSE_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
+ * How long a freshly spawned participant may stay completely silent on stdout
+ * before being treated as stalled (4 minutes). Healthy batch agents emit their
+ * first stdout (init/session JSON) within seconds of spawning; total stdout
+ * silence for minutes means the process is wedged before producing anything
+ * (observed with Gemini CLI sitting in a silent API quota backoff with zero
+ * output and zero open connections). Without this watchdog such spawns burn
+ * the full 30-minute response timeout.
+ */
+const PARTICIPANT_STALL_WATCHDOG_MS = 4 * 60 * 1000;
+
+/**
+ * Tracks per-participant stall watchdog handles for freshly spawned processes.
+ * Maps `${groupChatId}:${participantName}` -> { handle, sessionId }
+ * Disarmed by the first raw-stdout chunk (see noteParticipantStdoutActivity);
+ * fires only when a spawn never produces any stdout at all.
+ */
+const participantStallWatchdogs = new Map<
+	string,
+	{ handle: ReturnType<typeof setTimeout>; sessionId: string }
+>();
+
+/**
+ * One-shot respawn cooldown: participants force-completed by the response
+ * timeout or the stall watchdog. The moderator's own failure report usually
+ * @mentions the dead participant ("@X timed out..."), which the mention
+ * router would otherwise treat as a fresh delegation - producing a
+ * kill -> report -> respawn loop. Consumed (cleared) by the next moderator
+ * response; also cleared when a new user message arrives so the user can
+ * always re-engage the participant explicitly.
+ * Maps groupChatId -> Set<participantName>
+ */
+const respawnCooldowns = new Map<string, Set<string>>();
+
+/**
  * Maximum number of identical responses allowed from a participant before
  * they are marked as "stale" and removed from the current round.
  * The (N+1)th identical response triggers the guard (i.e. with the default
@@ -234,6 +273,111 @@ function getParticipantTimeoutKey(groupChatId: string, participantName: string):
 }
 
 /**
+ * Force-completes a participant that is not going to respond (response timeout
+ * or stall watchdog): kills the process, emits the timed-out state, registers
+ * the one-shot respawn cooldown, logs the notice, and marks the participant as
+ * responded so synthesis can proceed and the chat doesn't hang forever.
+ *
+ * The session-resolve + guard-add + kill sequence runs synchronously BEFORE any
+ * async work. This closes the ordering-race window where the participant could
+ * exit naturally during the log-write awaits and the exit-listener would emit
+ * 'idle' before the guard is in place.
+ */
+async function forceCompleteUnresponsiveParticipant(
+	groupChatId: string,
+	participantName: string,
+	processManager: IProcessManager | undefined,
+	agentDetector: AgentDetector | undefined,
+	notice: { chatMessage: string; logEntry: string }
+): Promise<void> {
+	// Cancel the sibling timer synchronously (stall watchdog vs response
+	// timeout): once force-complete has begun for this round, the other timer
+	// must not double-fire before the async mark-responded tail clears it.
+	clearParticipantResponseTimeout(groupChatId, participantName);
+
+	const deadSession = getParticipantSessionId(groupChatId, participantName);
+	if (deadSession) {
+		timedOutSessions.add(deadSession);
+	}
+	if (deadSession && processManager) {
+		processManager.kill(deadSession);
+		clearActiveParticipantSession(groupChatId, participantName);
+	}
+
+	// Arm the respawn cooldown so the moderator's failure report cannot
+	// immediately re-spawn this participant via its own @mention.
+	if (!respawnCooldowns.has(groupChatId)) {
+		respawnCooldowns.set(groupChatId, new Set());
+	}
+	respawnCooldowns.get(groupChatId)!.add(participantName);
+
+	// Emit 'timed-out' (not 'idle') so the renderer shows a distinct visual state.
+	groupChatEmitters.emitParticipantState?.(groupChatId, participantName, 'timed-out');
+
+	// Only emit batch-complete for participants triggered via !autorun, not normal @mentions
+	const autoRunSet = autoRunParticipantTracker.get(groupChatId);
+	if (autoRunSet?.has(participantName)) {
+		groupChatEmitters.emitAutoRunBatchComplete?.(groupChatId, participantName);
+		autoRunSet.delete(participantName);
+		if (autoRunSet.size === 0) autoRunParticipantTracker.delete(groupChatId);
+	}
+
+	groupChatEmitters.emitMessage?.(groupChatId, {
+		timestamp: new Date().toISOString(),
+		from: 'system',
+		content: notice.chatMessage,
+	});
+
+	// Persist the log entry BEFORE marking responded.
+	// This guarantees that when the last participant's markParticipantResponded
+	// returns isLast=true and triggers synthesis, ALL timeout log entries
+	// (including earlier participants' entries) are already on disk.
+	// Safe from the R3 single-session race because the exit-listener
+	// early-returns for timed-out sessions (L279-291) and never calls
+	// markParticipantResponded for them.
+	try {
+		const { loadGroupChat } = await import('./group-chat-storage');
+		const { appendToLog } = await import('./group-chat-log');
+		const chat = await loadGroupChat(groupChatId);
+		if (chat) {
+			await appendToLog(chat.logPath, participantName, notice.logEntry);
+		}
+	} catch (err) {
+		logger.error('Failed to log timeout response', LOG_CONTEXT, {
+			groupChatId,
+			participantName,
+			error: err,
+		});
+		captureException(err, {
+			operation: 'groupChat:logTimeoutResponse',
+			groupChatId,
+			participantName,
+		});
+	}
+
+	// Mark responded AFTER the log write completes. When this is the last
+	// participant (isLast=true), synthesis starts below — and all timeout
+	// log entries are guaranteed to be persisted.
+	const isLast = markParticipantResponded(groupChatId, participantName);
+	if (isLast && processManager && agentDetector) {
+		spawnModeratorSynthesis(groupChatId, processManager, agentDetector).catch((err) => {
+			logger.error('Failed to spawn moderator synthesis after participant timeout', LOG_CONTEXT, {
+				error: err,
+				groupChatId,
+				participantName,
+			});
+			captureException(err, {
+				operation: 'groupChat:spawnSynthesisAfterTimeout',
+				groupChatId,
+				participantName,
+			});
+			groupChatEmitters.emitStateChange?.(groupChatId, 'idle');
+			powerManager.removeBlockReason(`groupchat:${groupChatId}`);
+		});
+	}
+}
+
+/**
  * Registers a response timeout for a participant.
  * If the participant doesn't respond in PARTICIPANT_RESPONSE_TIMEOUT_MS, they are
  * force-marked as responded so synthesis can proceed and the chat doesn't hang forever.
@@ -249,7 +393,7 @@ function setParticipantResponseTimeout(
 	const existing = participantTimeouts.get(key);
 	if (existing) clearTimeout(existing);
 
-	const handle = setTimeout(async () => {
+	const handle = setTimeout(() => {
 		participantTimeouts.delete(key);
 		const pending = pendingParticipantResponses.get(groupChatId);
 		if (!pending?.has(participantName)) return; // Already responded
@@ -258,94 +402,94 @@ function setParticipantResponseTimeout(
 			`[GroupChat:Debug] Participant ${participantName} timed out after ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 1000}s — force-completing`
 		);
 
-		// Resolve session + mark as timed-out + kill BEFORE any async work.
-		// This closes the ordering-race window where the participant could
-		// exit naturally during the log-write awaits and the exit-listener
-		// would emit 'idle' before the guard is in place.
-		const timedOutSession = getParticipantSessionId(groupChatId, participantName);
-		if (timedOutSession) {
-			timedOutSessions.add(timedOutSession);
-		}
-		if (timedOutSession && processManager) {
-			processManager.kill(timedOutSession);
-			clearActiveParticipantSession(groupChatId, participantName);
-		}
-
-		// Emit 'timed-out' (not 'idle') so the renderer shows a distinct visual state.
-		groupChatEmitters.emitParticipantState?.(groupChatId, participantName, 'timed-out');
-
-		// Only emit batch-complete for participants triggered via !autorun, not normal @mentions
-		const autoRunSet = autoRunParticipantTracker.get(groupChatId);
-		if (autoRunSet?.has(participantName)) {
-			groupChatEmitters.emitAutoRunBatchComplete?.(groupChatId, participantName);
-			autoRunSet.delete(participantName);
-			if (autoRunSet.size === 0) autoRunParticipantTracker.delete(groupChatId);
-		}
-
-		groupChatEmitters.emitMessage?.(groupChatId, {
-			timestamp: new Date().toISOString(),
-			from: 'system',
-			content: `⚠️ @${participantName} did not respond within ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 60000} minutes and has been marked as timed out.`,
-		});
-
-		// Persist the timeout log entry BEFORE marking responded.
-		// This guarantees that when the last participant's markParticipantResponded
-		// returns isLast=true and triggers synthesis, ALL timeout log entries
-		// (including earlier participants' entries) are already on disk.
-		// Safe from the R3 single-session race because the exit-listener
-		// early-returns for timed-out sessions (L279-291) and never calls
-		// markParticipantResponded for them.
-		try {
-			const { loadGroupChat } = await import('./group-chat-storage');
-			const { appendToLog } = await import('./group-chat-log');
-			const chat = await loadGroupChat(groupChatId);
-			if (chat) {
-				await appendToLog(
-					chat.logPath,
-					participantName,
-					`[Timed out — no response after ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 60000} minutes]`
-				);
+		void forceCompleteUnresponsiveParticipant(
+			groupChatId,
+			participantName,
+			processManager,
+			agentDetector,
+			{
+				chatMessage: `⚠️ @${participantName} did not respond within ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 60000} minutes and has been marked as timed out.`,
+				logEntry: `[Timed out — no response after ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 60000} minutes]`,
 			}
-		} catch (err) {
-			logger.error('Failed to log timeout response', LOG_CONTEXT, {
-				groupChatId,
-				participantName,
-				error: err,
-			});
-			captureException(err, {
-				operation: 'groupChat:logTimeoutResponse',
-				groupChatId,
-				participantName,
-			});
-		}
-
-		// Mark responded AFTER the log write completes. When this is the last
-		// participant (isLast=true), synthesis starts below — and all timeout
-		// log entries are guaranteed to be persisted.
-		const isLast = markParticipantResponded(groupChatId, participantName);
-		if (isLast && processManager && agentDetector) {
-			spawnModeratorSynthesis(groupChatId, processManager, agentDetector).catch((err) => {
-				logger.error('Failed to spawn moderator synthesis after participant timeout', LOG_CONTEXT, {
-					error: err,
-					groupChatId,
-					participantName,
-				});
-				captureException(err, {
-					operation: 'groupChat:spawnSynthesisAfterTimeout',
-					groupChatId,
-					participantName,
-				});
-				groupChatEmitters.emitStateChange?.(groupChatId, 'idle');
-				powerManager.removeBlockReason(`groupchat:${groupChatId}`);
-			});
-		}
+		);
 	}, PARTICIPANT_RESPONSE_TIMEOUT_MS);
 
 	participantTimeouts.set(key, handle);
 }
 
 /**
+ * Arms the stall watchdog for a freshly spawned participant process.
+ * Fires only when the process produces NO stdout at all within
+ * PARTICIPANT_STALL_WATCHDOG_MS - the first raw-stdout chunk disarms it
+ * (see noteParticipantStdoutActivity). On fire, the participant is killed
+ * and force-completed via the same path as the response timeout, so the
+ * chat is unblocked after minutes instead of the full 30-minute timeout.
+ */
+function setParticipantStallWatchdog(
+	groupChatId: string,
+	participantName: string,
+	sessionId: string,
+	processManager: IProcessManager | undefined,
+	agentDetector: AgentDetector | undefined
+): void {
+	const key = getParticipantTimeoutKey(groupChatId, participantName);
+	const existing = participantStallWatchdogs.get(key);
+	if (existing) clearTimeout(existing.handle);
+
+	const handle = setTimeout(() => {
+		participantStallWatchdogs.delete(key);
+		// Only act when this exact spawn is still the active session - a
+		// recovery respawn replaces the session and arms its own watchdog.
+		if (getParticipantSessionId(groupChatId, participantName) !== sessionId) return;
+		const pending = pendingParticipantResponses.get(groupChatId);
+		if (!pending?.has(participantName)) return; // Already responded
+
+		const minutes = PARTICIPANT_STALL_WATCHDOG_MS / 60000;
+		console.warn(
+			`[GroupChat:Debug] Participant ${participantName} produced no output within ${minutes} minutes — force-completing (stall watchdog)`
+		);
+		logger.warn('[GroupChat] Participant stalled with no output — stopping process', LOG_CONTEXT, {
+			groupChatId,
+			participantName,
+			sessionId,
+			watchdogMs: PARTICIPANT_STALL_WATCHDOG_MS,
+		});
+
+		void forceCompleteUnresponsiveParticipant(
+			groupChatId,
+			participantName,
+			processManager,
+			agentDetector,
+			{
+				chatMessage: `⚠️ @${participantName} produced no output within ${minutes} minutes and was stopped (likely an API stall or quota backoff). Mention @${participantName} in a new message to retry.`,
+				logEntry: `[Stalled - produced no output within ${minutes} minutes; process was stopped]`,
+			}
+		);
+	}, PARTICIPANT_STALL_WATCHDOG_MS);
+
+	participantStallWatchdogs.set(key, { handle, sessionId });
+}
+
+/**
+ * Records stdout activity for a participant process and disarms its stall
+ * watchdog. Called from the raw-stdout process listener for every chunk; the
+ * map holds at most one entry per actively working participant, so the scan
+ * is trivially cheap and becomes a no-op once the watchdog is disarmed.
+ */
+export function noteParticipantStdoutActivity(sessionId: string): void {
+	for (const [key, entry] of participantStallWatchdogs) {
+		if (entry.sessionId === sessionId) {
+			clearTimeout(entry.handle);
+			participantStallWatchdogs.delete(key);
+			return;
+		}
+	}
+}
+
+/**
  * Cancels the response timeout for a participant (called when they do respond).
+ * Also disarms the stall watchdog - every caller that wants the response
+ * timeout gone (responded, force-completed, chat cleared) wants both timers gone.
  */
 function clearParticipantResponseTimeout(groupChatId: string, participantName: string): void {
 	const key = getParticipantTimeoutKey(groupChatId, participantName);
@@ -353,6 +497,11 @@ function clearParticipantResponseTimeout(groupChatId: string, participantName: s
 	if (handle) {
 		clearTimeout(handle);
 		participantTimeouts.delete(key);
+	}
+	const watchdog = participantStallWatchdogs.get(key);
+	if (watchdog) {
+		clearTimeout(watchdog.handle);
+		participantStallWatchdogs.delete(key);
 	}
 }
 
@@ -391,6 +540,7 @@ export function clearPendingParticipants(groupChatId: string): void {
 	pendingParticipantResponses.delete(groupChatId);
 	autoRunParticipantTracker.delete(groupChatId);
 	participantResponseHashes.delete(groupChatId);
+	respawnCooldowns.delete(groupChatId);
 	// Purge any lingering timed-out session entries for this chat
 	const prefix = `group-chat-${groupChatId}-participant-`;
 	for (const sid of timedOutSessions) {
@@ -662,6 +812,11 @@ export async function routeUserMessage(
 
 	logger.debug(`[GroupChat:Debug] Moderator is active: true`);
 
+	// A fresh user message resets the respawn cooldown: when the user explicitly
+	// drives the conversation, a previously force-completed participant may be
+	// re-engaged again (e.g. "retry @X").
+	respawnCooldowns.delete(groupChatId);
+
 	// Auto-add participants mentioned by the user if they match available sessions
 	if (processManager && agentDetector && getSessionsCallback) {
 		const userMentions = extractAllMentions(message);
@@ -866,7 +1021,17 @@ export async function routeUserMessage(
 				moderatorSettings.conductorProfile || '(No conductor profile set)'
 			);
 
-			const fullPrompt = `${baseSystemPrompt}
+			// Active wake-up sequences can carry a custom moderator system prompt
+			const wakeUpModeratorPrompt = getWakeUpModeratorPrompt(groupChatId);
+			const wakeUpModeratorSection = wakeUpModeratorPrompt
+				? `\n\n## Wake-Up Call Moderator Instructions:\n${wakeUpModeratorPrompt}`
+				: '';
+
+			// Escaped for Gemini moderators: bare @mentions trigger a file-include
+			// search from cwd that hangs in large directories (see agent-args.ts)
+			const fullPrompt = escapeAtMentionsForAgent(
+				chat.moderatorAgentId,
+				`${baseSystemPrompt}${wakeUpModeratorSection}
 
 ## Current Participants:
 ${participantContext}${availableSessionsContext}
@@ -878,7 +1043,8 @@ ${historyContext}
 ${message}${imageContext}
 
 ## Execution Mode:
-${readOnly ? 'READ-ONLY MODE is active. You and all participants can only inspect, analyze, and plan — no file changes allowed.' : 'Participants have FULL READ-WRITE access and can create, modify, and delete files. You are in read-only/plan mode yourself, so delegate all file changes to participants. When the user asks for implementation, specs, or file creation, delegate those tasks to the appropriate participants — they can execute.'}`;
+${readOnly ? 'READ-ONLY MODE is active. You and all participants can only inspect, analyze, and plan — no file changes allowed.' : 'Participants have FULL READ-WRITE access and can create, modify, and delete files. You are in read-only/plan mode yourself, so delegate all file changes to participants. When the user asks for implementation, specs, or file creation, delegate those tasks to the appropriate participants — they can execute.'}`
+			);
 
 			// Get the base args from the agent configuration
 			const args = [...agent.args];
@@ -1264,10 +1430,33 @@ export async function routeModeratorResponse(
 		logger.debug(`[GroupChat:Debug] =================================================`);
 	}
 
-	// Spawn batch processes for each mentioned participant (exclude autorun participants)
-	const mentionsToSpawn = mentions.filter(
-		(name) => !autoRunParticipants.some((arName) => mentionMatches(arName, name))
-	);
+	// One-shot respawn cooldown: participants force-completed (timeout/stall) in
+	// the round that produced THIS moderator response must not be re-spawned by
+	// @mentions in the moderator's own failure report - that creates a
+	// kill -> report -> respawn loop. Consumed here regardless of whether the
+	// response mentions them; a new user message also clears it (routeUserMessage).
+	const cooldownSet = respawnCooldowns.get(groupChatId);
+	respawnCooldowns.delete(groupChatId);
+
+	// Spawn batch processes for each mentioned participant (exclude autorun
+	// participants and force-completed participants on respawn cooldown)
+	const mentionsToSpawn = mentions.filter((name) => {
+		if (autoRunParticipants.some((arName) => mentionMatches(arName, name))) {
+			return false;
+		}
+		if (cooldownSet?.has(name)) {
+			logger.debug(
+				`[GroupChat:Debug] Suppressing respawn of @${name} - force-completed last round (respawn cooldown)`
+			);
+			groupChatEmitters.emitMessage?.(groupChatId, {
+				timestamp: new Date().toISOString(),
+				from: 'system',
+				content: `ℹ️ @${name} was not re-engaged automatically because it just timed out. Mention @${name} in a new message to retry.`,
+			});
+			return false;
+		}
+		return true;
+	});
 	if (processManager && agentDetector && mentionsToSpawn.length > 0) {
 		logger.debug(`[GroupChat:Debug] ========== SPAWNING PARTICIPANT AGENTS ==========`);
 		logger.debug(`[GroupChat:Debug] Will spawn ${mentionsToSpawn.length} participant agent(s)`);
@@ -1341,15 +1530,26 @@ export async function routeModeratorResponse(
 			const promptTemplateId = isResume
 				? 'group-chat-participant-continuation'
 				: 'group-chat-participant-request';
-			const participantPrompt = getPrompt(promptTemplateId)
-				.replace(/\{\{PARTICIPANT_NAME\}\}/g, participantName)
-				.replace(/\{\{GROUP_CHAT_NAME\}\}/g, updatedChat.name)
-				.replace(/\{\{READ_ONLY_NOTE\}\}/g, readOnlyNote)
-				.replace(/\{\{GROUP_CHAT_FOLDER\}\}/g, groupChatFolder)
-				.replace(/\{\{HISTORY_CONTEXT\}\}/g, historyContext)
-				.replace(/\{\{READ_ONLY_LABEL\}\}/g, readOnlyLabel)
-				.replace(/\{\{MESSAGE\}\}/g, message)
-				.replace(/\{\{READ_ONLY_INSTRUCTION\}\}/g, readOnlyInstruction);
+			// Active wake-up sequences can carry a per-agent prompt for this participant
+			const wakeUpAgentPrompt = getWakeUpParticipantPrompt(groupChatId, participantName);
+			const wakeUpAgentSection = wakeUpAgentPrompt
+				? `\n\n## Additional Instructions for ${participantName} (wake-up call):\n${wakeUpAgentPrompt}`
+				: '';
+
+			// Escaped for Gemini participants: bare @mentions trigger a file-include
+			// search from cwd that hangs in large directories (see agent-args.ts)
+			const participantPrompt = escapeAtMentionsForAgent(
+				participant.agentId,
+				getPrompt(promptTemplateId)
+					.replace(/\{\{PARTICIPANT_NAME\}\}/g, participantName)
+					.replace(/\{\{GROUP_CHAT_NAME\}\}/g, updatedChat.name)
+					.replace(/\{\{READ_ONLY_NOTE\}\}/g, readOnlyNote)
+					.replace(/\{\{GROUP_CHAT_FOLDER\}\}/g, groupChatFolder)
+					.replace(/\{\{HISTORY_CONTEXT\}\}/g, historyContext)
+					.replace(/\{\{READ_ONLY_LABEL\}\}/g, readOnlyLabel)
+					.replace(/\{\{MESSAGE\}\}/g, message)
+					.replace(/\{\{READ_ONLY_INSTRUCTION\}\}/g, readOnlyInstruction) + wakeUpAgentSection
+			);
 
 			// Create a unique session ID for this batch process
 			const sessionId = `group-chat-${groupChatId}-participant-${participantName}-${Date.now()}`;
@@ -1425,6 +1625,13 @@ export async function routeModeratorResponse(
 				logger.debug(`[GroupChat:Debug] promptArgs: ${agent.promptArgs ? 'defined' : 'undefined'}`);
 				logger.debug(`[GroupChat:Debug] noPromptSeparator: ${agent.noPromptSeparator ?? false}`);
 				setActiveParticipantSession(groupChatId, participantName, sessionId);
+				setParticipantStallWatchdog(
+					groupChatId,
+					participantName,
+					sessionId,
+					processManager ?? undefined,
+					agentDetector ?? undefined
+				);
 
 				// Register this participant in the global pending map IMMEDIATELY after spawn.
 				// This prevents a race condition where the process exits before the post-loop
@@ -1720,7 +1927,11 @@ export async function spawnModeratorSynthesis(
 		synthModeratorSettings.conductorProfile || '(No conductor profile set)'
 	);
 
-	const synthesisPrompt = `${synthBasePrompt}
+	// Escaped for Gemini moderators: bare @mentions trigger a file-include
+	// search from cwd that hangs in large directories (see agent-args.ts)
+	const synthesisPrompt = escapeAtMentionsForAgent(
+		chat.moderatorAgentId,
+		`${synthBasePrompt}
 
 ${getModeratorSynthesisPrompt()}
 
@@ -1735,7 +1946,8 @@ Review the agent responses above. Either:
 1. Synthesize into a final answer for the user (NO @mentions, NO !autorun) if the question is fully answered
 2. @mention specific agents for follow-up if you need more information
 
-**IMPORTANT: Do NOT include any !autorun directives in this synthesis response.**`;
+**IMPORTANT: Do NOT include any !autorun directives in this synthesis response.**`
+	);
 
 	const agentConfigValues = getAgentConfigCallback?.(chat.moderatorAgentId) || {};
 	const baseArgs = buildAgentArgs(agent, {
@@ -1894,8 +2106,13 @@ export async function respawnParticipantWithRecovery(
 		)
 		.replace(/\{\{READ_ONLY_INSTRUCTION\}\}/g, readOnlyInstruction);
 
-	// Prepend recovery context
-	const fullPrompt = `${recoveryContext}\n\n${basePrompt}`;
+	// Prepend recovery context. Escaped for Gemini participants: bare @mentions
+	// trigger a file-include search from cwd that hangs in large directories
+	// (see agent-args.ts)
+	const fullPrompt = escapeAtMentionsForAgent(
+		participant.agentId,
+		`${recoveryContext}\n\n${basePrompt}`
+	);
 	logger.debug(`[GroupChat:Debug] Full recovery prompt length: ${fullPrompt.length}`);
 
 	// Create a unique session ID for this recovery spawn
@@ -1953,5 +2170,12 @@ export async function respawnParticipantWithRecovery(
 	logger.debug(`[GroupChat:Debug] Recovery spawn result: ${JSON.stringify(spawnResult)}`);
 	logger.debug(`[GroupChat:Debug] promptArgs: ${agent.promptArgs ? 'defined' : 'undefined'}`);
 	setActiveParticipantSession(groupChatId, participantName, sessionId);
+	setParticipantStallWatchdog(
+		groupChatId,
+		participantName,
+		sessionId,
+		processManager,
+		agentDetector
+	);
 	logger.debug(`[GroupChat:Debug] =============================================`);
 }

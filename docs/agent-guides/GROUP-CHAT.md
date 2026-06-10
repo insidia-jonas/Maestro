@@ -248,6 +248,17 @@ Timed message sequencer for the Wake-Up Call feature:
 
 Internally uses `AbortController` for clean cancellation and a `dispatchInFlight` guard to prevent pause/stop from corrupting state while `ensureModeratorAndSend()` is awaiting.
 
+### wake-up-prompt-overrides.ts
+
+In-memory registry of prompt overrides for active wake-up sequences. Lives in its own module (no group-chat imports) so `wake-up-service.ts` and `group-chat-router.ts` can both depend on it without an import cycle.
+
+| Function                       | Purpose                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| `setWakeUpPromptOverrides()`   | Registers moderator prompt + per-participant prompts (called by `startWakeUp()`)       |
+| `getWakeUpModeratorPrompt()`   | Read by the router; appended to the moderator system prompt while a sequence is active |
+| `getWakeUpParticipantPrompt()` | Read by the router; appended to the matching participant's prompt (name-normalized)    |
+| `clearWakeUpPromptOverrides()` | Clears overrides on stop/finish                                                        |
+
 ### group-chat-config.ts
 
 Shared configuration callbacks:
@@ -357,7 +368,7 @@ Registered in `src/main/ipc/handlers/groupChat.ts`. All handler names are prefix
 | `groupChat:resumeWakeUp`   | Resumes a paused sequence from saved remaining time                      |
 | `groupChat:getWakeUpState` | Returns ephemeral state (`phase`, `currentStep`, `totalSteps`) or `null` |
 
-**Validation (throws IPC errors from `groupChat:startWakeUp`):** Messages array: 1–5 entries. `intervalMs`: 5 000–3 600 000. `initialPrompt`: optional string, max 10 000 chars (empty → `undefined`). Each message must target a known participant. Content required and max 10 000 chars when `generate` is off.
+**Validation (throws IPC errors from `groupChat:startWakeUp`):** Messages array: 1–5 entries. `intervalMs`: 5 000–3 600 000. `initialPrompt` and `moderatorPrompt`: optional strings, max 10 000 chars (empty → `undefined`). Each message must target a known participant. Content required and max 10 000 chars when `generate` is off. Per-message `agentPrompt`: optional string, max 10 000 chars.
 
 ### Emitter System
 
@@ -415,6 +426,7 @@ The wake-up call feature sends a timed sequence of messages into a group chat at
 interface WakeUpConfig {
 	useSystemPrompt: boolean; // true → initial msg references system prompt
 	initialPrompt?: string; // used when useSystemPrompt is false (max 10 000 chars)
+	moderatorPrompt?: string; // appended to moderator system prompt while active (max 10 000 chars)
 	messages: WakeUpMessage[]; // 1–5 sequenced messages
 	intervalMs: number; // delay between messages (5 000 – 3 600 000 ms)
 	pausedAtStep?: number; // set on pause, cleared on resume/start
@@ -425,6 +437,7 @@ interface WakeUpMessage {
 	content: string; // message body (ignored when generate is true)
 	targetParticipant: string; // participant name from the group chat
 	generate: boolean; // moderator generates content at send time
+	agentPrompt?: string; // appended to this participant's prompt while active (max 10 000 chars)
 }
 ```
 
@@ -435,6 +448,12 @@ Persisted as `wakeUpConfig` on the `GroupChat` object in `metadata.json`. Pause 
 Messages are routed through the **moderator** using `routeUserMessage()`. For generate-mode messages, the moderator receives a prompt like `[Wake-up call 2/5] Generate and send a contextually relevant wake-up message to @agent-name.` For manual messages, the content is sent as `@agent-name <content>`.
 
 The sequencer auto-restarts the moderator via `ensureModeratorAndSend()` if it exited between turns.
+
+**Gemini CLI @mention escaping:** all four group chat spawn sites (moderator, participant, synthesis, recovery) pass their prompt through `escapeAtMentionsForAgent()` from `src/main/utils/agent-args.ts`. Gemini CLI treats bare `@name` tokens as file-include directives and launches a recursive file search from the cwd to resolve them, which hangs indefinitely in large working directories - the process never responds and never exits, so the participant runs into the response timeout. Escaping as `\@name` disables the file lookup. Do not remove the escaping, and route any new gemini-bound prompt construction through the same helper.
+
+### Per-Agent and Moderator Prompts
+
+While a sequence is active (running or paused), `startWakeUp()` registers the config's `moderatorPrompt` and per-message `agentPrompt` values in `wake-up-prompt-overrides.ts`. The router reads them on every spawn: the moderator gets a `## Wake-Up Call Moderator Instructions` section appended to its system prompt, and each target participant gets an `## Additional Instructions (wake-up call)` section appended to its prompt. Overrides are cleared when the sequence stops or finishes.
 
 ### Pause / Resume
 

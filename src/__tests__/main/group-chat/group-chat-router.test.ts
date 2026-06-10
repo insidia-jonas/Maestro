@@ -82,6 +82,7 @@ import {
 	isParticipantTimedOut,
 	clearTimedOutParticipant,
 	markParticipantResponded,
+	noteParticipantStdoutActivity,
 	type GroupChatSessionInfo,
 } from '../../../main/group-chat/group-chat-router';
 import {
@@ -1422,6 +1423,218 @@ describe('group-chat-router', () => {
 			} finally {
 				vi.useRealTimers();
 			}
+		});
+	});
+
+	describe('participant stall watchdog', () => {
+		const STALL_MS = 4 * 60 * 1000;
+
+		it('kills a participant that produces no stdout within the watchdog window', async () => {
+			vi.useFakeTimers();
+			try {
+				const chat = await createTestChatWithModerator('stall-kill-test');
+				await addParticipant(chat.id, 'SilentAgent', 'claude-code');
+
+				const emitSpy = vi.fn();
+				groupChatEmitters.emitParticipantState = emitSpy;
+				groupChatEmitters.emitMessage = vi.fn();
+
+				await routeModeratorResponse(
+					chat.id,
+					'@SilentAgent do something',
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+
+				const sessionId = getParticipantSessionId(chat.id, 'SilentAgent');
+				expect(sessionId).toBeDefined();
+
+				// Advance past the stall watchdog (well short of the 30-minute timeout)
+				vi.advanceTimersByTime(STALL_MS + 100);
+
+				expect(mockProcessManager.kill).toHaveBeenCalledWith(sessionId);
+				expect(isParticipantTimedOut(sessionId!)).toBe(true);
+				const timedOutEmits = emitSpy.mock.calls.filter(
+					(c: unknown[]) => c[1] === 'SilentAgent' && c[2] === 'timed-out'
+				);
+				expect(timedOutEmits).toHaveLength(1);
+
+				clearTimedOutParticipant(sessionId!);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('stdout activity disarms the watchdog; the 30-minute timeout still applies', async () => {
+			vi.useFakeTimers();
+			try {
+				const chat = await createTestChatWithModerator('stall-disarm-test');
+				await addParticipant(chat.id, 'BusyAgent', 'claude-code');
+
+				const emitSpy = vi.fn();
+				groupChatEmitters.emitParticipantState = emitSpy;
+				groupChatEmitters.emitMessage = vi.fn();
+
+				await routeModeratorResponse(
+					chat.id,
+					'@BusyAgent do something long',
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+
+				const sessionId = getParticipantSessionId(chat.id, 'BusyAgent')!;
+
+				// First stdout chunk arrives - disarms the watchdog
+				noteParticipantStdoutActivity(sessionId);
+				mockProcessManager.kill.mockClear();
+
+				vi.advanceTimersByTime(STALL_MS + 100);
+				expect(mockProcessManager.kill).not.toHaveBeenCalled();
+				expect(isParticipantTimedOut(sessionId)).toBe(false);
+
+				// The full response timeout still protects against hangs after output
+				vi.advanceTimersByTime(26 * 60 * 1000);
+				expect(mockProcessManager.kill).toHaveBeenCalledWith(sessionId);
+				expect(isParticipantTimedOut(sessionId)).toBe(true);
+
+				clearTimedOutParticipant(sessionId);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('participant response clears the watchdog (no late kill)', async () => {
+			vi.useFakeTimers();
+			try {
+				const chat = await createTestChatWithModerator('stall-responded-test');
+				await addParticipant(chat.id, 'QuickAgent', 'claude-code');
+
+				groupChatEmitters.emitParticipantState = vi.fn();
+				groupChatEmitters.emitMessage = vi.fn();
+
+				await routeModeratorResponse(
+					chat.id,
+					'@QuickAgent do something quick',
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+
+				const sessionId = getParticipantSessionId(chat.id, 'QuickAgent')!;
+
+				// Simulate the exit-listener marking the participant as responded
+				markParticipantResponded(chat.id, 'QuickAgent');
+				mockProcessManager.kill.mockClear();
+
+				vi.advanceTimersByTime(STALL_MS + 100);
+				expect(mockProcessManager.kill).not.toHaveBeenCalled();
+				expect(isParticipantTimedOut(sessionId)).toBe(false);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+	});
+
+	describe('respawn cooldown after force-complete', () => {
+		const STALL_MS = 4 * 60 * 1000;
+
+		function participantSpawnCalls(name: string) {
+			return (mockProcessManager.spawn as ReturnType<typeof vi.fn>).mock.calls.filter((c: any[]) =>
+				String(c[0]?.sessionId ?? '').includes(`-participant-${name}-`)
+			);
+		}
+
+		/** Spawn a participant via moderator delegation under fake timers and fire
+		 *  the stall watchdog, then let the async force-complete tail settle. */
+		async function spawnAndForceComplete(chatId: string, name: string) {
+			vi.useFakeTimers();
+			let sessionId: string | undefined;
+			try {
+				await routeModeratorResponse(
+					chatId,
+					`@${name} do something`,
+					mockProcessManager,
+					mockAgentDetector,
+					false
+				);
+				sessionId = getParticipantSessionId(chatId, name);
+				vi.advanceTimersByTime(STALL_MS + 100);
+			} finally {
+				vi.useRealTimers();
+			}
+			// Let the force-complete async tail (log write + mark-responded) settle
+			await new Promise((r) => setTimeout(r, 50));
+			if (sessionId) clearTimedOutParticipant(sessionId);
+		}
+
+		it('moderator failure report cannot immediately respawn a force-completed participant', async () => {
+			const chat = await createTestChatWithModerator('cooldown-suppress-test');
+			await addParticipant(chat.id, 'LoopAgent', 'claude-code');
+
+			groupChatEmitters.emitParticipantState = vi.fn();
+			const emitMessage = vi.fn();
+			groupChatEmitters.emitMessage = emitMessage;
+
+			await spawnAndForceComplete(chat.id, 'LoopAgent');
+			expect(participantSpawnCalls('LoopAgent')).toHaveLength(1);
+
+			// Moderator's failure report mentions the dead participant - must NOT respawn
+			(mockProcessManager.spawn as ReturnType<typeof vi.fn>).mockClear();
+			await routeModeratorResponse(
+				chat.id,
+				'@LoopAgent timed out with no response - the session link is not live.',
+				mockProcessManager,
+				mockAgentDetector,
+				false
+			);
+			expect(participantSpawnCalls('LoopAgent')).toHaveLength(0);
+			const infoMessages = emitMessage.mock.calls.filter((c: any[]) =>
+				String(c[1]?.content ?? '').includes('was not re-engaged automatically')
+			);
+			expect(infoMessages).toHaveLength(1);
+
+			// The cooldown is one-shot: the NEXT moderator response may delegate again
+			(mockProcessManager.spawn as ReturnType<typeof vi.fn>).mockClear();
+			await routeModeratorResponse(
+				chat.id,
+				'@LoopAgent please try again',
+				mockProcessManager,
+				mockAgentDetector,
+				false
+			);
+			expect(participantSpawnCalls('LoopAgent')).toHaveLength(1);
+
+			// Cleanup: clear pending state + timers from the respawn
+			markParticipantResponded(chat.id, 'LoopAgent');
+		});
+
+		it('a new user message clears the respawn cooldown', async () => {
+			const chat = await createTestChatWithModerator('cooldown-user-reset-test');
+			await addParticipant(chat.id, 'RetryAgent', 'claude-code');
+
+			groupChatEmitters.emitParticipantState = vi.fn();
+			groupChatEmitters.emitMessage = vi.fn();
+
+			await spawnAndForceComplete(chat.id, 'RetryAgent');
+
+			// User explicitly re-engages - this clears the cooldown...
+			await routeUserMessage(chat.id, 'retry @RetryAgent', mockProcessManager, mockAgentDetector);
+
+			// ...so the moderator's next delegation spawns normally
+			(mockProcessManager.spawn as ReturnType<typeof vi.fn>).mockClear();
+			await routeModeratorResponse(
+				chat.id,
+				'@RetryAgent retrying now',
+				mockProcessManager,
+				mockAgentDetector,
+				false
+			);
+			expect(participantSpawnCalls('RetryAgent')).toHaveLength(1);
+
+			// Cleanup: clear pending state + timers from the respawn
+			markParticipantResponded(chat.id, 'RetryAgent');
 		});
 	});
 });

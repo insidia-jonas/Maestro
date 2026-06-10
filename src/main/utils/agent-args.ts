@@ -269,6 +269,30 @@ export function applyAgentConfigOverrides(
 	};
 }
 
+/** Matches `@token` at the start of the prompt or after whitespace (mention-style references). */
+const AT_REFERENCE_PATTERN = /(^|\s)@(?=\S)/g;
+
+/**
+ * Escape `@name` mentions in prompts bound for Gemini CLI.
+ *
+ * Gemini CLI treats `@path` in a prompt as a file-include directive and kicks
+ * off a recursive file search from the cwd to resolve it. For mention-style
+ * tokens that are not real paths (e.g. `@test-gem` in group chat prompts),
+ * that search can run effectively forever in large working directories (a
+ * home dir with node_modules etc.), so the process never produces a response
+ * and never exits. Escaping as `\@name` disables the file lookup while the
+ * model still reads the mention verbatim (verified against gemini-cli 0.45.0).
+ *
+ * Only applies to `gemini-cli`; other agents get the prompt unchanged. Do NOT
+ * apply this to user-authored prompts in regular AI tabs, where `@file` may be
+ * an intentional include - it is meant for Maestro-generated prompts (group
+ * chat) whose mentions are never file references.
+ */
+export function escapeAtMentionsForAgent(agentId: string, prompt: string): string {
+	if (agentId !== 'gemini-cli') return prompt;
+	return prompt.replace(AT_REFERENCE_PATTERN, '$1\\@');
+}
+
 /** Resolve the effective context window size from session, agent config, or defaults. */
 export function getContextWindowValue(
 	agent: AgentConfig | null | undefined,

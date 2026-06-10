@@ -111,6 +111,7 @@ import {
 	checkAndTrackParticipantResponse,
 	isParticipantTimedOut,
 	clearTimedOutParticipant,
+	noteParticipantStdoutActivity,
 } from './group-chat/group-chat-router';
 import { createSshRemoteStoreAdapter } from './utils/ssh-remote-resolver';
 import { updateParticipant, loadGroupChat, updateGroupChat } from './group-chat/group-chat-storage';
@@ -1579,6 +1580,7 @@ function setupProcessListeners() {
 				checkAndTrackParticipantResponse,
 				isParticipantTimedOut,
 				clearTimedOutParticipant,
+				noteParticipantStdoutActivity,
 			},
 			groupChatStorage: {
 				loadGroupChat,

@@ -16,6 +16,7 @@ describe('Data Listener', () => {
 	let mockWebServer: { broadcastToSessionClients: ReturnType<typeof vi.fn> };
 	let mockOutputBuffer: ProcessListenerDependencies['outputBuffer'];
 	let mockOutputParser: ProcessListenerDependencies['outputParser'];
+	let mockGroupChatRouter: ProcessListenerDependencies['groupChatRouter'];
 	let mockDebugLog: ProcessListenerDependencies['debugLog'];
 	let mockPatterns: ProcessListenerDependencies['patterns'];
 	let eventHandlers: Map<string, (...args: unknown[]) => void>;
@@ -37,6 +38,20 @@ describe('Data Listener', () => {
 		mockOutputParser = {
 			extractTextFromStreamJson: vi.fn().mockReturnValue('parsed response'),
 			parseParticipantSessionId: vi.fn().mockReturnValue(null),
+		};
+		mockGroupChatRouter = {
+			routeModeratorResponse: vi.fn().mockResolvedValue(undefined),
+			routeAgentResponse: vi.fn().mockResolvedValue(undefined),
+			markParticipantResponded: vi.fn().mockReturnValue(false),
+			spawnModeratorSynthesis: vi.fn().mockResolvedValue(undefined),
+			getGroupChatReadOnlyState: vi.fn().mockReturnValue(false),
+			respawnParticipantWithRecovery: vi.fn().mockResolvedValue(undefined),
+			clearActiveParticipantTaskSession: vi.fn(),
+			clearModeratorResponseTimeout: vi.fn(),
+			isParticipantTimedOut: vi.fn().mockReturnValue(false),
+			clearTimedOutParticipant: vi.fn(),
+			checkAndTrackParticipantResponse: vi.fn().mockReturnValue({ isStale: false, count: 1 }),
+			noteParticipantStdoutActivity: vi.fn(),
 		};
 		mockDebugLog = vi.fn();
 		mockPatterns = {
@@ -63,6 +78,7 @@ describe('Data Listener', () => {
 			outputParser: mockOutputParser,
 			debugLog: mockDebugLog,
 			patterns: mockPatterns,
+			groupChatRouter: mockGroupChatRouter,
 		});
 	};
 
