@@ -42,6 +42,7 @@ This guide has been split into focused sub-documents for progressive disclosure:
 | Prompt template or SpecKit/OpenSpec                | [PROMPTS-SPECS.md](docs/agent-guides/PROMPTS-SPECS.md)         |
 | Cue pipeline feature                               | [CUE-PIPELINE.md](docs/agent-guides/CUE-PIPELINE.md)           |
 | App lifecycle, updater, or power mgmt              | [MAIN-LIFECYCLE.md](docs/agent-guides/MAIN-LIFECYCLE.md)       |
+| Prompter / Prompt Safety Lab feature               | [PROMPTER.md](docs/agent-guides/PROMPTER.md)                   |
 
 ### Commonly-reimplemented functions (do NOT add new copies)
 
