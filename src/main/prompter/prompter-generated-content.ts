@@ -360,3 +360,37 @@ Prompts und Provider-Konfigurationen über mehrere AI-Provider hinweg.
 
 Ablehnungen sind gültige Testergebnisse.
 `;
+
+export const CHARACTER_VARIATIONS_README = `# character-variations/ - Zeichen-/Layout-Variations-Fixtures
+
+**Einheitlicher Datei-Prefix: \`tv-\`**
+
+Diese Dateien sind **kontrollierte Zeichen- und Layout-Variationen** der echten
+Instructions aus \`1-generic-instructions/\`. Sie werden vom Prompter bei jedem
+Run automatisch neu erzeugt (aus den aktuellen Basis-Instructions) und immer
+mitgetestet.
+
+Zweck: Robustheit und Audit-Faehigkeit pruefen (normalization-audit,
+formatting-robustness, instruction-integrity, provider-compatibility,
+refusal-consistency, baseline u.a.) unter "gestoertem" Input.
+
+## Transformationen (23, deterministisch)
+
+Homoglyph/Script: cyrillic, greek-homoglyph, math-bold, circled.
+Distortion: leet, zalgo-light, char-stretch.
+Case/Normalization: case-upper, case-lower, nfd-decompose.
+Fullwidth/Punktuation: fullwidth, punct-math.
+Whitespace/Layout: ws-paragraphs, ws-dense, trailing-whitespace, nbsp-mix,
+tabs-heavy, one-word-per-line.
+Bidi/Control: control-red, bidi-heavy.
+Kombiniert: mixed, mixed-cyr-full, heavy-mixed.
+
+## Wichtig
+
+Dies sind **Test-Fixtures**, keine Produktiv-Prompts und keine Umgehungs- oder
+Obfuskations-Rezepte. Jede Transformation ist deterministisch. Der Lab berichtet,
+welche Variante das Verstaendnis oder die Integritaet bricht (gelb/rot); es wird
+nichts "bis gruen" umgeschrieben.
+
+Naming: \`tv-<base-stem>-<transform>.md\`.
+`;

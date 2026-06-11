@@ -288,6 +288,12 @@ export interface PrompterRunConfig {
 	agents: PrompterAgentConfig[];
 	schemas: string[];
 	maxParallelAgents?: number;
+	/**
+	 * Generate character/layout variations of each base instruction (into
+	 * 4-advanced-tests/character-variations/) and include them as test inputs.
+	 * Defaults to true.
+	 */
+	includeVariations?: boolean;
 }
 
 // ============================================================================

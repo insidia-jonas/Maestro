@@ -16,6 +16,7 @@ import {
 } from './prompter-path-safety';
 import { sha256, atomicWriteFile, ensureDir, readFirstLines, walkFiles } from './prompter-fs';
 import { PrompterSchemaRegistry } from './prompter-schema-registry';
+import { generateVariations } from './prompter-variation-generator';
 import {
 	INSTRUCTION_GUIDE_CONTENT,
 	SCHEMA_GUIDE_CONTENT,
@@ -32,6 +33,7 @@ import {
 	FINAL_REPORT_TEMPLATE,
 	RUN_REPORT_TEMPLATE,
 	PROJECT_README,
+	CHARACTER_VARIATIONS_README,
 } from './prompter-generated-content';
 import type {
 	ProjectPlan,
@@ -45,6 +47,7 @@ const TOOL_VERSION = '1.0.0';
 const PROJECT_MANIFEST = '.prompter-project.json';
 
 const INSTRUCTION_DIR = '1-generic-instructions';
+const VARIATIONS_DIR = '4-advanced-tests/character-variations';
 const EXCLUDED_INSTRUCTION_NAMES = new Set(['GUIDE.md', 'README.md']);
 const INSTRUCTION_EXTENSIONS = new Set(['.md', '.txt', '.json', '.yaml', '.yml']);
 
@@ -60,6 +63,7 @@ const FOLDERS: string[] = [
 	'3-temp-results/runs',
 	'4-advanced-tests',
 	'4-advanced-tests/approved-fixtures',
+	'4-advanced-tests/character-variations',
 	'documentation',
 	'documentation/templates',
 	'tools',
@@ -94,6 +98,10 @@ const STATIC_FILES: GeneratedFile[] = [
 	{ relativePath: '3-temp-results/3-red/.gitkeep', content: '' },
 	{ relativePath: '4-advanced-tests/README.md', content: ADVANCED_README },
 	{ relativePath: '4-advanced-tests/approved-fixtures/.gitkeep', content: '' },
+	{
+		relativePath: '4-advanced-tests/character-variations/README.md',
+		content: CHARACTER_VARIATIONS_README,
+	},
 	{ relativePath: 'documentation/FINAL-REPORT.md', content: FINAL_REPORT_TEMPLATE },
 	{ relativePath: 'documentation/RUNBOOK.md', content: RUNBOOK_CONTENT },
 	{
@@ -310,6 +318,60 @@ export class PrompterProjectService {
 			sizeBytes: content.length,
 			preview: readFirstLines(dest, 5),
 		};
+	}
+
+	/**
+	 * Regenerate character/layout variations of each top-level base instruction
+	 * into 4-advanced-tests/character-variations/ (overwriting), and return their
+	 * descriptors with project-root-relative paths. Only top-level instruction
+	 * files are varied (the examples/ subdir and meta files are skipped).
+	 */
+	async regenerateVariations(projectRoot: string): Promise<InstructionFile[]> {
+		const baseDir = assertSafeWritePath(INSTRUCTION_DIR, projectRoot);
+		const varDir = assertSafeWritePath(VARIATIONS_DIR, projectRoot);
+		await ensureDir(varDir);
+		const out: InstructionFile[] = [];
+		const bases = this.scanInstructions(projectRoot).filter((b) => !b.path.includes('/'));
+		for (const base of bases) {
+			const baseAbs = path.join(baseDir, base.path);
+			let content: string;
+			try {
+				content = fs.readFileSync(baseAbs, 'utf-8');
+			} catch {
+				continue;
+			}
+			const stem = base.path.replace(/\.[^.]+$/, '');
+			for (const variation of generateVariations(stem, content, base.hash.slice(0, 16))) {
+				const rel = path.posix.join(VARIATIONS_DIR, variation.filename);
+				const abs = assertSafeWritePath(rel, projectRoot);
+				await atomicWriteFile(abs, variation.content);
+				out.push({
+					path: rel,
+					hash: sha256(variation.content),
+					sizeBytes: Buffer.byteLength(variation.content, 'utf-8'),
+					preview: readFirstLines(abs, 5),
+				});
+			}
+		}
+		return out.sort((a, b) => a.path.localeCompare(b.path));
+	}
+
+	/**
+	 * All instruction inputs for a run, with project-root-relative paths: the base
+	 * instructions (1-generic-instructions/) plus, when `includeVariations`, the
+	 * freshly regenerated character variations (4-advanced-tests/character-variations/).
+	 */
+	async collectRunInputs(
+		projectRoot: string,
+		includeVariations: boolean
+	): Promise<InstructionFile[]> {
+		const base = this.scanInstructions(projectRoot).map((f) => ({
+			...f,
+			path: path.posix.join(INSTRUCTION_DIR, f.path),
+		}));
+		if (!includeVariations) return base;
+		const variations = await this.regenerateVariations(projectRoot);
+		return [...base, ...variations];
 	}
 
 	/** Load (or reload) project + shared custom schemas into the registry. */

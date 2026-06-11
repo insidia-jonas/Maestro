@@ -125,6 +125,10 @@ export function InstructionStep({ theme }: { theme: Theme }): JSX.Element {
 				Alle Dateien in diesem Ordner werden automatisch in jeden Test einbezogen. Lege weitere
 				Dateien ab oder importiere sie.
 			</p>
+			<p className="text-sm" style={{ color: theme.colors.textDim }}>
+				Zusaetzlich wird jede Basis-Instruction in 23 Character-/Layout-Variationen (Homoglyphen,
+				Fullwidth, Whitespace, Bidi/Control u.a.) erzeugt und immer mitgetestet.
+			</p>
 
 			{count === 0 && !loading && (
 				<div

@@ -107,7 +107,10 @@ export class PrompterRunManager {
 
 	/** Build a run (status 'planned') with its full task matrix and persist it. */
 	async createRun(config: PrompterRunConfig): Promise<PrompterRun> {
-		const instructions = this.deps.projectService.scanInstructions(config.projectRoot);
+		const instructions = await this.deps.projectService.collectRunInputs(
+			config.projectRoot,
+			config.includeVariations ?? true
+		);
 		if (instructions.length === 0) {
 			throw new Error('Keine Instruction-Dateien in 1-generic-instructions/ gefunden');
 		}
@@ -251,12 +254,10 @@ export class PrompterRunManager {
 		await this.persist(state);
 
 		try {
-			// Validate the instruction path before reading: blocks traversal and a
-			// symlink swapped in after scan time (TOCTOU) from escaping the sandbox.
-			const instrAbs = assertSafeWritePath(
-				task.instructionFile,
-				path.join(run.projectRoot, '1-generic-instructions')
-			);
+			// task.instructionFile is project-root-relative (base instruction or a
+			// generated variation). Validate the path before reading: blocks
+			// traversal and a symlink swapped in after scan time (TOCTOU).
+			const instrAbs = assertSafeWritePath(task.instructionFile, run.projectRoot);
 			const instructionContent = fs.readFileSync(instrAbs, 'utf-8');
 
 			const registry = this.deps.projectService.getSchemaRegistry(run.projectRoot);

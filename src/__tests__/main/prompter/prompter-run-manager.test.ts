@@ -89,7 +89,8 @@ describe('PrompterRunManager', () => {
 		schemas: string[],
 		agents = [agentConfig('claude-code', 'claude-fable-5')]
 	): PrompterRunConfig {
-		return { projectId: 'p1', projectRoot, agents, schemas };
+		// Most tests assert exact task counts, so disable variation generation.
+		return { projectId: 'p1', projectRoot, agents, schemas, includeVariations: false };
 	}
 
 	it('createRun builds the agent x instruction x schema matrix and persists a manifest', async () => {
@@ -197,6 +198,30 @@ describe('PrompterRunManager', () => {
 		expect(mgr.listRuns(projectRoot).map((r) => r.id)).toContain(run.id);
 		await mgr.deleteRun(run.id);
 		expect(fs.existsSync(path.join(projectRoot, '3-temp-results', 'runs', run.id))).toBe(false);
+	});
+
+	it('includeVariations generates character variations and adds them to the matrix', async () => {
+		const mgr = makeManager();
+		const run = await mgr.createRun({
+			projectId: 'p1',
+			projectRoot,
+			agents: [agentConfig('claude-code', 'claude-fable-5')],
+			schemas: ['baseline'],
+			includeVariations: true,
+		});
+		// 1 base instruction (eni.md) -> 23 tv-variations; (1 + 23) x 1 schema.
+		expect(run.tasks.length).toBe(24);
+		expect(run.tasks.some((t) => t.instructionFile.startsWith('1-generic-instructions/'))).toBe(
+			true
+		);
+		expect(
+			run.tasks.some((t) =>
+				t.instructionFile.startsWith('4-advanced-tests/character-variations/tv-eni-')
+			)
+		).toBe(true);
+		// variation files were written to disk
+		const varDir = path.join(projectRoot, '4-advanced-tests', 'character-variations');
+		expect(fs.readdirSync(varDir).filter((f) => f.startsWith('tv-eni-')).length).toBe(23);
 	});
 
 	it('pauseRun and resumeRun flip the run status', async () => {

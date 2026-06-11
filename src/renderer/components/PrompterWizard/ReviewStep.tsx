@@ -17,10 +17,16 @@ export function ReviewStep({
 	const selectedSchemas = usePrompterStore((s) => s.selectedSchemas);
 	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
 
+	// Top-level base instructions are each varied into 23 character/layout
+	// fixtures that are always tested alongside the base files.
+	const VARIATIONS_PER_BASE = 23;
 	const instructionCount = availableInstructions.length;
+	const baseTopLevel = availableInstructions.filter((f) => !f.path.includes('/')).length;
+	const variationCount = baseTopLevel * VARIATIONS_PER_BASE;
+	const totalInputs = instructionCount + variationCount;
 	const agentCount = selectedAgents.length;
 	const schemaCount = selectedSchemas.size;
-	const taskCount = instructionCount * agentCount * schemaCount;
+	const taskCount = totalInputs * agentCount * schemaCount;
 
 	const schemaList = Array.from(selectedSchemas);
 
@@ -135,7 +141,7 @@ export function ReviewStep({
 					Instructions
 				</span>
 				<span className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
-					{instructionCount} Dateien
+					{instructionCount} Dateien + {variationCount} Character-Variations (automatisch)
 				</span>
 				{instructionCount > 0 && (
 					<div className="flex flex-col gap-1 select-text">
@@ -184,11 +190,12 @@ export function ReviewStep({
 				<ListChecks size={22} style={{ color: theme.colors.accent }} />
 				<div className="flex flex-col">
 					<span className="text-lg font-semibold" style={{ color: theme.colors.textMain }}>
-						{instructionCount} Instructions x {agentCount} Agents x {schemaCount} Schemata ={' '}
+						{totalInputs} Inputs x {agentCount} Agents x {schemaCount} Schemata ={' '}
 						<span style={{ color: theme.colors.accent }}>{taskCount} Tasks</span>
 					</span>
 					<span className="text-xs" style={{ color: theme.colors.textDim }}>
-						Gesamtzahl der erzeugten Aufgaben fuer diesen Run.
+						{instructionCount} Basis-Instructions + {variationCount} Character-Variations, alle
+						mitgetestet.
 					</span>
 				</div>
 			</div>
