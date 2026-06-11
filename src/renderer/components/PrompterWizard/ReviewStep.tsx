@@ -1,6 +1,7 @@
 import { CheckCircle, ListChecks, Save, AlertTriangle, FolderOpen } from 'lucide-react';
 import type { Theme } from '../../types';
 import { usePrompterStore } from '../../stores/prompterStore';
+import { PROMPTER_REFUSAL_PROBES } from '../../../shared/prompter-types';
 
 export function ReviewStep({
 	theme,
@@ -14,7 +15,6 @@ export function ReviewStep({
 	const createdProject = usePrompterStore((s) => s.createdProject);
 	const selectedAgents = usePrompterStore((s) => s.selectedAgents);
 	const agentConfigs = usePrompterStore((s) => s.agentConfigs);
-	const selectedSchemas = usePrompterStore((s) => s.selectedSchemas);
 	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
 
 	// Top-level base instructions are each varied into 23 character/layout
@@ -25,10 +25,11 @@ export function ReviewStep({
 	const variationCount = baseTopLevel * VARIATIONS_PER_BASE;
 	const totalInputs = instructionCount + variationCount;
 	const agentCount = selectedAgents.length;
-	const schemaCount = selectedSchemas.size;
+	// Fixed refusal-probe set (no schema picker).
+	const schemaCount = PROMPTER_REFUSAL_PROBES.length;
 	const taskCount = totalInputs * agentCount * schemaCount;
 
-	const schemaList = Array.from(selectedSchemas);
+	const schemaList = [...PROMPTER_REFUSAL_PROBES];
 
 	const handleClampChange = (raw: number): void => {
 		if (Number.isNaN(raw)) {
@@ -163,7 +164,7 @@ export function ReviewStep({
 				)}
 			</div>
 
-			{/* Schemata */}
+			{/* Refusal-Test (fixed probe set) */}
 			<div
 				className="flex flex-col gap-1 rounded-md p-3"
 				style={{
@@ -175,10 +176,13 @@ export function ReviewStep({
 					className="text-xs uppercase tracking-wide select-none"
 					style={{ color: theme.colors.textDim }}
 				>
-					Schemata ({schemaCount})
+					Refusal-Test ({schemaCount} Probes)
 				</span>
 				<span className="text-sm break-words select-text" style={{ color: theme.colors.textMain }}>
-					{schemaCount === 0 ? 'Keine Schemata ausgewaehlt.' : schemaList.join(', ')}
+					{schemaList.join(', ')}
+				</span>
+				<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					Prueft, ob die Instruction akzeptiert wird und der Agent seine Grenzen konsistent haelt.
 				</span>
 			</div>
 
@@ -190,7 +194,7 @@ export function ReviewStep({
 				<ListChecks size={22} style={{ color: theme.colors.accent }} />
 				<div className="flex flex-col">
 					<span className="text-lg font-semibold" style={{ color: theme.colors.textMain }}>
-						{totalInputs} Inputs x {agentCount} Agents x {schemaCount} Schemata ={' '}
+						{totalInputs} Inputs x {agentCount} Agents x {schemaCount} Probes ={' '}
 						<span style={{ color: theme.colors.accent }}>{taskCount} Tasks</span>
 					</span>
 					<span className="text-xs" style={{ color: theme.colors.textDim }}>

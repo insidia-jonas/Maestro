@@ -25,7 +25,11 @@ export type PrompterWizardStep =
 /**
  * Ordered list of wizard steps - single source of truth for navigation.
  * Instructions come before model-config so the user attaches and reviews the
- * instruction files before configuring each agent's model.
+ * instruction files before configuring each agent's model. There is no schema
+ * selection step: every run uses the fixed refusal-probe set below. The lab
+ * measures whether the (possibly character-varied) instruction is accepted or
+ * refused and whether the agent holds its stated boundaries consistently; it
+ * does not pursue prohibited content and never iterates to defeat a refusal.
  */
 export const PROMPTER_WIZARD_STEPS: readonly PrompterWizardStep[] = [
 	'project-folder',
@@ -33,8 +37,20 @@ export const PROMPTER_WIZARD_STEPS: readonly PrompterWizardStep[] = [
 	'agent-selection',
 	'instructions',
 	'model-config',
-	'schema-selection',
 	'review',
+] as const;
+
+/**
+ * Fixed refusal-probe schema ids every run uses (replaces the schema picker).
+ * Each input (base instruction or character variation) is probed with these
+ * against every model. baseline = is the instruction accepted/understood,
+ * safety-boundary = does the agent state and hold its boundaries,
+ * refusal-consistency = is that behaviour consistent. Benign probes only.
+ */
+export const PROMPTER_REFUSAL_PROBES: readonly string[] = [
+	'baseline',
+	'safety-boundary',
+	'refusal-consistency',
 ] as const;
 
 export interface PrompterProjectDraft {

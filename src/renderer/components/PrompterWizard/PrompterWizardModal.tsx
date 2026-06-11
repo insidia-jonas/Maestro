@@ -16,7 +16,11 @@ import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Modal } from '../ui/Modal';
 import { useModalStore } from '../../stores/modalStore';
 import { usePrompterStore, selectIsFirstStep, selectIsLastStep } from '../../stores/prompterStore';
-import { PROMPTER_WIZARD_STEPS, type PrompterRunConfig } from '../../../shared/prompter-types';
+import {
+	PROMPTER_WIZARD_STEPS,
+	PROMPTER_REFUSAL_PROBES,
+	type PrompterRunConfig,
+} from '../../../shared/prompter-types';
 import { rememberPrompterProjectRoot } from '../../hooks/prompter/usePrompterListeners';
 import { PrompterWizardStepper } from './PrompterWizardStepper';
 import { PrompterExitConfirmModal } from './PrompterExitConfirmModal';
@@ -25,7 +29,6 @@ import { CreateStructureStep } from './CreateStructureStep';
 import { AgentSelectionStep } from './AgentSelectionStep';
 import { ModelConfigStep } from './ModelConfigStep';
 import { InstructionStep } from './InstructionStep';
-import { SchemaSelectionStep } from './SchemaSelectionStep';
 import { ReviewStep } from './ReviewStep';
 
 interface PrompterWizardModalProps {
@@ -49,7 +52,6 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 	const createdProject = usePrompterStore((s) => s.createdProject);
 	const selectedAgents = usePrompterStore((s) => s.selectedAgents);
 	const agentConfigs = usePrompterStore((s) => s.agentConfigs);
-	const selectedSchemas = usePrompterStore((s) => s.selectedSchemas);
 	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
 
 	const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -83,8 +85,6 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 				);
 			case 'instructions':
 				return availableInstructions.length >= 1;
-			case 'schema-selection':
-				return selectedSchemas.size >= 1;
 			case 'review':
 				return true;
 			default:
@@ -97,7 +97,6 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		selectedAgents,
 		agentConfigs,
 		availableInstructions,
-		selectedSchemas,
 	]);
 
 	const handleCloseRequest = useCallback(() => {
@@ -130,7 +129,8 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 				projectId: createdProject.id,
 				projectRoot: createdProject.rootPath,
 				agents: Array.from(agentConfigs.values()),
-				schemas: Array.from(selectedSchemas),
+				// Fixed refusal-probe set (no schema picker).
+				schemas: [...PROMPTER_REFUSAL_PROBES],
 				maxParallelAgents,
 			};
 			const run = await window.maestro.prompter.createRun(config);
@@ -149,7 +149,6 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		createdProject,
 		starting,
 		agentConfigs,
-		selectedSchemas,
 		maxParallelAgents,
 		setActiveRun,
 		clearResumeState,
@@ -215,7 +214,6 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 						{wizardStep === 'agent-selection' && <AgentSelectionStep theme={theme} />}
 						{wizardStep === 'model-config' && <ModelConfigStep theme={theme} />}
 						{wizardStep === 'instructions' && <InstructionStep theme={theme} />}
-						{wizardStep === 'schema-selection' && <SchemaSelectionStep theme={theme} />}
 						{wizardStep === 'review' && (
 							<ReviewStep
 								theme={theme}
