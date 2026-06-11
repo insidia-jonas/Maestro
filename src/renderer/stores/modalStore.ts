@@ -1030,6 +1030,7 @@ export function useModalActions() {
 	const cueModalOpen = useModalStore(selectModalOpen('cueModal'));
 	const cueYamlEditorOpen = useModalStore(selectModalOpen('cueYamlEditor'));
 	const cueYamlEditorData = useModalStore(selectModalData('cueYamlEditor'));
+	const prompterModalOpen = useModalStore(selectModalOpen('prompter'));
 
 	// Get stable actions
 	const actions = getModalActions();
@@ -1218,6 +1219,9 @@ export function useModalActions() {
 
 		// Maestro Cue Modal
 		cueModalOpen,
+
+		// Prompter (Prompt Safety Lab) Modal
+		prompterModalOpen,
 
 		// Maestro Cue YAML Editor (standalone)
 		cueYamlEditorOpen,

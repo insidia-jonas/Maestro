@@ -167,6 +167,9 @@ import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineW
 import { ToastContainer } from './components/Toast';
 import { CenterFlash } from './components/CenterFlash';
 import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
+import { PrompterRunPanel } from './components/PrompterRunPanel/PrompterRunPanel';
+import { usePrompterListeners } from './hooks/prompter/usePrompterListeners';
+import { usePrompterStore } from './stores/prompterStore';
 
 // Import services
 // gitService — now used in useModalHandlers (Tier 3C)
@@ -1684,6 +1687,11 @@ function MaestroConsoleInner() {
 
 	// "Quit when idle" watcher - quits the app once all operations finish once armed
 	useQuitWhenIdle();
+
+	// Prompter (Prompt Safety Lab): subscribe to run/task/log events and recover
+	// interrupted runs on startup.
+	usePrompterListeners();
+	const prompterActiveRun = usePrompterStore((s) => s.activeRun);
 
 	// Handler for switching to autorun tab - shows setup modal if no folder configured
 	const handleSetActiveRightTab = useCallback(
@@ -3396,6 +3404,13 @@ function MaestroConsoleInner() {
 
 				{/* --- CENTER FLASH (single, app-wide; mounted via portal) --- */}
 				<CenterFlash theme={theme} />
+
+				{/* --- PROMPTER LIVE RUN PANEL (floating; does not touch the layout/router) --- */}
+				{prompterActiveRun && (
+					<div className="fixed bottom-4 right-4 z-40 flex w-[440px] max-h-[60vh] flex-col">
+						<PrompterRunPanel theme={theme} />
+					</div>
+				)}
 			</div>
 		</>
 	);

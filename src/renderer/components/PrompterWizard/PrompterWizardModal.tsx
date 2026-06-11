@@ -1,19 +1,23 @@
 /**
  * PrompterWizardModal - orchestrator for the 7-step Prompter (Prompt Safety Lab)
- * wizard. Owns step navigation, per-step advance validation, the exit-confirm
- * flow, and the terminal "Run starten" action. Each step component is
- * presentational and reads/writes the prompterStore directly.
+ * wizard. Visibility is driven by the modal store id 'prompter' (the parent
+ * mounts this only when open). Owns step navigation, per-step advance
+ * validation, the exit-confirm flow, and the terminal "Run starten" action
+ * (createRun + startRun + setActiveRun). Each step component is presentational
+ * and reads/writes the prompterStore directly.
  *
- * Playbook reference: section 6 (wizard flow), Task F.
+ * Playbook reference: section 6 (wizard flow), Task F, Task J.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import type { Theme } from '../../types';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Modal } from '../ui/Modal';
+import { useModalStore } from '../../stores/modalStore';
 import { usePrompterStore, selectIsFirstStep, selectIsLastStep } from '../../stores/prompterStore';
 import { PROMPTER_WIZARD_STEPS, type PrompterRunConfig } from '../../../shared/prompter-types';
+import { rememberPrompterProjectRoot } from '../../hooks/prompter/usePrompterListeners';
 import { PrompterWizardStepper } from './PrompterWizardStepper';
 import { PrompterExitConfirmModal } from './PrompterExitConfirmModal';
 import { ProjectFolderStep } from './ProjectFolderStep';
@@ -28,15 +32,13 @@ interface PrompterWizardModalProps {
 	theme: Theme;
 }
 
-export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.Element | null {
-	const wizardOpen = usePrompterStore((s) => s.wizardOpen);
+export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.Element {
 	const wizardStep = usePrompterStore((s) => s.wizardStep);
 	const isFirstStep = usePrompterStore(selectIsFirstStep);
 	const isLastStep = usePrompterStore(selectIsLastStep);
 
 	const goNext = usePrompterStore((s) => s.goNext);
 	const goBack = usePrompterStore((s) => s.goBack);
-	const closeWizard = usePrompterStore((s) => s.closeWizard);
 	const resetWizard = usePrompterStore((s) => s.resetWizard);
 	const saveStateForResume = usePrompterStore((s) => s.saveStateForResume);
 	const clearResumeState = usePrompterStore((s) => s.clearResumeState);
@@ -53,6 +55,18 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 	const [showExitConfirm, setShowExitConfirm] = useState(false);
 	const [maxParallelAgents, setMaxParallelAgents] = useState(4);
 	const [starting, setStarting] = useState(false);
+
+	// On open, restore a saved (unfinished) wizard snapshot if one exists.
+	useEffect(() => {
+		const snapshot =
+			usePrompterStore.getState().savedWizardState ?? usePrompterStore.getState().loadResumeState();
+		if (snapshot) usePrompterStore.getState().restoreFromSavedState(snapshot);
+	}, []);
+
+	const close = useCallback(() => {
+		useModalStore.getState().closeModal('prompter');
+		usePrompterStore.getState().closeWizard();
+	}, []);
 
 	const canAdvance = useCallback((): boolean => {
 		switch (wizardStep) {
@@ -91,22 +105,22 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		if (PROMPTER_WIZARD_STEPS.indexOf(wizardStep) > 0) {
 			setShowExitConfirm(true);
 		} else {
-			closeWizard();
+			close();
 		}
-	}, [wizardStep, closeWizard]);
+	}, [wizardStep, close]);
 
 	const handleConfirmExit = useCallback(() => {
 		saveStateForResume();
 		setShowExitConfirm(false);
-		closeWizard();
-	}, [saveStateForResume, closeWizard]);
+		close();
+	}, [saveStateForResume, close]);
 
 	const handleQuitWithoutSaving = useCallback(() => {
 		clearResumeState();
 		resetWizard();
 		setShowExitConfirm(false);
-		closeWizard();
-	}, [clearResumeState, resetWizard, closeWizard]);
+		close();
+	}, [clearResumeState, resetWizard, close]);
 
 	const handleStart = useCallback(async () => {
 		if (!createdProject || starting) return;
@@ -121,10 +135,11 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 			};
 			const run = await window.maestro.prompter.createRun(config);
 			await window.maestro.prompter.startRun(run.id);
+			rememberPrompterProjectRoot(createdProject.rootPath);
 			setActiveRun(run);
 			clearResumeState();
 			resetWizard();
-			closeWizard();
+			close();
 		} finally {
 			setStarting(false);
 		}
@@ -137,10 +152,8 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		setActiveRun,
 		clearResumeState,
 		resetWizard,
-		closeWizard,
+		close,
 	]);
-
-	if (!wizardOpen) return null;
 
 	const advanceEnabled = canAdvance();
 
@@ -174,7 +187,7 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 									color: theme.colors.accentForeground,
 								}}
 							>
-								{starting ? 'Starte…' : 'Run starten'}
+								{starting ? 'Starte...' : 'Run starten'}
 							</button>
 						) : (
 							<button
@@ -222,3 +235,5 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		</>
 	);
 }
+
+export default PrompterWizardModal;

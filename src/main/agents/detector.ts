@@ -408,6 +408,36 @@ export class AgentDetector {
 					return [];
 				}
 
+				case 'grok-build': {
+					// Grok Build (xAI CLI): discover models via `<cli> models` with a
+					// short timeout. Falls back to an empty list (manual entry) on any
+					// failure, mirroring the other CLI-discovery agents.
+					if (!command) return [];
+					try {
+						const result = await execFileNoThrow(command, ['models'], undefined, {
+							timeout: 5000,
+						});
+						if (result.exitCode === 0) {
+							const models = result.stdout
+								.split('\n')
+								.map((line) => line.trim())
+								.filter((line) => line.length > 0);
+							logger.info(`Discovered ${models.length} models for ${agentId}`, LOG_CONTEXT, {
+								models,
+							});
+							return models;
+						}
+						logger.warn(
+							`CLI model discovery failed for ${agentId}: exit code ${result.exitCode}`,
+							LOG_CONTEXT,
+							{ stderr: result.stderr }
+						);
+					} catch (error) {
+						logger.debug(`Model discovery failed for ${agentId}`, LOG_CONTEXT, { error });
+					}
+					return [];
+				}
+
 				case 'opencode': {
 					// OpenCode: merge models from two sources:
 					// 1. `opencode models` CLI command (runtime-available models)

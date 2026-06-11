@@ -57,6 +57,7 @@ const DirectorNotesModal = lazy(() =>
 	import('./DirectorNotes').then((m) => ({ default: m.DirectorNotesModal }))
 );
 const CueModal = lazy(() => import('./CueModal').then((m) => ({ default: m.CueModal })));
+const PrompterWizardModal = lazy(() => import('./PrompterWizard/PrompterWizardModal'));
 const CueYamlEditor = lazy(() =>
 	import('./CueYamlEditor').then((m) => ({ default: m.CueYamlEditor }))
 );
@@ -236,6 +237,7 @@ function AppStandaloneModalsInner({
 		setMarketplaceModalOpen,
 		symphonyModalOpen,
 		setSymphonyModalOpen,
+		prompterModalOpen,
 		directorNotesOpen,
 		setDirectorNotesOpen,
 		cueModalOpen,
@@ -359,6 +361,13 @@ function AppStandaloneModalsInner({
 						}}
 						onStartContribution={onStartContribution}
 					/>
+				</Suspense>
+			)}
+
+			{/* --- PROMPTER (PROMPT SAFETY LAB) WIZARD (lazy-loaded) --- */}
+			{prompterModalOpen && (
+				<Suspense fallback={null}>
+					<PrompterWizardModal theme={theme} />
 				</Suspense>
 			)}
 

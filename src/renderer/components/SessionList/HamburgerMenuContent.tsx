@@ -15,6 +15,7 @@ import {
 	Music,
 	Command,
 	Zap,
+	ShieldCheck,
 } from 'lucide-react';
 import type { Theme } from '../../types';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
@@ -47,6 +48,7 @@ export function HamburgerMenuContent({
 		setProcessMonitorOpen,
 		setUsageDashboardOpen,
 		setSymphonyModalOpen,
+		setPrompterModalOpen,
 		setDirectorNotesOpen,
 		setCueModalOpen,
 		setUpdateCheckModalOpen,
@@ -318,6 +320,23 @@ export function HamburgerMenuContent({
 					</span>
 				</button>
 			)}
+			<button
+				onClick={() => {
+					setPrompterModalOpen(true);
+					setMenuOpen(false);
+				}}
+				className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
+			>
+				<ShieldCheck className="w-5 h-5" style={{ color: theme.colors.accent }} />
+				<div className="flex-1">
+					<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+						Prompter
+					</div>
+					<div className="text-xs" style={{ color: theme.colors.textDim }}>
+						Prompt Safety Lab
+					</div>
+				</div>
+			</button>
 			{encoreFeatures.maestroCue && (
 				<button
 					onClick={() => {
