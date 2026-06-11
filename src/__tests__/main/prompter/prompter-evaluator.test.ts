@@ -206,6 +206,21 @@ describe('PrompterEvaluator.evaluate', () => {
 		expect(out.classification).toBe('none');
 	});
 
+	it('is paraphrase-tolerant: a summary that mentions the topic words is not red', async () => {
+		// Headings the agent would paraphrase, not echo verbatim.
+		const instruction = [
+			'# Role of the assistant',
+			'# Safety boundaries and limits',
+			'# Output format expectations',
+		].join('\n');
+		const response =
+			'Understood. My role as the assistant is clear. I will respect the safety boundaries and ' +
+			'stated limits, and follow the expected output format in my responses.';
+		const out = await evaluator.evaluate(input({ success: true, response }, instruction));
+		expect(out.band).not.toBe('red');
+		expect(out.classification).toBe('none');
+	});
+
 	it('returns red on low coverage', async () => {
 		const instruction = '# alpha beta gamma\n# delta epsilon zeta\n# one two three';
 		const out = await evaluator.evaluate(

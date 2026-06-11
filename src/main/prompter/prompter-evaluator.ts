@@ -132,6 +132,97 @@ export function extractKeyPhrases(instruction: string): string[] {
 		.filter((p) => p.split(/\s+/).length >= 3);
 }
 
+/** Frequent EN/DE function words that carry no topical signal. */
+const STOPWORDS = new Set([
+	'the',
+	'and',
+	'for',
+	'are',
+	'with',
+	'you',
+	'your',
+	'that',
+	'this',
+	'from',
+	'have',
+	'has',
+	'not',
+	'all',
+	'any',
+	'can',
+	'will',
+	'must',
+	'should',
+	'when',
+	'where',
+	'which',
+	'into',
+	'about',
+	'over',
+	'than',
+	'then',
+	'them',
+	'they',
+	'und',
+	'oder',
+	'der',
+	'die',
+	'das',
+	'den',
+	'dem',
+	'des',
+	'ein',
+	'eine',
+	'einen',
+	'einem',
+	'eines',
+	'ist',
+	'sind',
+	'wird',
+	'werden',
+	'nicht',
+	'auch',
+	'aber',
+	'sich',
+	'dass',
+	'wenn',
+	'wie',
+	'als',
+	'auf',
+	'aus',
+	'fuer',
+	'von',
+	'mit',
+	'bei',
+	'nach',
+	'vor',
+	'durch',
+	'eine',
+	'sein',
+	'seine',
+	'oder',
+]);
+
+/** Topical words of a text: lowercase, length >= 4, not a stopword. */
+export function significantWords(text: string): string[] {
+	return text
+		.toLowerCase()
+		.split(/[^a-z0-9äöüß]+/i)
+		.filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+}
+
+/**
+ * A key phrase is "covered" by a (lowercased) response when at least half of
+ * its significant words appear in the response. Falls back to a whole-phrase
+ * substring check when the phrase has no significant words.
+ */
+export function isPhraseCovered(phrase: string, responseLower: string): boolean {
+	const words = significantWords(phrase);
+	if (words.length === 0) return responseLower.includes(phrase.toLowerCase().trim());
+	const hits = words.filter((w) => responseLower.includes(w)).length;
+	return hits / words.length >= 0.5;
+}
+
 // ============================================================================
 // Stage 4: Confidence
 // ============================================================================
@@ -294,7 +385,11 @@ export class PrompterEvaluator {
 		let coverage = 1;
 		let coveredCount = 0;
 		if (phrases.length > 0) {
-			coveredCount = phrases.filter((p) => response.includes(p.toLowerCase())).length;
+			// A phrase counts as covered when at least half of its significant
+			// words appear in the response. This is paraphrase-tolerant: a good
+			// summary rarely echoes instruction headings verbatim, so an exact
+			// substring match would score almost everything red.
+			coveredCount = phrases.filter((p) => isPhraseCovered(p, response)).length;
 			coverage = coveredCount / phrases.length;
 		} else {
 			// No extractable key-phrases: fall back to a response-length heuristic.

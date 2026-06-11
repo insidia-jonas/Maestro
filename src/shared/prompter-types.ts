@@ -22,13 +22,17 @@ export type PrompterWizardStep =
 	| 'schema-selection'
 	| 'review';
 
-/** Ordered list of wizard steps - single source of truth for navigation. */
+/**
+ * Ordered list of wizard steps - single source of truth for navigation.
+ * Instructions come before model-config so the user attaches and reviews the
+ * instruction files before configuring each agent's model.
+ */
 export const PROMPTER_WIZARD_STEPS: readonly PrompterWizardStep[] = [
 	'project-folder',
 	'create-structure',
 	'agent-selection',
-	'model-config',
 	'instructions',
+	'model-config',
 	'schema-selection',
 	'review',
 ] as const;
