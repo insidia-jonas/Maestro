@@ -87,6 +87,7 @@ import {
 	registerMaestroCliHandlers,
 	registerPromptsHandlers,
 	registerMemoryHandlers,
+	registerPrompterHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -1375,6 +1376,13 @@ function setupIpcHandlers() {
 		getAgentDetector: () => agentDetector,
 		getCustomEnvVars: getCustomEnvVarsForAgent,
 		getAgentConfig: getAgentConfigForAgent,
+	});
+
+	// Register Prompter (Prompt Safety Lab) handlers
+	registerPrompterHandlers({
+		getMainWindow: () => mainWindow,
+		getAgentDetector: () => agentDetector,
+		settingsStore: store,
 	});
 
 	// Register Debug Package handlers

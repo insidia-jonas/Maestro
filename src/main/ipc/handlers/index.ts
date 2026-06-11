@@ -131,6 +131,7 @@ export { registerFeedbackHandlers };
 export { registerMaestroCliHandlers };
 export { registerPromptsHandlers };
 export { registerMemoryHandlers };
+export { registerPrompterHandlers };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
