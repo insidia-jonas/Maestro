@@ -4,7 +4,7 @@ per-agent CLI config-file slots, run shown in the center via a left-bar entry. -
 
 # Prompter (Prompt Safety Lab)
 
-The Prompter is a self-contained feature for **auditing how AI agents understand and preserve a system instruction** across providers and models. The user scaffolds a project folder, drops generic instruction files into it, picks agents/models and test schemas, and runs a batch. Each agent is fed the instruction as a provider-specific envelope, asked a schema prompt, and its answer is classified into a traffic-light band (green/yellow/red). It is a **safety lab, not a bypass tool**: refusals are legitimate results, prompts are never obfuscated, and every write stays inside the chosen project folder.
+The Prompter is a self-contained feature for **auditing how AI agents understand and preserve a system instruction** across providers and models. The user scaffolds a project folder, drops generic instruction files into it, picks agents and models, and runs a batch. Each agent is established with the instruction (as a provider-specific envelope) and then probed with a fixed refusal-probe set; each answer is classified into a traffic-light band (green/yellow/red). It is a **safety lab, not a bypass tool**: refusals are legitimate results, prompts are never obfuscated, nothing iterates to defeat a refusal, and every write stays inside the chosen project folder.
 
 Reached from the hamburger menu (`ShieldCheck` icon -> "Prompter / Prompt Safety Lab").
 
