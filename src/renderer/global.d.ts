@@ -3520,6 +3520,7 @@ interface MaestroAPI {
 		) => Promise<import('../shared/prompter-types').PrompterProject>;
 		deleteProject: (projectRoot: string) => Promise<void>;
 		openProjectFolder: (projectRoot: string) => Promise<void>;
+		selectFile: () => Promise<string | null>;
 		listInstructions: (
 			projectRoot: string
 		) => Promise<import('../shared/prompter-types').InstructionFile[]>;

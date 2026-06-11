@@ -118,14 +118,73 @@ export interface PrompterGeneratedFile {
 	provider: string;
 }
 
+/** A CLI-specific config-file slot a user can attach a file to per agent. */
+export interface AgentFileSlot {
+	key: string;
+	label: string;
+	/** Target path relative to the agent work dir. */
+	target: string;
+}
+
+/**
+ * Per-agent CLI config-file slots (skills/settings/agent files). The user picks
+ * a file for any slot; it is copied to the slot's target in the run work dir so
+ * the CLI reads it. The main instruction stays the envelope selection; these are
+ * extra config.
+ */
+export const AGENT_FILE_SLOTS: Record<string, AgentFileSlot[]> = {
+	'claude-code': [
+		{ key: 'settings', label: 'Settings (.claude/settings.json)', target: '.claude/settings.json' },
+		{ key: 'skill', label: 'Skill (.claude/skills/SKILL.md)', target: '.claude/skills/SKILL.md' },
+		{ key: 'agents', label: 'AGENTS.md', target: 'AGENTS.md' },
+	],
+	codex: [
+		{ key: 'agents', label: 'AGENTS.md', target: 'AGENTS.md' },
+		{ key: 'config', label: 'config.toml', target: 'config.toml' },
+	],
+	'copilot-cli': [
+		{
+			key: 'instructions',
+			label: '.github/copilot-instructions.md',
+			target: '.github/copilot-instructions.md',
+		},
+	],
+	opencode: [
+		{ key: 'agents', label: 'AGENTS.md', target: 'AGENTS.md' },
+		{ key: 'config', label: 'opencode.json', target: 'opencode.json' },
+	],
+	gemini: [
+		{ key: 'settings', label: '.gemini/settings.json', target: '.gemini/settings.json' },
+		{ key: 'instructions', label: 'GEMINI.md', target: 'GEMINI.md' },
+	],
+	'grok-build': [{ key: 'instructions', label: 'GROK.md', target: 'GROK.md' }],
+};
+
+/** The CLI config-file slots available for an agent (empty if none). */
+export function agentFileSlots(agentId: string): AgentFileSlot[] {
+	return AGENT_FILE_SLOTS[agentId] ?? [];
+}
+
+/** A user-attached config file copied into the agent's run working dir. */
+export interface PrompterAttachedFile {
+	/** Slot key (e.g. 'settings', 'skill', 'agents'). */
+	slot: string;
+	/** Absolute source path chosen by the user. */
+	sourcePath: string;
+	/** Target path relative to the agent work dir (e.g. '.claude/settings.json'). */
+	target: string;
+}
+
 export interface PrompterAgentConfig {
 	agentId: string;
 	modelId: string;
 	modelSource: 'discovery' | 'manual';
-	/** Path relative to 1-generic-instructions/ (or '*' when all files apply). */
+	/** Path relative to 1-generic-instructions/ (or '*' all, or 'none' bare model). */
 	instructionFile: string;
 	providerConfigOverrides: Record<string, unknown>;
 	generatedFiles: PrompterGeneratedFile[];
+	/** CLI-specific config files (skills/settings/agent files) attached per agent. */
+	attachedFiles?: PrompterAttachedFile[];
 }
 
 export interface PrompterModelOption {

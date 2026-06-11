@@ -14,7 +14,7 @@
  * Playbook reference: section 8 (Task C), section 10.
  */
 
-import { ipcMain, shell, type BrowserWindow } from 'electron';
+import { ipcMain, shell, dialog, type BrowserWindow } from 'electron';
 import type Store from 'electron-store';
 import { withIpcErrorLogging, type CreateHandlerOptions } from '../../utils/ipcHandler';
 import type { MaestroSettings } from './persistence';
@@ -120,6 +120,17 @@ export function registerPrompterHandlers(deps: PrompterHandlerDependencies): voi
 		'prompter:openProjectFolder',
 		withIpcErrorLogging(handlerOpts('openProjectFolder'), async (projectRoot: string) => {
 			await shell.openPath(projectRoot);
+		})
+	);
+
+	ipcMain.handle(
+		'prompter:selectFile',
+		withIpcErrorLogging(handlerOpts('selectFile'), async (): Promise<string | null> => {
+			const win = getMainWindow();
+			const result = win
+				? await dialog.showOpenDialog(win, { properties: ['openFile'] })
+				: await dialog.showOpenDialog({ properties: ['openFile'] });
+			return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
 		})
 	);
 

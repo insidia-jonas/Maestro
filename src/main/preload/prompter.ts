@@ -32,6 +32,7 @@ export function createPrompterApi() {
 			ipcRenderer.invoke('prompter:deleteProject', projectRoot),
 		openProjectFolder: (projectRoot: string): Promise<void> =>
 			ipcRenderer.invoke('prompter:openProjectFolder', projectRoot),
+		selectFile: (): Promise<string | null> => ipcRenderer.invoke('prompter:selectFile'),
 
 		// Instructions
 		listInstructions: (projectRoot: string): Promise<InstructionFile[]> =>

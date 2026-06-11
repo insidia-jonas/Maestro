@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Cpu, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { Cpu, FileText, Loader2, AlertCircle, Paperclip, X } from 'lucide-react';
 import type { Theme } from '../../types';
 import { usePrompterStore } from '../../stores/prompterStore';
-import type { PrompterModelOption } from '../../../shared/prompter-types';
+import {
+	agentFileSlots,
+	type PrompterModelOption,
+	type PrompterAgentConfig,
+	type AgentFileSlot,
+} from '../../../shared/prompter-types';
 import { getAgentDisplayName } from '../../../shared/agentMetadata';
 
 export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
@@ -105,15 +110,28 @@ export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
 					const modelId = config?.modelId ?? '';
 					const modelIsKnown = options.some((o) => o.id === modelId);
 					const modelIsCustom = modelId !== '' && !modelIsKnown;
-					const setModel = (id: string, source: 'discovery' | 'manual'): void =>
+					const patchConfig = (patch: Partial<PrompterAgentConfig>): void =>
 						usePrompterStore.getState().setAgentConfig(agent.agentId, {
 							agentId: agent.agentId,
-							modelId: id,
-							modelSource: source,
+							modelId: config?.modelId ?? '',
+							modelSource: config?.modelSource ?? 'manual',
 							instructionFile: config?.instructionFile ?? '*',
 							providerConfigOverrides: config?.providerConfigOverrides ?? {},
 							generatedFiles: config?.generatedFiles ?? [],
+							attachedFiles: config?.attachedFiles ?? [],
+							...patch,
 						});
+					const setModel = (id: string, source: 'discovery' | 'manual'): void =>
+						patchConfig({ modelId: id, modelSource: source });
+					const slots = agentFileSlots(agent.agentId);
+					const setAttached = (slot: AgentFileSlot, sourcePath: string | null): void => {
+						const others = (config?.attachedFiles ?? []).filter((f) => f.slot !== slot.key);
+						patchConfig({
+							attachedFiles: sourcePath
+								? [...others, { slot: slot.key, sourcePath, target: slot.target }]
+								: others,
+						});
+					};
 
 					return (
 						<div
@@ -232,6 +250,67 @@ export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
 									))}
 								</select>
 							</div>
+
+							{slots.length > 0 && (
+								<div className="flex flex-col gap-1.5">
+									<label
+										className="flex items-center gap-1 text-xs font-medium"
+										style={{ color: theme.colors.textDim }}
+									>
+										<Paperclip size={12} />
+										Zusaetzliche CLI-Dateien (optional)
+									</label>
+									{slots.map((slot) => {
+										const attached = (config?.attachedFiles ?? []).find((f) => f.slot === slot.key);
+										const fileName = attached?.sourcePath.split(/[\\/]/).pop();
+										return (
+											<div key={slot.key} className="flex items-center gap-2 text-xs">
+												<span
+													className="w-44 shrink-0 truncate"
+													style={{ color: theme.colors.textDim }}
+													title={slot.target}
+												>
+													{slot.label}
+												</span>
+												<button
+													type="button"
+													onClick={async () => {
+														const picked = await window.maestro.prompter.selectFile();
+														if (picked) setAttached(slot, picked);
+													}}
+													className="rounded border px-2 py-1"
+													style={{
+														borderColor: theme.colors.border,
+														color: theme.colors.textMain,
+														backgroundColor: theme.colors.bgMain,
+													}}
+												>
+													{attached ? 'Aendern' : 'Datei waehlen'}
+												</button>
+												{attached && (
+													<>
+														<span
+															className="min-w-0 flex-1 truncate select-text"
+															style={{ color: theme.colors.textMain }}
+															title={attached.sourcePath}
+														>
+															{fileName}
+														</span>
+														<button
+															type="button"
+															onClick={() => setAttached(slot, null)}
+															title="Entfernen"
+															style={{ color: theme.colors.error }}
+														>
+															<X size={13} />
+														</button>
+													</>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							)}
 
 							{config && !config.modelId && (
 								<div

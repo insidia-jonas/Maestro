@@ -53,4 +53,27 @@ describe('PrompterAgentConfigWriter.writeEnvelope', () => {
 			'BODY'
 		);
 	});
+
+	it('writeAttachedFiles copies attached files to their slot targets', async () => {
+		const src = path.join(workDir, 'my-settings.json');
+		fs.writeFileSync(src, '{"a":1}');
+		await writer.writeAttachedFiles(workDir, [
+			{ slot: 'settings', sourcePath: src, target: '.claude/settings.json' },
+		]);
+		expect(fs.readFileSync(path.join(workDir, '.claude', 'settings.json'), 'utf-8')).toBe(
+			'{"a":1}'
+		);
+	});
+
+	it('writeAttachedFiles skips a missing source and rejects an escaping target', async () => {
+		await writer.writeAttachedFiles(workDir, [
+			{ slot: 'x', sourcePath: '/nope/missing.json', target: 'ok.json' },
+		]);
+		expect(fs.existsSync(path.join(workDir, 'ok.json'))).toBe(false); // source missing -> skipped
+		const src = path.join(workDir, 's.txt');
+		fs.writeFileSync(src, 'x');
+		await expect(
+			writer.writeAttachedFiles(workDir, [{ slot: 'x', sourcePath: src, target: '../escape.json' }])
+		).rejects.toThrow();
+	});
 });

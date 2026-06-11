@@ -313,6 +313,11 @@ export class PrompterRunManager {
 			if (!isBare) {
 				await this.deps.configWriter.writeEnvelope(workDir, task.agentId, instructionContent);
 			}
+			// Copy any user-attached CLI config files (skills/settings/agent files).
+			const agentCfg = run.agents.find((a) => a.agentId === task.agentId);
+			if (agentCfg?.attachedFiles?.length) {
+				await this.deps.configWriter.writeAttachedFiles(workDir, agentCfg.attachedFiles);
+			}
 
 			const ctx: PromptContext = {
 				instructionContent,

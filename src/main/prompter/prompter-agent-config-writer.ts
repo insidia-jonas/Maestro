@@ -9,10 +9,11 @@
  * Playbook reference: section 3 (provider table), section 10 (spawn flow).
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { assertSafeWritePath } from './prompter-path-safety';
 import { atomicWriteFile, ensureDir } from './prompter-fs';
-import type { PrompterGeneratedFile } from '../../shared/prompter-types';
+import type { PrompterGeneratedFile, PrompterAttachedFile } from '../../shared/prompter-types';
 
 /**
  * Primary instruction file(s) each provider reads from its working directory.
@@ -57,5 +58,24 @@ export class PrompterAgentConfigWriter {
 			written.push({ relativePath: rel, template: rel, provider: agentId });
 		}
 		return written;
+	}
+
+	/**
+	 * Copy user-attached config files into the agent work dir at their slot
+	 * targets (path-safety checked, atomic). Missing sources are skipped.
+	 */
+	async writeAttachedFiles(workDir: string, attached: PrompterAttachedFile[]): Promise<void> {
+		for (const file of attached) {
+			if (!file.sourcePath || !file.target) continue;
+			let content: Buffer;
+			try {
+				content = fs.readFileSync(file.sourcePath);
+			} catch {
+				continue;
+			}
+			const abs = assertSafeWritePath(file.target, workDir);
+			await ensureDir(path.dirname(abs));
+			await atomicWriteFile(abs, content.toString('utf-8'));
+		}
 	}
 }
