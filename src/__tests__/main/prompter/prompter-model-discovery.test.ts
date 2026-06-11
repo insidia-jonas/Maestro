@@ -17,20 +17,36 @@ function fakeDetector(discover: (id: string) => Promise<string[]>): AgentDetecto
 }
 
 describe('PrompterModelDiscovery', () => {
-	it('maps discovered models to options tagged cli-discovery', async () => {
+	it('maps discovered models to options tagged cli-discovery (codex has no curated set)', async () => {
 		const disc = new PrompterModelDiscovery({
-			getAgentDetector: () => fakeDetector(async () => ['opus', 'fable']),
+			getAgentDetector: () => fakeDetector(async () => ['o3', 'o4-mini']),
 		});
-		const opts = await disc.getModelOptions('claude-code');
+		const opts = await disc.getModelOptions('codex');
 		expect(opts).toEqual([
-			{ id: 'opus', label: 'opus', source: 'cli-discovery' },
-			{ id: 'fable', label: 'fable', source: 'cli-discovery' },
+			{ id: 'o3', label: 'o3', source: 'cli-discovery' },
+			{ id: 'o4-mini', label: 'o4-mini', source: 'cli-discovery' },
 		]);
 	});
 
-	it('returns an empty list (never throws) when no detector is available', async () => {
+	it('appends curated claude-code suggestions on top of discovery', async () => {
+		const disc = new PrompterModelDiscovery({
+			getAgentDetector: () => fakeDetector(async () => ['opus', 'fable']),
+		});
+		const ids = (await disc.getModelOptions('claude-code')).map((o) => o.id);
+		expect(ids.slice(0, 2)).toEqual(['opus', 'fable']); // discovery first
+		expect(ids).toContain('claude-opus-4-8');
+		expect(ids).toContain('claude-opus-4-6');
+	});
+
+	it('returns an empty list (never throws) when no detector and no curated set', async () => {
 		const disc = new PrompterModelDiscovery({ getAgentDetector: () => null });
-		await expect(disc.getModelOptions('claude-code')).resolves.toEqual([]);
+		await expect(disc.getModelOptions('codex')).resolves.toEqual([]);
+	});
+
+	it('still surfaces curated suggestions for claude-code without a detector', async () => {
+		const disc = new PrompterModelDiscovery({ getAgentDetector: () => null });
+		const ids = (await disc.getModelOptions('claude-code')).map((o) => o.id);
+		expect(ids).toContain('claude-opus-4-8');
 	});
 
 	it('falls back to the cache (tagged cache) when discovery later fails', async () => {

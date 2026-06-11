@@ -130,60 +130,42 @@ export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
 								<label className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
 									Modell
 								</label>
-								{hasOptions ? (
-									<select
-										className="text-sm rounded-md px-2 py-1.5 border outline-none"
-										style={{
-											backgroundColor: theme.colors.bgMain,
-											borderColor: theme.colors.border,
-											color: theme.colors.textMain,
-										}}
-										value={config?.modelId ?? ''}
-										onChange={(e) => {
-											const modelId = e.target.value;
-											usePrompterStore.getState().setAgentConfig(agent.agentId, {
-												agentId: agent.agentId,
-												modelId,
-												modelSource: 'discovery',
-												instructionFile: config?.instructionFile ?? '*',
-												providerConfigOverrides: config?.providerConfigOverrides ?? {},
-												generatedFiles: config?.generatedFiles ?? [],
-											});
-										}}
-									>
-										{options.map((opt) => (
-											<option key={opt.id} value={opt.id}>
-												{opt.label} ({opt.source})
-											</option>
-										))}
-									</select>
-								) : (
-									<input
-										type="text"
-										placeholder="Modell manuell eingeben"
-										className="text-sm rounded-md px-2 py-1.5 border outline-none"
-										style={{
-											backgroundColor: theme.colors.bgMain,
-											borderColor: theme.colors.border,
-											color: theme.colors.textMain,
-										}}
-										value={config?.modelId ?? ''}
-										onChange={(e) => {
-											const modelId = e.target.value;
-											usePrompterStore.getState().setAgentConfig(agent.agentId, {
-												agentId: agent.agentId,
-												modelId,
-												modelSource: 'manual',
-												instructionFile: config?.instructionFile ?? '*',
-												providerConfigOverrides: config?.providerConfigOverrides ?? {},
-												generatedFiles: config?.generatedFiles ?? [],
-											});
-										}}
-									/>
-								)}
+								{/* Combobox: pick a discovered/suggested model or type any version. */}
+								<input
+									type="text"
+									list={`prompter-models-${agent.agentId}`}
+									placeholder="Modell waehlen oder eingeben (z.B. claude-opus-4-8)"
+									className="text-sm rounded-md px-2 py-1.5 border outline-none"
+									style={{
+										backgroundColor: theme.colors.bgMain,
+										borderColor: theme.colors.border,
+										color: theme.colors.textMain,
+									}}
+									value={config?.modelId ?? ''}
+									onChange={(e) => {
+										const modelId = e.target.value;
+										const known = options.some((o) => o.id === modelId);
+										usePrompterStore.getState().setAgentConfig(agent.agentId, {
+											agentId: agent.agentId,
+											modelId,
+											modelSource: known ? 'discovery' : 'manual',
+											instructionFile: config?.instructionFile ?? '*',
+											providerConfigOverrides: config?.providerConfigOverrides ?? {},
+											generatedFiles: config?.generatedFiles ?? [],
+										});
+									}}
+								/>
+								<datalist id={`prompter-models-${agent.agentId}`}>
+									{options.map((opt) => (
+										<option key={opt.id} value={opt.id}>
+											{opt.label} ({opt.source})
+										</option>
+									))}
+								</datalist>
 								{!hasOptions && !loading && (
-									<span className="text-xs" style={{ color: theme.colors.warning }}>
-										Keine Modelle ueber CLI-Discovery gefunden. Trag das Modell manuell ein.
+									<span className="text-xs" style={{ color: theme.colors.textDim }}>
+										Keine Modelle ueber CLI-Discovery gefunden. Tipp das Modell direkt ein (z.B.
+										claude-opus-4-8).
 									</span>
 								)}
 							</div>

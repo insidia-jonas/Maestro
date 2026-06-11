@@ -17,6 +17,31 @@ const LOG = 'PrompterModelDiscovery';
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Known full model IDs offered as extra combobox suggestions on top of CLI
+ * discovery (which often returns only aliases like "opus"/"sonnet"). The user
+ * can still type any other version. Keep this short and current.
+ */
+const CURATED_MODELS: Record<string, string[]> = {
+	'claude-code': [
+		'claude-opus-4-8',
+		'claude-opus-4-6',
+		'claude-sonnet-4-6',
+		'claude-haiku-4-5',
+		'claude-fable-5',
+	],
+};
+
+function mergeCurated(agentId: string, options: PrompterModelOption[]): PrompterModelOption[] {
+	const curated = CURATED_MODELS[agentId];
+	if (!curated) return options;
+	const have = new Set(options.map((o) => o.id));
+	const extra = curated
+		.filter((id) => !have.has(id))
+		.map((id): PrompterModelOption => ({ id, label: id, source: 'api' }));
+	return [...options, ...extra];
+}
+
 export interface ModelDiscoveryDeps {
 	getAgentDetector: () => AgentDetector | null;
 }
@@ -55,13 +80,14 @@ export class PrompterModelDiscovery {
 				detector.discoverModels(agentId, forceRefresh),
 				DISCOVERY_TIMEOUT_MS
 			);
-			const options: PrompterModelOption[] = models.map((id) => ({
+			const discovered: PrompterModelOption[] = models.map((id) => ({
 				id,
 				label: id,
 				source: 'cli-discovery',
 			}));
+			const options = mergeCurated(agentId, discovered);
 			this.cache.set(agentId, { options, timestamp: Date.now() });
-			logger.info(`Discovered ${options.length} models for ${agentId}`, LOG);
+			logger.info(`Discovered ${discovered.length} models for ${agentId}`, LOG);
 			return options;
 		} catch (error) {
 			logger.warn(`Model discovery failed for ${agentId}; using fallback`, LOG, { error });
@@ -80,7 +106,9 @@ export class PrompterModelDiscovery {
 		if (cached) {
 			return cached.options.map((o) => ({ ...o, source: 'cache' }));
 		}
-		return [];
+		// No detector and no cache: still surface curated suggestions so the user
+		// can pick a known version (or type any other).
+		return mergeCurated(agentId, []);
 	}
 }
 
