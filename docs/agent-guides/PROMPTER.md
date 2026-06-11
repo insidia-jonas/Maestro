@@ -9,7 +9,7 @@ Reached from the hamburger menu (`ShieldCheck` icon -> "Prompter / Prompt Safety
 ## What it does (function)
 
 1. **Scaffold** a project folder with a fixed layout (instructions, schemas, results, docs, tools) plus generated guides and 9 builtin schemas.
-2. **Collect** all instruction files under `1-generic-instructions/` (recursive, hashed). No cherry-picking: every file is tested.
+2. **Collect** all instruction files under `1-generic-instructions/` (recursive, hashed). No cherry-picking: every file is tested. In addition, each top-level base instruction is run through 23 deterministic character/layout transforms (`prompter-variation-generator.ts`) into `4-advanced-tests/character-variations/tv-<stem>-<transform>.md`, which are always tested too (controlled by `PrompterRunConfig.includeVariations`, default true).
 3. **Configure** a test matrix: `agents x instructions x schemas`. Each agent gets a model (from CLI discovery, with manual fallback).
 4. **Run** the matrix in per-agent lanes (agents in parallel, tasks serial per lane, capped at `maxParallelAgents`). Each task writes a provider envelope (CLAUDE.md / instructions.md / .github/copilot-instructions.md / AGENTS.md / GEMINI.md / GROK.md), spawns the agent in batch mode via the shared `spawnAgent()`, and evaluates the response.
 5. **Classify** each result: green (instruction understood and preserved), yellow (partial / needs review / normalization anomaly), red (refusal, integrity break, timeout, or config error). Red is a valid outcome.
@@ -68,6 +68,7 @@ prompter-run-manager        (project-service, config-writer, evaluator,
 | `src/main/prompter/prompter-agent-config-writer.ts`   | Writes the provider envelope file(s) into a per-agent working dir.                                                                                                |
 | `src/main/prompter/prompter-evaluator.ts`             | 4-stage classifier + helpers + sandboxed custom `.mjs` evaluator.                                                                                                 |
 | `src/main/prompter/prompter-report-writer.ts`         | Per-task evidence (md + json), traffic-light ampel entries, run report. All atomic.                                                                               |
+| `src/main/prompter/prompter-variation-generator.ts`   | 23 deterministic character/layout transforms; `generateVariations()` builds tv-fixtures from a base instruction.                                                  |
 | `src/main/prompter/prompter-run-manager.ts`           | Run lifecycle: task matrix, lanes, spawn (injected), timeout + rate-limit backoff, pause/resume/stop, manifest persistence, crash recovery.                       |
 | `src/main/ipc/handlers/prompter.ts`                   | 18 IPC handlers (+ 3 events) wired with `withIpcErrorLogging`. Lazy-imports `spawnAgent`.                                                                         |
 | `src/main/preload/prompter.ts`                        | `createPrompterApi()` contextBridge factory.                                                                                                                      |
@@ -105,7 +106,7 @@ Instruction scan excludes `GUIDE.md`, `README.md`, and `_`-prefixed files; exten
 
 1. **Failure detection** (`classifyFailure`): no result + `ETIMEDOUT` -> timeout; `ENOENT`/`spawn` -> cli-error; else unknown. These short-circuit to red. Non-success but with a response -> partial.
 2. **Refusal detection** (`detectRefusal`): `REFUSAL_PATTERNS` (safety/policy, EN+DE) and `CONFIG_ERROR_PATTERNS` (incl. rate-limit). 2+ safety hits, or 1 hit on a short answer -> `safety-policy` (red). Config hit -> `syntax-config` (red). 1 safety hit on a long answer -> `partial` (caps band at yellow).
-3. **Schema scoring**: key-phrase coverage of the original instruction (`extractKeyPhrases` over headings, bullets, bold terms with >= 3 words) vs the schema's `coverageThreshold`. `normalization-audit` instead runs a static byte analysis (`analyzeNormalization`: BOM, zero-width/bidi, control chars, mixed Latin+Cyrillic/Greek). `evaluation.type === 'custom'` runs a sandboxed `.mjs` evaluator.
+3. **Schema scoring**: key-phrase coverage of the original instruction (`extractKeyPhrases` over headings, bullets, bold terms with >= 3 words) vs the schema's `coverageThreshold`. A phrase counts as covered when >= 50% of its significant words (`significantWords`, stopword-filtered) appear in the response, so paraphrased summaries are not falsely scored red (`isPhraseCovered`). `normalization-audit` instead runs a static byte analysis (`analyzeNormalization`: BOM, zero-width/bidi, control chars, mixed Latin+Cyrillic/Greek). `evaluation.type === 'custom'` runs a sandboxed `.mjs` evaluator.
 4. **Confidence** (`assessConfidence`): high/medium/low from classification, pattern hits, and response length.
 
 The evaluator never rewrites or obfuscates a prompt. Refusals are reported, not retried with obfuscation.
@@ -149,7 +150,7 @@ To add a builtin schema: append a `PrompterSchemaDefinition` to `BUILTIN_SCHEMAS
 
 - `prompterStore` (Zustand) holds the wizard state machine (`PROMPTER_WIZARD_STEPS`), agent/schema selection, the active run with live `updateRunFromEvent` / `updateTaskFromEvent` / `appendLog` reducers, and a localStorage resume snapshot (`saveStateForResume` / `restoreFromSavedState` / `clearResumeState`).
 - Visibility is driven by the modal store id `'prompter'` (menu -> `openModal('prompter')`; `AppStandaloneModals` lazy-mounts the wizard on `prompterModalOpen`). The wizard closes via `closeModal('prompter')`.
-- The run panel is a floating component mounted in `App.tsx`, shown only when `activeRun` is set, so it does not touch the existing layout or the group-chat router.
+- The run opens in the **center workspace** (like a group chat) when `prompterFocused` is set. `PrompterSidebarEntry` is a left-bar row (rendered inside `SessionList`, reading the store directly like `GroupChatList`) that focuses the run; selecting an agent or opening a group chat blurs it (last action wins). Starting a run from the wizard focuses it automatically. The wizard step order is project-folder, create-structure, agent-selection, instructions, model-config, schema-selection, review (instructions before models). The model field is a combobox (`<datalist>`) so any specific version is selectable; `model-discovery` adds curated Claude version IDs on top of CLI discovery.
 - `usePrompterListeners` (mounted once in `App.tsx`) wires the three IPC event subscriptions and the startup recovery.
 
 ## Testing
