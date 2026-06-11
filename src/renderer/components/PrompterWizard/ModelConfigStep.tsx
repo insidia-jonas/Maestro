@@ -223,7 +223,8 @@ export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
 										});
 									}}
 								>
-									<option value="*">* (alle)</option>
+									<option value="*">* (alle Instructions + Variations)</option>
+									<option value="none">Keine (gegen nacktes Modell)</option>
 									{availableInstructions.map((f) => (
 										<option key={f.path} value={f.path}>
 											{f.path}

@@ -247,6 +247,36 @@ describe('PrompterRunManager', () => {
 		expect(calls[2].sessionId).toBe('sess-1');
 	});
 
+	it('runs an agent with no instruction against the bare model (no system prompt)', async () => {
+		const appendSeen: Array<string | undefined> = [];
+		const spawn: PrompterSpawnFn = async (_t, _c, _p, _s, options) => {
+			appendSeen.push(options.appendSystemPrompt);
+			return { success: true, response: 'A perfectly normal answer here.' } as SpawnResult;
+		};
+		const mgr = makeManager(spawn);
+		const run = await mgr.createRun({
+			projectId: 'p1',
+			projectRoot,
+			agents: [
+				{
+					agentId: 'claude-code',
+					modelId: 'm',
+					modelSource: 'manual',
+					instructionFile: 'none',
+					providerConfigOverrides: {},
+					generatedFiles: [],
+				},
+			],
+			schemas: ['baseline'],
+			includeVariations: false,
+		});
+		// bare: 1 bare input x 1 probe = 1 task with an empty instruction path
+		expect(run.tasks).toHaveLength(1);
+		expect(run.tasks[0].instructionFile).toBe('');
+		await mgr.startRun(run.id);
+		expect(appendSeen[0]).toBeUndefined(); // no system instruction sent
+	});
+
 	it('pauseRun and resumeRun flip the run status', async () => {
 		const mgr = makeManager();
 		const run = await mgr.createRun(runConfig(['baseline']));

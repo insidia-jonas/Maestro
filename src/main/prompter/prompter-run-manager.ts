@@ -111,13 +111,15 @@ export class PrompterRunManager {
 			config.projectRoot,
 			config.includeVariations ?? true
 		);
-		if (instructions.length === 0) {
-			throw new Error('Keine Instruction-Dateien in 1-generic-instructions/ gefunden');
-		}
 
 		const now = Date.now();
 		const runId = `run-${now}-${generateUUID().slice(0, 8)}`;
 		const tasks = this.buildTaskMatrix(runId, config, instructions);
+		if (tasks.length === 0) {
+			throw new Error(
+				'Keine Tasks: lege Instruction-Dateien in 1-generic-instructions/ ab oder waehle "Keine (nacktes Modell)" fuer einen Agent.'
+			);
+		}
 		const run: PrompterRun = {
 			id: runId,
 			projectId: config.projectId,
@@ -146,8 +148,18 @@ export class PrompterRunManager {
 		instructions: InstructionFile[]
 	): PrompterTask[] {
 		const tasks: PrompterTask[] = [];
+		// A bare input (no instruction) probes the model directly.
+		const BARE: InstructionFile = { path: '', hash: '', sizeBytes: 0, preview: '' };
 		for (const agent of config.agents) {
-			for (const instruction of instructions) {
+			const selection = agent.instructionFile || '*';
+			let agentInputs: InstructionFile[];
+			if (selection === 'none') agentInputs = [BARE];
+			else if (selection === '*') agentInputs = instructions;
+			else
+				agentInputs = instructions.filter(
+					(i) => i.path === selection || i.path.endsWith(`/${selection}`)
+				);
+			for (const instruction of agentInputs) {
 				for (const schemaId of config.schemas) {
 					tasks.push({
 						id: `task-${tasks.length}-${generateUUID().slice(0, 8)}`,
@@ -281,18 +293,26 @@ export class PrompterRunManager {
 		await this.persist(state);
 
 		try {
-			// task.instructionFile is project-root-relative (base instruction or a
-			// generated variation). Validate the path before reading: blocks
-			// traversal and a symlink swapped in after scan time (TOCTOU).
-			const instrAbs = assertSafeWritePath(task.instructionFile, run.projectRoot);
-			const instructionContent = fs.readFileSync(instrAbs, 'utf-8');
+			// An empty instructionFile means "bare model" (no instruction): probe the
+			// model directly, no envelope, no system prompt.
+			const isBare = task.instructionFile === '';
+			let instructionContent = '';
+			if (!isBare) {
+				// task.instructionFile is project-root-relative (base instruction or a
+				// generated variation). Validate the path before reading: blocks
+				// traversal and a symlink swapped in after scan time (TOCTOU).
+				const instrAbs = assertSafeWritePath(task.instructionFile, run.projectRoot);
+				instructionContent = fs.readFileSync(instrAbs, 'utf-8');
+			}
 
 			const registry = this.deps.projectService.getSchemaRegistry(run.projectRoot);
 			const schema = registry.getSchema(task.schemaId);
 			if (!schema) throw new Error(`Unbekanntes Schema: ${task.schemaId}`);
 
 			const workDir = this.workDir(state, task.agentId);
-			await this.deps.configWriter.writeEnvelope(workDir, task.agentId, instructionContent);
+			if (!isBare) {
+				await this.deps.configWriter.writeEnvelope(workDir, task.agentId, instructionContent);
+			}
 
 			const ctx: PromptContext = {
 				instructionContent,
@@ -394,7 +414,8 @@ export class PrompterRunManager {
 	): Promise<{ result: SpawnResult; rateLimitExhausted: boolean }> {
 		const options: SpawnOptions = {
 			customModel: modelId,
-			appendSystemPrompt: instructionContent,
+			// Empty for a bare-model probe: send no system instruction.
+			appendSystemPrompt: instructionContent || undefined,
 		};
 		let backoffIndex = 0;
 		while (true) {
