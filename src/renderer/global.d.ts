@@ -3509,6 +3509,55 @@ interface MaestroAPI {
 			agentId?: string
 		) => Promise<{ success: boolean; path?: string; error?: string }>;
 	};
+	prompter: {
+		planProject: (
+			targetDir: string,
+			projectName: string
+		) => Promise<import('../shared/prompter-types').ProjectPlan>;
+		createProject: (
+			targetDir: string,
+			projectName: string
+		) => Promise<import('../shared/prompter-types').PrompterProject>;
+		deleteProject: (projectRoot: string) => Promise<void>;
+		openProjectFolder: (projectRoot: string) => Promise<void>;
+		listInstructions: (
+			projectRoot: string
+		) => Promise<import('../shared/prompter-types').InstructionFile[]>;
+		importInstruction: (
+			projectRoot: string,
+			sourcePath: string
+		) => Promise<import('../shared/prompter-types').InstructionFile>;
+		listSchemas: (
+			projectRoot?: string
+		) => Promise<import('../shared/prompter-types').PrompterSchema[]>;
+		getAgentModelOptions: (
+			agentId: string,
+			forceRefresh?: boolean
+		) => Promise<import('../shared/prompter-types').PrompterModelOption[]>;
+		createRun: (
+			runConfig: import('../shared/prompter-types').PrompterRunConfig
+		) => Promise<import('../shared/prompter-types').PrompterRun>;
+		startRun: (runId: string) => Promise<void>;
+		pauseRun: (runId: string) => Promise<void>;
+		resumeRun: (runId: string) => Promise<void>;
+		stopRun: (runId: string) => Promise<void>;
+		getRun: (runId: string) => Promise<import('../shared/prompter-types').PrompterRun | null>;
+		listRuns: (projectRoot: string) => Promise<import('../shared/prompter-types').PrompterRun[]>;
+		deleteRun: (runId: string) => Promise<void>;
+		recoverRuns: (
+			projectRoots: string[]
+		) => Promise<import('../shared/prompter-types').PrompterRun[]>;
+		exportReport: (runId: string, format: 'md' | 'json') => Promise<string>;
+		onRunUpdated: (
+			callback: (payload: import('../shared/prompter-types').PrompterRunUpdatedEvent) => void
+		) => () => void;
+		onTaskUpdated: (
+			callback: (payload: import('../shared/prompter-types').PrompterTaskUpdatedEvent) => void
+		) => () => void;
+		onLog: (
+			callback: (payload: import('../shared/prompter-types').PrompterLogEvent) => void
+		) => () => void;
+	};
 }
 
 declare global {

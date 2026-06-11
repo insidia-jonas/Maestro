@@ -61,6 +61,7 @@ import { registerSymphonyHandlers, SymphonyHandlerDependencies } from './symphon
 import { registerAgentErrorHandlers } from './agent-error';
 import { registerTabNamingHandlers, TabNamingHandlerDependencies } from './tabNaming';
 import { registerDirectorNotesHandlers, DirectorNotesHandlerDependencies } from './director-notes';
+import { registerPrompterHandlers } from './prompter';
 import { registerCueHandlers, CueHandlerDependencies } from './cue';
 import { registerCueBackupHandlers } from './cue-backup';
 import { registerWakatimeHandlers } from './wakatime';
@@ -327,6 +328,12 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerPromptsHandlers();
 	// Register project Memory handlers (Claude Code per-project memory viewer)
 	registerMemoryHandlers();
+	// Register Prompter (Prompt Safety Lab) handlers
+	registerPrompterHandlers({
+		getMainWindow: deps.getMainWindow,
+		getAgentDetector: deps.getAgentDetector,
+		settingsStore: deps.settingsStore,
+	});
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }
