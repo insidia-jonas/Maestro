@@ -102,6 +102,19 @@ export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
 					const hasOptions = options.length > 0;
 					const displayName = agent.displayName || getAgentDisplayName(agent.agentId);
 
+					const modelId = config?.modelId ?? '';
+					const modelIsKnown = options.some((o) => o.id === modelId);
+					const modelIsCustom = modelId !== '' && !modelIsKnown;
+					const setModel = (id: string, source: 'discovery' | 'manual'): void =>
+						usePrompterStore.getState().setAgentConfig(agent.agentId, {
+							agentId: agent.agentId,
+							modelId: id,
+							modelSource: source,
+							instructionFile: config?.instructionFile ?? '*',
+							providerConfigOverrides: config?.providerConfigOverrides ?? {},
+							generatedFiles: config?.generatedFiles ?? [],
+						});
+
 					return (
 						<div
 							key={agent.agentId}
@@ -130,42 +143,54 @@ export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
 								<label className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
 									Modell
 								</label>
-								{/* Combobox: pick a discovered/suggested model or type any version. */}
-								<input
-									type="text"
-									list={`prompter-models-${agent.agentId}`}
-									placeholder="Modell waehlen oder eingeben (z.B. claude-opus-4-8)"
+								{/* Stable picker: the select always shows every model (no datalist
+								    filtering); choose a specific version or "Eigene ID" to type one. */}
+								<select
 									className="text-sm rounded-md px-2 py-1.5 border outline-none"
 									style={{
 										backgroundColor: theme.colors.bgMain,
 										borderColor: theme.colors.border,
 										color: theme.colors.textMain,
 									}}
-									value={config?.modelId ?? ''}
+									value={modelIsCustom ? '__custom__' : modelId}
 									onChange={(e) => {
-										const modelId = e.target.value;
-										const known = options.some((o) => o.id === modelId);
-										usePrompterStore.getState().setAgentConfig(agent.agentId, {
-											agentId: agent.agentId,
-											modelId,
-											modelSource: known ? 'discovery' : 'manual',
-											instructionFile: config?.instructionFile ?? '*',
-											providerConfigOverrides: config?.providerConfigOverrides ?? {},
-											generatedFiles: config?.generatedFiles ?? [],
-										});
+										const v = e.target.value;
+										if (v === '__custom__') setModel('', 'manual');
+										else setModel(v, 'discovery');
 									}}
-								/>
-								<datalist id={`prompter-models-${agent.agentId}`}>
+								>
+									{!modelIsKnown && modelId === '' && (
+										<option value="" disabled>
+											Modell waehlen...
+										</option>
+									)}
 									{options.map((opt) => (
 										<option key={opt.id} value={opt.id}>
-											{opt.label} ({opt.source})
+											{opt.label}
+											{opt.source === 'api' ? ' (Version)' : ''}
 										</option>
 									))}
-								</datalist>
+									<option value="__custom__">Eigene Modell-ID eingeben...</option>
+								</select>
+								{modelIsCustom && (
+									<input
+										type="text"
+										autoFocus
+										placeholder="z.B. claude-opus-4-8 oder claude-opus-4-6"
+										className="text-sm rounded-md px-2 py-1.5 border outline-none"
+										style={{
+											backgroundColor: theme.colors.bgMain,
+											borderColor: theme.colors.border,
+											color: theme.colors.textMain,
+										}}
+										value={modelId}
+										onChange={(e) => setModel(e.target.value, 'manual')}
+									/>
+								)}
 								{!hasOptions && !loading && (
 									<span className="text-xs" style={{ color: theme.colors.textDim }}>
-										Keine Modelle ueber CLI-Discovery gefunden. Tipp das Modell direkt ein (z.B.
-										claude-opus-4-8).
+										Keine Modelle ueber CLI-Discovery gefunden. Waehle "Eigene Modell-ID" und tipp
+										die Version (z.B. claude-opus-4-8).
 									</span>
 								)}
 							</div>
