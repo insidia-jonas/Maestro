@@ -19,6 +19,7 @@ import { PrompterCompactLog } from './PrompterCompactLog';
 import { PrompterControls } from './PrompterControls';
 import { PrompterSummaryBar } from './PrompterSummaryBar';
 import { PrompterRobustnessPanel } from './PrompterRobustnessPanel';
+import { PrompterConsistencyMatrix } from './PrompterConsistencyMatrix';
 
 interface PrompterRunPanelProps {
 	theme: Theme;
@@ -99,6 +100,9 @@ export function PrompterRunPanel({ theme }: PrompterRunPanelProps): JSX.Element 
 
 			{/* Robustness findings (after completion): where variations broke understanding/boundaries */}
 			<PrompterRobustnessPanel theme={theme} run={run} />
+
+			{/* Refusal-consistency heatmap (models x transform classes) */}
+			<PrompterConsistencyMatrix theme={theme} run={run} />
 
 			{/* Collapsible compact log */}
 			<PrompterCompactLog theme={theme} />

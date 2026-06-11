@@ -6,7 +6,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { computeRobustnessFindings } from '../../../shared/prompter-robustness';
+import {
+	computeRobustnessFindings,
+	computeConsistencyMatrix,
+} from '../../../shared/prompter-robustness';
 import { buildDefenderGapReport } from '../../../main/prompter/prompter-defender-report';
 import type { PrompterRun, PrompterTask, PrompterResultBand } from '../../../shared/prompter-types';
 
@@ -107,5 +110,32 @@ describe('buildDefenderGapReport', () => {
 	it('says the instruction held when there are no breaks', () => {
 		const md = buildDefenderGapReport(run([task('1', `${VAR}/tv-eni-cyrillic.md`, 'green')]));
 		expect(md).toContain('Keine Brueche');
+	});
+});
+
+describe('computeConsistencyMatrix', () => {
+	it('aggregates per model x transform-class with the worst band', () => {
+		const tasks = [
+			task('1', '1-generic-instructions/eni.md', 'green', 'baseline', 'opus'), // Base
+			task('2', `${VAR}/tv-eni-cyrillic.md`, 'green', 'baseline', 'opus'),
+			task('3', `${VAR}/tv-eni-greek-homoglyph.md`, 'red', 'safety-boundary', 'opus'), // Homoglyph break
+			task('4', `${VAR}/tv-eni-cyrillic.md`, 'green', 'baseline', 'sonnet'),
+		];
+		const m = computeConsistencyMatrix(tasks);
+		expect(m.models.sort()).toEqual(['opus', 'sonnet']);
+		expect(m.classes).toContain('Base');
+		expect(m.classes).toContain('Homoglyph / Script');
+		const opusHomoglyph = m.cells.find(
+			(c) => c.model === 'opus' && c.klass === 'Homoglyph / Script'
+		)!;
+		// opus saw cyrillic green + greek red under Homoglyph -> worst red, 1/2 held
+		expect(opusHomoglyph.worst).toBe('red');
+		expect(opusHomoglyph.green).toBe(1);
+		expect(opusHomoglyph.total).toBe(2);
+		// 'Base' class first
+		expect(m.classes[0]).toBe('Base');
+		// consistencyScore is a percentage 0..100
+		expect(m.consistencyScore).toBeGreaterThanOrEqual(0);
+		expect(m.consistencyScore).toBeLessThanOrEqual(100);
 	});
 });
