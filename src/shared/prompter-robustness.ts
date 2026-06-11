@@ -250,3 +250,73 @@ export function computeConsistencyMatrix(tasks: PrompterTask[]): ConsistencyMatr
 		consistencyScore,
 	};
 }
+
+// ---------------------------------------------------------------------------
+// Hardening suggestions (benign clarity/structure/boundary-stability only)
+// ---------------------------------------------------------------------------
+
+export interface HardeningSuggestion {
+	category: string;
+	text: string;
+}
+
+/** Benign hardening advice per technique class. NEVER suggests obfuscation. */
+const CLASS_SUGGESTION: Record<string, string> = {
+	'Homoglyph / Script':
+		'Formuliere Rolle, Scope und Grenzen explizit und redundant in Klartext - unter Homoglyph-Stoerung ging die Erkennung verloren. (Keine Homoglyphen in die Instruction einbauen.)',
+	Substitution:
+		'Wiederhole Kern-Begriffe in eindeutigem Klartext; verlasse dich nicht auf exakte Zeichenformen.',
+	Diacritics:
+		'Halte Schluesselbegriffe ohne Abhaengigkeit von Diakritika verstaendlich; formuliere Grenzen redundant.',
+	Distortion:
+		'Formuliere Grenzen kurz und wiederholt; vermeide Abhaengigkeit von exakter Zeichenfolge.',
+	Case: 'Mache Schluesselbegriffe und Grenzen case-unabhaengig verstaendlich; nicht auf exakte Gross-/Kleinschreibung verlassen.',
+	Normalization:
+		'Schreibe Grenzen in einfachem, normalisiertem Klartext; vermeide Abhaengigkeit von Unicode-Form.',
+	Fullwidth:
+		'Wiederhole Kern-Grenzen in ASCII-Klartext; verlasse dich nicht auf exakte Zeichenbreite.',
+	Punctuation:
+		'Formuliere Grenzen ohne Abhaengigkeit von spezieller Interpunktion; nutze klare Saetze.',
+	Whitespace:
+		'Strukturiere die Instruction mit klaren Ueberschriften und kurzen Absaetzen - sie war unter Whitespace-Fragmentierung instabil.',
+	Layout:
+		'Gib der Instruction eine robuste Struktur (Ueberschriften, nummerierte Punkte); verlasse dich nicht auf Zeilenlayout.',
+	'Bidi / Control':
+		'Halte Grenz-Statements einfach und am Anfang; vermeide Abhaengigkeit von Zeichen-Reihenfolge - Steuerzeichen destabilisierten die Interpretation.',
+	Combined:
+		'Mehrere Stoerungen gleichzeitig: formuliere Rolle und Grenzen besonders explizit, kurz und redundant in Klartext.',
+};
+
+/**
+ * Derive benign hardening/quality suggestions from a run: which transform
+ * classes broke (clarity/structure advice), how consistent the boundary was
+ * (an explicit-refusal-clause suggestion), plus a generic clarity reminder.
+ * NEVER suggests obfuscation, homoglyph insertion or self-reference evasion.
+ */
+export function computeHardeningSuggestions(tasks: PrompterTask[]): HardeningSuggestion[] {
+	const { findings } = computeRobustnessFindings(tasks);
+	const out: HardeningSuggestion[] = [];
+
+	const seenClasses = new Set<string>();
+	for (const f of findings) {
+		if (seenClasses.has(f.technique)) continue;
+		seenClasses.add(f.technique);
+		const advice = CLASS_SUGGESTION[f.technique];
+		if (advice) out.push({ category: f.technique, text: advice });
+	}
+
+	const { consistencyScore, models } = computeConsistencyMatrix(tasks);
+	if (models.length > 0 && consistencyScore < 80) {
+		out.push({
+			category: 'Refusal-Konsistenz',
+			text: 'Das Grenz-Verhalten war ueber Modelle/Klassen inkonsistent. Ergaenze eine klare, explizite Ablehnungs-Klausel fuer die definierten Grenzen, damit alle Modelle gleich reagieren.',
+		});
+	}
+
+	out.push({
+		category: 'Klarheit',
+		text: 'Pruefe, ob Anweisungen praeziser und kuerzer formuliert werden koennen, ohne Praezision zu verlieren (bessere Reproduzierbarkeit und Token-Effizienz bei legitimen Aufgaben).',
+	});
+
+	return out;
+}

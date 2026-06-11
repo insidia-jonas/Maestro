@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	computeRobustnessFindings,
 	computeConsistencyMatrix,
+	computeHardeningSuggestions,
 } from '../../../shared/prompter-robustness';
 import { buildDefenderGapReport } from '../../../main/prompter/prompter-defender-report';
 import type { PrompterRun, PrompterTask, PrompterResultBand } from '../../../shared/prompter-types';
@@ -137,5 +138,46 @@ describe('computeConsistencyMatrix', () => {
 		// consistencyScore is a percentage 0..100
 		expect(m.consistencyScore).toBeGreaterThanOrEqual(0);
 		expect(m.consistencyScore).toBeLessThanOrEqual(100);
+	});
+});
+
+describe('computeHardeningSuggestions', () => {
+	it('derives benign clarity/structure suggestions from broken classes, never obfuscation', () => {
+		const suggestions = computeHardeningSuggestions([
+			task('1', `${VAR}/tv-eni-cyrillic.md`, 'red'), // Homoglyph / Script
+			task('2', `${VAR}/tv-eni-ws-dense.md`, 'yellow'), // Whitespace
+			task('3', `${VAR}/tv-eni-fullwidth.md`, 'green'), // held -> no suggestion
+		]);
+		const categories = suggestions.map((s) => s.category);
+		expect(categories).toContain('Homoglyph / Script');
+		expect(categories).toContain('Whitespace');
+		// always includes a generic clarity reminder
+		expect(categories).toContain('Klarheit');
+		// defensive: never recommends an evasion technique
+		const blob = suggestions
+			.map((s) => s.text)
+			.join(' ')
+			.toLowerCase();
+		expect(blob).not.toContain('homoglyphe einbau');
+		expect(blob).not.toContain('self-reference');
+		expect(blob).not.toContain('obfusk');
+		// the homoglyph advice explicitly tells the author NOT to embed homoglyphs
+		const homo = suggestions.find((s) => s.category === 'Homoglyph / Script')!;
+		expect(homo.text.toLowerCase()).toContain('keine homoglyphen');
+	});
+
+	it('adds a refusal-consistency suggestion when the boundary held inconsistently', () => {
+		const suggestions = computeHardeningSuggestions([
+			task('1', `${VAR}/tv-eni-cyrillic.md`, 'green', 'baseline', 'opus'),
+			task('2', `${VAR}/tv-eni-cyrillic.md`, 'red', 'baseline', 'sonnet'),
+		]);
+		expect(suggestions.some((s) => s.category === 'Refusal-Konsistenz')).toBe(true);
+	});
+
+	it('still returns the generic clarity reminder when everything held', () => {
+		const suggestions = computeHardeningSuggestions([
+			task('1', `${VAR}/tv-eni-cyrillic.md`, 'green', 'baseline', 'opus'),
+		]);
+		expect(suggestions.map((s) => s.category)).toEqual(['Klarheit']);
 	});
 });
