@@ -649,6 +649,7 @@ function MaestroConsoleInner() {
 	const setActiveSessionId = useCallback(
 		(id: string) => {
 			setActiveGroupChatId(null); // Dismiss group chat when selecting an agent
+			usePrompterStore.getState().blurPrompterRun(); // leave the Prompter run view
 			setActiveSessionIdFromContext(id);
 		},
 		[setActiveSessionIdFromContext, setActiveGroupChatId]
@@ -1692,6 +1693,12 @@ function MaestroConsoleInner() {
 	// interrupted runs on startup.
 	usePrompterListeners();
 	const prompterActiveRun = usePrompterStore((s) => s.activeRun);
+	const prompterFocused = usePrompterStore((s) => s.prompterFocused);
+	const prompterRunActive = Boolean(prompterActiveRun && prompterFocused);
+	// Opening a group chat leaves the Prompter run view (last action wins).
+	useEffect(() => {
+		if (activeGroupChatId) usePrompterStore.getState().blurPrompterRun();
+	}, [activeGroupChatId]);
 
 	// Handler for switching to autorun tab - shows setup modal if no folder configured
 	const handleSetActiveRightTab = useCallback(
@@ -3257,8 +3264,16 @@ function MaestroConsoleInner() {
 					</div>
 				)}
 
+				{/* --- PROMPT SAFETY LAB RUN VIEW (center, like group chat) --- */}
+				{!logViewerOpen && prompterRunActive && (
+					<div className="flex-1 flex flex-col min-w-0 p-3">
+						<PrompterRunPanel theme={theme} />
+					</div>
+				)}
+
 				{/* --- GROUP CHAT VIEW (shown when a group chat is active, hidden when log viewer open) --- */}
 				{!logViewerOpen &&
+					!prompterRunActive &&
 					activeGroupChatId &&
 					groupChats.find((c) => c.id === activeGroupChatId) && (
 						<>
@@ -3385,17 +3400,21 @@ function MaestroConsoleInner() {
 						</>
 					)}
 
-				{/* --- CENTER WORKSPACE (hidden when no sessions, group chat is active, or log viewer is open) --- */}
-				{sessions.length > 0 && !activeGroupChatId && !logViewerOpen && (
+				{/* --- CENTER WORKSPACE (hidden when no sessions, group chat / prompter is active, or log viewer is open) --- */}
+				{sessions.length > 0 && !activeGroupChatId && !prompterRunActive && !logViewerOpen && (
 					<MainPanel ref={mainPanelRef} {...mainPanelProps} />
 				)}
 
-				{/* --- RIGHT PANEL (hidden in mobile landscape, when no sessions, group chat is active, or log viewer is open) --- */}
-				{!isMobileLandscape && sessions.length > 0 && !activeGroupChatId && !logViewerOpen && (
-					<ErrorBoundary>
-						<RightPanel ref={rightPanelRef} {...rightPanelProps} />
-					</ErrorBoundary>
-				)}
+				{/* --- RIGHT PANEL (hidden in mobile landscape, when no sessions, group chat / prompter is active, or log viewer is open) --- */}
+				{!isMobileLandscape &&
+					sessions.length > 0 &&
+					!activeGroupChatId &&
+					!prompterRunActive &&
+					!logViewerOpen && (
+						<ErrorBoundary>
+							<RightPanel ref={rightPanelRef} {...rightPanelProps} />
+						</ErrorBoundary>
+					)}
 
 				{/* NOTE: Settings, Wizard, Tour, and flash notifications are now rendered via AppStandaloneModals */}
 
@@ -3404,13 +3423,6 @@ function MaestroConsoleInner() {
 
 				{/* --- CENTER FLASH (single, app-wide; mounted via portal) --- */}
 				<CenterFlash theme={theme} />
-
-				{/* --- PROMPTER LIVE RUN PANEL (floating; does not touch the layout/router) --- */}
-				{prompterActiveRun && (
-					<div className="fixed bottom-4 right-4 z-40 flex w-[440px] max-h-[60vh] flex-col">
-						<PrompterRunPanel theme={theme} />
-					</div>
-				)}
 			</div>
 		</>
 	);

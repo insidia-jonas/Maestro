@@ -28,7 +28,7 @@ export function PrompterRunPanel({ theme }: PrompterRunPanelProps): JSX.Element 
 
 	return (
 		<div
-			className="flex flex-col rounded-lg overflow-hidden select-none"
+			className="flex flex-1 min-h-0 flex-col rounded-lg overflow-hidden select-none"
 			style={{
 				backgroundColor: theme.colors.bgActivity,
 				border: `1px solid ${theme.colors.border}`,

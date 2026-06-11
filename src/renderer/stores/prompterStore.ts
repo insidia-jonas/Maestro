@@ -48,6 +48,8 @@ interface PrompterStoreState {
 	runHistory: PrompterRun[];
 	compactLog: PrompterLogEvent[];
 	logFilter: PrompterLogFilter;
+	/** When true the active run is shown in the center workspace (like group chat). */
+	prompterFocused: boolean;
 
 	// Resume
 	savedWizardState: SerializableWizardState | null;
@@ -86,6 +88,10 @@ interface PrompterStoreActions {
 	setLogFilter: (filter: PrompterLogFilter) => void;
 	clearActiveRun: () => void;
 	loadRunHistory: (runs: PrompterRun[]) => void;
+	/** Show the active run in the center workspace. */
+	focusPrompterRun: () => void;
+	/** Leave the run view (return to agents / group chat). */
+	blurPrompterRun: () => void;
 
 	// Resume
 	saveStateForResume: () => void;
@@ -113,6 +119,7 @@ const initialWizardState = (): PrompterStoreState => ({
 	runHistory: [],
 	compactLog: [],
 	logFilter: 'all',
+	prompterFocused: false,
 	savedWizardState: null,
 });
 
@@ -204,8 +211,10 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 			return { compactLog };
 		}),
 	setLogFilter: (logFilter) => set({ logFilter }),
-	clearActiveRun: () => set({ activeRun: null, compactLog: [] }),
+	clearActiveRun: () => set({ activeRun: null, compactLog: [], prompterFocused: false }),
 	loadRunHistory: (runHistory) => set({ runHistory }),
+	focusPrompterRun: () => set({ prompterFocused: true }),
+	blurPrompterRun: () => set({ prompterFocused: false }),
 
 	// -------------------------------------------------------------- resume
 	saveStateForResume: () => {

@@ -27,6 +27,7 @@ import type { Session, Group, Theme } from '../../types';
 import { getBadgeForTime } from '../../constants/conductorBadges';
 import { SessionItem } from '../SessionItem';
 import { GroupChatList } from '../GroupChatList';
+import { PrompterSidebarEntry } from '../PrompterRunPanel/PrompterSidebarEntry';
 import { useLiveOverlay, useResizablePanel } from '../../hooks';
 import { useGitFileStatus } from '../../contexts/GitStatusContext';
 import { useUIStore } from '../../stores/uiStore';
@@ -1763,6 +1764,9 @@ function SessionListInner(props: SessionListProps) {
 								showUnreadAgentsOnly={showUnreadAgentsOnly}
 							/>
 						)}
+
+					{/* PROMPT SAFETY LAB - active run entry (opens in the center) */}
+					<PrompterSidebarEntry theme={theme} />
 				</div>
 			) : (
 				/* SIDEBAR CONTENT: SKINNY MODE */

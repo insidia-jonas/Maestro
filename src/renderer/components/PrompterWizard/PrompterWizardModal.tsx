@@ -139,6 +139,8 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 			setActiveRun(run);
 			clearResumeState();
 			resetWizard();
+			// Open the run in the center workspace (resetWizard clears the focus).
+			usePrompterStore.getState().focusPrompterRun();
 			close();
 		} finally {
 			setStarting(false);
