@@ -6,7 +6,7 @@
  * it blocks path traversal (`../`) and symlink escape (a symlink that resolves
  * outside the sandbox).
  *
- * Security-critical. Zero repo dependencies on purpose — pure Node path/fs.
+ * Security-critical. Zero repo dependencies on purpose - pure Node path/fs.
  * Playbook reference: sections 8 (Task B), 18 (Sicherheit), 20 (Review-Gate).
  */
 
@@ -27,7 +27,7 @@ export class PathSafetyError extends Error {
  * paths with a separator boundary so that `/a/bc` is NOT considered inside
  * `/a/b`.
  *
- * This is a purely lexical check (no fs access) — use together with
+ * This is a purely lexical check (no fs access) - use together with
  * `checkNoSymlinkEscape` for the full guarantee.
  */
 export function isPathInsideSandbox(targetPath: string, sandboxRoot: string): boolean {
@@ -40,7 +40,7 @@ export function isPathInsideSandbox(targetPath: string, sandboxRoot: string): bo
 }
 
 /**
- * Resolve `userPath` (which may be relative — then it is resolved against
+ * Resolve `userPath` (which may be relative - then it is resolved against
  * `sandboxRoot`) and verify it stays inside the sandbox. Returns the resolved
  * absolute path or throws `PathSafetyError`.
  *
@@ -75,7 +75,7 @@ export function checkNoSymlinkEscape(targetPath: string, sandboxRoot: string): v
 	try {
 		realRoot = fs.realpathSync(resolvedRoot);
 	} catch {
-		// Sandbox root itself doesn't exist yet — nothing to resolve against.
+		// Sandbox root itself doesn't exist yet - nothing to resolve against.
 		// Fall back to the lexical guarantee.
 		if (!isPathInsideSandbox(targetPath, resolvedRoot)) {
 			throw new PathSafetyError(`Path escapes sandbox: "${targetPath}"`);

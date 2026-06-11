@@ -251,7 +251,12 @@ export class PrompterRunManager {
 		await this.persist(state);
 
 		try {
-			const instrAbs = path.join(run.projectRoot, '1-generic-instructions', task.instructionFile);
+			// Validate the instruction path before reading: blocks traversal and a
+			// symlink swapped in after scan time (TOCTOU) from escaping the sandbox.
+			const instrAbs = assertSafeWritePath(
+				task.instructionFile,
+				path.join(run.projectRoot, '1-generic-instructions')
+			);
 			const instructionContent = fs.readFileSync(instrAbs, 'utf-8');
 
 			const registry = this.deps.projectService.getSchemaRegistry(run.projectRoot);
@@ -327,7 +332,7 @@ export class PrompterRunManager {
 				this.log(
 					state,
 					evaluation.band === 'red' ? 'warn' : 'info',
-					`${task.agentId}/${task.schemaId}: ${evaluation.band} — ${evaluation.reason}`,
+					`${task.agentId}/${task.schemaId}: ${evaluation.band} - ${evaluation.reason}`,
 					task.id
 				);
 			}
@@ -513,8 +518,10 @@ export class PrompterRunManager {
 					const current = run.tasks.find((t) => t.status === 'running');
 					if (current) {
 						current.status = 'failed';
-						current.error = 'Durch App-Absturz unterbrochen — Run erneut starten';
+						current.error = 'Durch App-Absturz unterbrochen - Run erneut starten';
 					}
+					// Drop orphaned half-written *.tmp evidence files (playbook 13).
+					this.cleanTempFiles(this.runDirFor(projectRoot, runId));
 					const state = this.toState(run, projectRoot);
 					this.activeRuns.set(runId, state);
 					// Persist the corrected state (best-effort; must not throw on startup).
@@ -529,6 +536,28 @@ export class PrompterRunManager {
 	}
 
 	// ------------------------------------------------------------- internals
+
+	/** Recursively delete orphaned *.tmp files (half-written, crash-interrupted). */
+	private cleanTempFiles(dir: string): void {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				this.cleanTempFiles(full);
+			} else if (entry.isFile() && entry.name.endsWith('.tmp')) {
+				try {
+					fs.rmSync(full, { force: true });
+				} catch {
+					/* ignore */
+				}
+			}
+		}
+	}
 
 	private getState(runId: string): RunState | null {
 		const active = this.activeRuns.get(runId);
@@ -649,6 +678,9 @@ export class PrompterRunManager {
 		const manifestPath = path.join(this.runDirFor(projectRoot, runId), 'manifest.json');
 		if (!fs.existsSync(manifestPath)) return null;
 		try {
+			// Refuse to read a manifest reached through a symlink that escapes the
+			// project's runs folder (e.g. a symlinked run-id directory).
+			checkNoSymlinkEscape(manifestPath, path.join(projectRoot, '3-temp-results', 'runs'));
 			const persisted = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PersistedRunState;
 			return persisted.run;
 		} catch (error) {

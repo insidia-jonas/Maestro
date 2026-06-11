@@ -22,7 +22,7 @@ export type PrompterWizardStep =
 	| 'schema-selection'
 	| 'review';
 
-/** Ordered list of wizard steps — single source of truth for navigation. */
+/** Ordered list of wizard steps - single source of truth for navigation. */
 export const PROMPTER_WIZARD_STEPS: readonly PrompterWizardStep[] = [
 	'project-folder',
 	'create-structure',

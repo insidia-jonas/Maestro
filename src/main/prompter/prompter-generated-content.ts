@@ -6,13 +6,13 @@
  * does not already exist (never overwrites user edits).
  */
 
-export const INSTRUCTION_GUIDE_CONTENT = `# Generic Instructions — Anleitung
+export const INSTRUCTION_GUIDE_CONTENT = `# Generic Instructions - Anleitung
 
 ## Was kommt hierhin?
 
 Hier legst du die System-Prompts, Agent-Instructions oder Projekt-Konfigurationen
 ab, die du testen möchtest. **Alles was in diesem Ordner liegt wird automatisch
-in jeden Test einbezogen.** Keine Auswahl nötig — reinlegen und loslegen.
+in jeden Test einbezogen.** Keine Auswahl nötig - reinlegen und loslegen.
 
 Typische Dateien:
 - Deine \`CLAUDE.md\` (System-Prompt für Claude Code)
@@ -56,7 +56,7 @@ Siehe \`examples/\` für Startpunkte. Lösche sie, wenn du nur deine eigenen
 Instructions testen willst.
 `;
 
-export const SCHEMA_GUIDE_CONTENT = `# Test-Schemata — Anleitung & Generator-Prompts
+export const SCHEMA_GUIDE_CONTENT = `# Test-Schemata - Anleitung & Generator-Prompts
 
 ## Was ist ein Schema?
 
@@ -65,7 +65,7 @@ Ein Schema definiert einen wiederholbaren Test für den Prompter:
 - **Wie die Antwort bewertet** wird (Green / Yellow / Red)
 - **Welche Artefakte** dabei entstehen
 
-Du musst Schemata nicht von Hand schreiben. Nutze die Generator-Prompts unten —
+Du musst Schemata nicht von Hand schreiben. Nutze die Generator-Prompts unten -
 kopiere sie in eine KI deiner Wahl, beschreibe was du testen willst, und lass
 dir das Schema generieren.
 
@@ -82,10 +82,10 @@ Kopiere diesen Prompt in Claude, ChatGPT, Gemini oder eine andere KI:
     Nutze das Format aus _template.schema.json exakt.
 
     Verfügbare Platzhalter für promptTemplate:
-    {{INSTRUCTION_CONTENT}} — Volltext der Instruction
-    {{AGENT_ID}} — Agent-ID (z.B. claude-code)
-    {{MODEL_ID}} — Modell (z.B. claude-fable-5)
-    {{CUSTOM:key}} — eigene Variable aus customData
+    {{INSTRUCTION_CONTENT}} - Volltext der Instruction
+    {{AGENT_ID}} - Agent-ID (z.B. claude-code)
+    {{MODEL_ID}} - Modell (z.B. claude-fable-5)
+    {{CUSTOM:key}} - eigene Variable aus customData
 
     Gib mir NUR die JSON-Datei zurück, keinen Erklärungstext.
 
@@ -97,7 +97,7 @@ Kopiere diesen Prompt in Claude, ChatGPT, Gemini oder eine andere KI:
 4. Definiere die Bewertungskriterien.
 5. Speichere. Beim nächsten Wizard-Start erscheint dein Schema automatisch.
 
-## Kurzreferenz — Alle Platzhalter
+## Kurzreferenz - Alle Platzhalter
 
 | Platzhalter                | Wird ersetzt durch                   |
 |----------------------------|--------------------------------------|
@@ -136,7 +136,7 @@ MAESTRO-Updates überschreiben deine Anpassungen nicht.
 Für komplexere Bewertungslogik → siehe \`tools/evaluators/EVALUATOR-GUIDE.md\`.
 `;
 
-export const EVALUATOR_GUIDE_CONTENT = `# Custom Evaluators — Anleitung
+export const EVALUATOR_GUIDE_CONTENT = `# Custom Evaluators - Anleitung
 
 ## Was ist ein Custom Evaluator?
 
@@ -192,7 +192,7 @@ In deiner \`.schema.json\`:
 - Kein require() oder import von externen Modulen
 - Kein fs, child_process, net oder andere Node-APIs
 - Kein Dateisystem-Zugriff
-- Timeout: 5 Sekunden — danach wird der Evaluator abgebrochen
+- Timeout: 5 Sekunden - danach wird der Evaluator abgebrochen
 
 ## Rückgabe-Format
 
@@ -207,14 +207,14 @@ In deiner \`.schema.json\`:
 export const SCHEMA_TEMPLATE_JSON = `{
   "$schema": "prompter-schema/v1",
   "id": "REPLACE-WITH-YOUR-ID",
-  "name": "REPLACE — Dein Schema-Name",
-  "description": "REPLACE — Was dieser Test prüft.",
+  "name": "REPLACE - Dein Schema-Name",
+  "description": "REPLACE - Was dieser Test prüft.",
   "version": "1.0.0",
   "required": false,
   "estimatedEffort": "low",
 
   "testConfig": {
-    "promptTemplate": "REPLACE — Deine Frage an den Agent.",
+    "promptTemplate": "REPLACE - Deine Frage an den Agent.",
     "placeholders": [],
     "customData": {},
     "expectedResponseType": "text",
@@ -226,9 +226,9 @@ export const SCHEMA_TEMPLATE_JSON = `{
 
   "evaluation": {
     "type": "rule-based",
-    "greenCriteria": ["REPLACE — Wann ist das Ergebnis Green?"],
-    "yellowCriteria": ["REPLACE — Wann ist das Ergebnis Yellow?"],
-    "redCriteria": ["REPLACE — Wann ist das Ergebnis Red?"],
+    "greenCriteria": ["REPLACE - Wann ist das Ergebnis Green?"],
+    "yellowCriteria": ["REPLACE - Wann ist das Ergebnis Yellow?"],
+    "redCriteria": ["REPLACE - Wann ist das Ergebnis Red?"],
     "keyPhraseExtraction": true,
     "coverageThreshold": { "green": 0.7, "yellow": 0.4 }
   },
@@ -332,12 +332,12 @@ Alle Schreibvorgänge bleiben im Projektordner. Ablehnungen werden dokumentiert,
 nicht umgangen.
 `;
 
-export const FINAL_REPORT_TEMPLATE = `# Final Report — {{PROJECT_NAME}}
+export const FINAL_REPORT_TEMPLATE = `# Final Report - {{PROJECT_NAME}}
 
 (Aggregierter Gesamtreport über alle Runs. Wird beim Export befüllt.)
 `;
 
-export const RUN_REPORT_TEMPLATE = `# Run Report — {{RUN_ID}}
+export const RUN_REPORT_TEMPLATE = `# Run Report - {{RUN_ID}}
 
 (Pro-Run-Report. Wird vom Report-Writer befüllt.)
 `;

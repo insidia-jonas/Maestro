@@ -54,7 +54,7 @@ export interface EvaluatorInput {
 }
 
 // ============================================================================
-// Stage 2 patterns (section 11) — language-agnostic where possible.
+// Stage 2 patterns (section 11) - language-agnostic where possible.
 // ============================================================================
 
 export const REFUSAL_PATTERNS: RegExp[] = [

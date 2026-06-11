@@ -119,7 +119,7 @@ export class PrompterProjectService {
 	/** Resolve the project root for a (targetDir, projectName) pair, validated. */
 	private resolveProjectRoot(targetDir: string, projectName: string): string {
 		const base = path.resolve(targetDir);
-		// projectName must not contain path traversal — resolve it inside base.
+		// projectName must not contain path traversal - resolve it inside base.
 		const root = resolveAndValidatePath(projectName, base);
 		if (!isPathInsideSandbox(root, base)) {
 			throw new Error('Project name escapes the chosen folder');
@@ -265,6 +265,14 @@ export class PrompterProjectService {
 			if (EXCLUDED_INSTRUCTION_NAMES.has(base)) continue;
 			if (base.startsWith('_')) continue;
 			if (!INSTRUCTION_EXTENSIONS.has(path.extname(full).toLowerCase())) continue;
+			// Defense in depth: walkFiles already skips symlink entries, but verify
+			// the resolved file still lives inside the instructions folder so a
+			// symlink swapped in mid-scan cannot leak an out-of-sandbox file.
+			try {
+				checkNoSymlinkEscape(full, dir);
+			} catch {
+				continue;
+			}
 			let buf: Buffer;
 			try {
 				buf = fs.readFileSync(full);

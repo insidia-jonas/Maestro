@@ -405,7 +405,7 @@ export class PrompterSchemaRegistry {
 		try {
 			entries = fs.readdirSync(dir);
 		} catch {
-			return; // dir missing — fine
+			return; // dir missing - fine
 		}
 		for (const name of entries) {
 			if (!name.endsWith('.schema.json') || name.startsWith('_')) continue;
@@ -479,12 +479,12 @@ export class PrompterSchemaRegistry {
 			if (!schema.extends) continue;
 			const parent = this.schemas.get(schema.extends);
 			if (!parent) {
-				logger.warn(`Schema ${id}: extends '${schema.extends}' not found — skipping`, LOG);
+				logger.warn(`Schema ${id}: extends '${schema.extends}' not found - skipping`, LOG);
 				this.schemas.delete(id);
 				continue;
 			}
 			if (parent.extends) {
-				logger.warn(`Schema ${id}: inheritance depth > 2 not allowed — skipping`, LOG);
+				logger.warn(`Schema ${id}: inheritance depth > 2 not allowed - skipping`, LOG);
 				this.schemas.delete(id);
 				continue;
 			}

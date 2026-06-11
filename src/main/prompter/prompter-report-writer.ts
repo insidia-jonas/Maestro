@@ -114,7 +114,7 @@ function renderAmpel(run: PrompterRun, task: PrompterTask, evaluation: Evaluator
 	const emoji = BAND_EMOJI[evaluation.band];
 	const reportPath = path.posix.join('3-temp-results', 'runs', run.id, 'report.md');
 	return [
-		`# ${emoji} ${evaluation.band.toUpperCase()} — ${task.agentId} / ${task.schemaId}`,
+		`# ${emoji} ${evaluation.band.toUpperCase()} - ${task.agentId} / ${task.schemaId}`,
 		'',
 		`- Run: \`${run.id}\``,
 		`- Zeit: ${new Date(task.completedAt ?? Date.now()).toISOString()}`,

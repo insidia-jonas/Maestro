@@ -91,4 +91,22 @@ describe('PrompterProjectService', () => {
 	it('rejects a project name that escapes the chosen folder', () => {
 		expect(() => svc.planProject(base, '../evil')).toThrow();
 	});
+
+	it('scanInstructions never surfaces a file reached through a sandbox-escaping symlink', async () => {
+		const project = await svc.createProject(base, 'lab');
+		const instrDir = path.join(project.rootPath, '1-generic-instructions');
+		// A real, in-sandbox instruction is included.
+		fs.writeFileSync(path.join(instrDir, 'real.md'), '# real\nbody');
+		// A secret outside the project, exposed via a symlink inside the folder.
+		const secret = path.join(base, 'secret.md');
+		fs.writeFileSync(secret, 'TOP SECRET');
+		try {
+			fs.symlinkSync(secret, path.join(instrDir, 'leak.md'));
+		} catch {
+			return; // platform without symlink support: nothing to assert
+		}
+		const names = svc.scanInstructions(project.rootPath).map((f) => f.path);
+		expect(names).toContain('real.md');
+		expect(names).not.toContain('leak.md');
+	});
 });
