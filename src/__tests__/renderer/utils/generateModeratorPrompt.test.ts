@@ -51,19 +51,30 @@ describe('generateModeratorPrompt', () => {
 		expect(md).toContain('@osint-gemini');
 	});
 
-	it('appends a Gemini research-routing block when a gemini agent is docked', () => {
+	it('weaves the Gemini agent into topology, a Teilnehmer block and routing', () => {
 		const md = generateModeratorPrompt(base);
-		expect(md).toContain('Gemini-Research-Agent');
+		// Dedicated Teilnehmer entry (same shape as the hand-written files)
+		expect(md).toContain('@osint-gemini (Gemini 3 Pro, LOKAL) — Research & Dokumentation');
 		expect(md).toContain('Google-Search-Grounding');
-		expect(md).toContain('LOKAL ohne Repo-Checkout');
+		// Topology note
+		expect(md).toContain('Research-/Doku-Agent');
+		// Routing row with research signal words
+		expect(md).toContain('| @osint-gemini |');
 	});
 
-	it('omits the Gemini block when no gemini agent is present', () => {
+	it('lists the gemini agent only once in Teilnehmer (no duplicate block)', () => {
+		const md = generateModeratorPrompt(base);
+		const occurrences = md.split('## @osint-gemini').length - 1;
+		expect(occurrences).toBe(1);
+	});
+
+	it('omits the Gemini parts when no gemini agent is present', () => {
 		const md = generateModeratorPrompt({
 			...base,
 			participants: [{ name: 'osint-backend', agentId: 'claude-code' }],
 		});
-		expect(md).not.toContain('Gemini-Research-Agent');
+		expect(md).not.toContain('Research & Dokumentation');
+		expect(md).not.toContain('Research-/Doku-Agent');
 	});
 
 	it('handles an empty roster without throwing', () => {

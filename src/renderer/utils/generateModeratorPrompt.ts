@@ -3,8 +3,9 @@
  * @description Generate a German moderator system-prompt (markdown) for a group
  * chat from the wizard's inputs. Mirrors the structure of the existing INSIDIA
  * moderator files in ~/.maestro/prompts/ (Rolle / Topologie / Teilnehmer /
- * Routing / Antwort-Format / Sprache / Projekt-Kontext) and appends a Gemini
- * research-routing block when a gemini-cli participant is docked.
+ * Routing / Antwort-Format / Sprache / Projekt-Kontext). When a gemini-cli
+ * participant is docked it is woven in the same way as the hand-written files:
+ * a Topologie note, a dedicated Teilnehmer block, and a routing row.
  *
  * The file is written to ~/.maestro/prompts/moderator-<slug>.md and referenced
  * from the group chat's moderatorConfig via `--system-prompt-file`.
@@ -82,28 +83,44 @@ export function generateModeratorPrompt(input: GenerateModeratorPromptInput): st
 	const { groupName, moderatorModel, participants, description } = input;
 	const mention = (p: WizardParticipant) => `@${normalizeMentionName(p.name)}`;
 
-	const participantBlocks = participants
+	// The Gemini research agent gets its own dedicated Teilnehmer block (below),
+	// so it is excluded from the generic specialist list to avoid listing it twice.
+	const gemini = participants.find((p) => p.agentId === 'gemini-cli');
+	const specialists = participants.filter((p) => p.agentId !== 'gemini-cli');
+
+	const participantBlocks = specialists
 		.map((p) => {
 			const cwd = p.cwd ? ` · cwd \`${p.cwd}\`` : '';
 			return `## ${mention(p)} (${getAgentDisplayName(p.agentId)}${cwd})\n${roleFor(p)}`;
 		})
 		.join('\n\n');
 
-	const routingRows = participants.map((p) => `| ${roleFor(p)} | ${mention(p)} |`).join('\n');
+	const routingRows = [
+		...specialists.map((p) => `| ${roleFor(p)} | ${mention(p)} |`),
+		// Gemini routes on research/doc signal words, not its role text.
+		...(gemini
+			? [`| "Recherche", "aktuelle Version", "CVE", "Docs", "Stand zu X" | ${mention(gemini)} |`]
+			: []),
+	].join('\n');
 
-	const gemini = participants.find((p) => p.agentId === 'gemini-cli');
 	const geminiBlock = gemini
-		? `\n\n## Gemini-Research-Agent (${mention(gemini)})\n\n` +
-			`Live-Google-Search-Grounding (zitierte Quellen). Routing:\n\n` +
-			`- Externes/aktuelles Wissen (Tool-/Library-Versionen, CVEs, Advisories, ` +
-			`Release-Notes, API-Änderungen, Hersteller-Docs, "aktueller Stand zu X") → ` +
-			`zuerst an ${mention(gemini)}; zitierte Findings an die Spezialisten zum Umsetzen.\n` +
-			`- Dokumentation (READMEs, Design-Docs, Runbooks, Threat-Models, Reports) → ` +
-			`${mention(gemini)}.\n` +
-			`- ${mention(gemini)} läuft LOKAL ohne Repo-Checkout: nicht zum Lesen/Bauen/` +
-			`Editieren von Repo-Dateien einsetzen, Kontext in der Nachricht mitgeben.\n` +
-			`- Reine Code-/Build-/Test-Arbeit ohne externen Wissens- oder Doku-Anteil: ` +
-			`${mention(gemini)} NICHT einbinden.`
+		? `\n\n## ${mention(gemini)} (Gemini 3 Pro, LOKAL) — Research & Dokumentation\n` +
+			`- AUSSCHLIESSLICH Web-Recherche & Dokumentation, kein Implementierer\n` +
+			`- Live-Google-Search-Grounding → liefert zitierte Quellen\n` +
+			`- Läuft LOKAL auf der Maestro-VM, hat das Repo NICHT ausgecheckt → Kontext in ` +
+			`der Nachricht mitgeben, Spezialisten setzen die Findings um\n` +
+			`- Für: aktuelle Tool-/Library-Versionen, CVEs/Advisories, Release-Notes, ` +
+			`API-Änderungen, Hersteller-Docs; Doku (READMEs, Runbooks, Threat-Models, Reports) ` +
+			`aus den Ergebnissen der Spezialisten\n` +
+			`- NICHT als Faktencheck-Ersatz, NICHT für Repo-Code/Build/Test`
+		: '';
+
+	// Topology note for the local Gemini agent (mirrors the hand-written files).
+	const geminiTopology = gemini
+		? `\n- ${mention(gemini)} (Gemini 3 Pro) ist der Research-/Doku-Agent. Er läuft LOKAL ` +
+			`auf der Maestro-VM (kein SSH) mit Live-Google-Search-Grounding und hat das ` +
+			`Projekt-Repo NICHT ausgecheckt — er recherchiert und dokumentiert, setzt aber ` +
+			`keinen Repo-Code um.`
 		: '';
 
 	const modelLine = moderatorModel ? ` (Modell: ${moderatorModel})` : '';
@@ -119,7 +136,7 @@ zurückzugeben.
 
 - DU läufst als Moderator-Prozess und hast keinen direkten Code-Zugriff.
 - Die Teilnehmer arbeiten je in ihrem eigenen Projekt-/Codebase-Kontext und
-  antworten auf deine Delegationen.
+  antworten auf deine Delegationen.${geminiTopology}
 
 # Teilnehmer und Zuständigkeiten
 
