@@ -10,6 +10,7 @@
 import * as path from 'path';
 import { assertSafeWritePath } from './prompter-path-safety';
 import { atomicWriteFile, ensureDir } from './prompter-fs';
+import { buildDefenderGapReport } from './prompter-defender-report';
 import type {
 	PrompterRun,
 	PrompterTask,
@@ -75,6 +76,18 @@ export class PrompterReportWriter {
 		const abs = assertSafeWritePath(rel, projectRoot);
 		await ensureDir(path.dirname(abs));
 		await atomicWriteFile(abs, renderRunReport(run));
+		return abs;
+	}
+
+	/**
+	 * Write the defensive Defender Gap Report markdown into
+	 * 3-temp-results/runs/<runId>/defender-gap-report.md and return its path.
+	 */
+	async writeDefenderGapReport(projectRoot: string, run: PrompterRun): Promise<string> {
+		const rel = path.posix.join('3-temp-results', 'runs', run.id, 'defender-gap-report.md');
+		const abs = assertSafeWritePath(rel, projectRoot);
+		await ensureDir(path.dirname(abs));
+		await atomicWriteFile(abs, buildDefenderGapReport(run));
 		return abs;
 	}
 }

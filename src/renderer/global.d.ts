@@ -3549,6 +3549,7 @@ interface MaestroAPI {
 			projectRoots: string[]
 		) => Promise<import('../shared/prompter-types').PrompterRun[]>;
 		exportReport: (runId: string, format: 'md' | 'json') => Promise<string>;
+		exportDefenderReport: (runId: string) => Promise<string>;
 		exportInstruction: (
 			projectRoot: string,
 			instructionPath: string,

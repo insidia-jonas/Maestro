@@ -71,6 +71,8 @@ export function createPrompterApi() {
 		// Reports
 		exportReport: (runId: string, format: 'md' | 'json'): Promise<string> =>
 			ipcRenderer.invoke('prompter:exportReport', runId, format),
+		exportDefenderReport: (runId: string): Promise<string> =>
+			ipcRenderer.invoke('prompter:exportDefenderReport', runId),
 
 		// Instruction export
 		exportInstruction: (

@@ -267,6 +267,18 @@ export function registerPrompterHandlers(deps: PrompterHandlerDependencies): voi
 		)
 	);
 
+	ipcMain.handle(
+		'prompter:exportDefenderReport',
+		withIpcErrorLogging(
+			handlerOpts('exportDefenderReport'),
+			async (runId: string): Promise<string> => {
+				const run = runManager.getRun(runId);
+				if (!run) throw new Error(`Run nicht gefunden: ${runId}`);
+				return reportWriter.writeDefenderGapReport(run.projectRoot, run);
+			}
+		)
+	);
+
 	// --------------------------------------------------- instruction export
 
 	ipcMain.handle(
