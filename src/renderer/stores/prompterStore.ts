@@ -18,7 +18,6 @@ import {
 	type PrompterProject,
 	type PrompterAgentSelection,
 	type PrompterAgentConfig,
-	type PrompterSchemaId,
 	type InstructionFile,
 	type PrompterRun,
 	type PrompterLogEvent,
@@ -41,7 +40,7 @@ interface PrompterStoreState {
 	createdProject: PrompterProject | null;
 	selectedAgents: PrompterAgentSelection[];
 	agentConfigs: Map<string, PrompterAgentConfig>;
-	selectedSchemas: Set<PrompterSchemaId>;
+	selectedSchemas: Set<string>;
 	availableInstructions: InstructionFile[];
 
 	// Run
@@ -73,8 +72,8 @@ interface PrompterStoreActions {
 	setAgentConfig: (agentId: string, config: PrompterAgentConfig) => void;
 
 	// Schemas
-	toggleSchema: (schemaId: PrompterSchemaId) => void;
-	setSelectedSchemas: (schemaIds: PrompterSchemaId[]) => void;
+	toggleSchema: (schemaId: string) => void;
+	setSelectedSchemas: (schemaIds: string[]) => void;
 
 	// Instructions
 	setAvailableInstructions: (instructions: InstructionFile[]) => void;
@@ -254,7 +253,7 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 				createdProject: snapshot.createdProject,
 				selectedAgents,
 				agentConfigs,
-				selectedSchemas: new Set(snapshot.selectedSchemaIds as PrompterSchemaId[]),
+				selectedSchemas: new Set(snapshot.selectedSchemaIds),
 				savedWizardState: snapshot,
 			};
 		}),
