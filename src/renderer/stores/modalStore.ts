@@ -303,7 +303,10 @@ export type ModalId =
 	| 'directorNotes'
 	// Maestro Cue
 	| 'cueModal'
-	| 'cueYamlEditor';
+	| 'cueYamlEditor'
+	// Prompter (Prompt Safety Lab)
+	| 'prompter'
+	| 'prompterExitConfirm';
 
 /**
  * Type mapping from ModalId to its data type.
@@ -903,6 +906,12 @@ export function getModalActions() {
 		// Symphony Modal
 		setSymphonyModalOpen: (open: boolean) =>
 			open ? openModal('symphony') : closeModal('symphony'),
+
+		// Prompter (Prompt Safety Lab) Modals
+		setPrompterModalOpen: (open: boolean) =>
+			open ? openModal('prompter') : closeModal('prompter'),
+		setPrompterExitConfirmModalOpen: (open: boolean) =>
+			open ? openModal('prompterExitConfirm') : closeModal('prompterExitConfirm'),
 
 		// Windows Warning Modal
 		setWindowsWarningModalOpen: (open: boolean) =>
