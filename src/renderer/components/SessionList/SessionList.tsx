@@ -1765,7 +1765,7 @@ function SessionListInner(props: SessionListProps) {
 							/>
 						)}
 
-					{/* PROMPT SAFETY LAB - active run entry (opens in the center) */}
+					{/* PROMPT POWER & ROBUSTNESS LAB - active run entry (opens in the center) */}
 					<PrompterSidebarEntry theme={theme} />
 				</div>
 			) : (

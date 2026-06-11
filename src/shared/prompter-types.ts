@@ -1,12 +1,12 @@
 /**
  * @file prompter-types.ts
- * @description Shared type definitions for the Prompter (Prompt Safety Lab)
+ * @description Shared type definitions for the Prompter (Prompt Power & Robustness Lab)
  * feature. Used by main, preload and renderer. This module has NO imports from
  * src/main/ or src/renderer/ (and none from src/cli/) so it stays a leaf in the
  * dependency graph. Types that reference main/cli shapes (e.g. AgentResult) live
  * in the main-process modules that own them, not here.
  *
- * Playbook reference: 05-PLAYBOOK-PROMPTER-PROMPT-SAFETY-LAB sections 7, 11, 14, 15.
+ * Playbook reference: 05-PLAYBOOK-PROMPTER sections 7, 11, 14, 15.
  */
 
 // ============================================================================
@@ -24,12 +24,9 @@ export type PrompterWizardStep =
 
 /**
  * Ordered list of wizard steps - single source of truth for navigation.
- * Instructions come before model-config so the user attaches and reviews the
- * instruction files before configuring each agent's model. There is no schema
- * selection step: every run uses the fixed refusal-probe set below. The lab
- * measures whether the (possibly character-varied) instruction is accepted or
- * refused and whether the agent holds its stated boundaries consistently; it
- * does not pursue prohibited content and never iterates to defeat a refusal.
+ * Instructions come before model-config so the user reviews instruction files
+ * before configuring models. Schema-selection lets the user pick which test
+ * schemas to run (baseline probes pre-selected).
  */
 export const PROMPTER_WIZARD_STEPS: readonly PrompterWizardStep[] = [
 	'project-folder',
@@ -37,26 +34,92 @@ export const PROMPTER_WIZARD_STEPS: readonly PrompterWizardStep[] = [
 	'agent-selection',
 	'instructions',
 	'model-config',
+	'schema-selection',
 	'review',
 ] as const;
 
 /**
- * Fixed refusal-probe schema ids every run uses (replaces the schema picker).
- * Each input (base instruction or character variation) is probed with these
- * against every model. baseline = is the instruction accepted/understood,
- * safety-boundary = does the agent state and hold its boundaries,
- * refusal-consistency = is that behaviour consistent. Benign probes only.
+ * Default schemas pre-selected in the schema picker. The user can add or
+ * remove schemas; these are just the starting set.
  */
-export const PROMPTER_REFUSAL_PROBES: readonly string[] = [
+export const PROMPTER_DEFAULT_SCHEMAS: readonly string[] = [
 	'baseline',
 	'safety-boundary',
 	'refusal-consistency',
 ] as const;
 
+// ---------------------------------------------------------------------------
+// Variation transform categories (for the wizard's transform picker)
+// ---------------------------------------------------------------------------
+
+export interface TransformCategory {
+	key: string;
+	label: string;
+	description: string;
+	transforms: string[];
+}
+
+export const VARIATION_CATEGORIES: readonly TransformCategory[] = [
+	{
+		key: 'homoglyph',
+		label: 'Homoglyph / Script',
+		description:
+			'Visually similar characters from Cyrillic, Greek, Math-Bold, and Circled alphabets',
+		transforms: ['cyrillic', 'greek-homoglyph', 'math-bold', 'circled'],
+	},
+	{
+		key: 'substitution',
+		label: 'Substitution / Distortion',
+		description: 'Leetspeak, Zalgo diacritics, and character stretching',
+		transforms: ['leet', 'zalgo-light', 'char-stretch'],
+	},
+	{
+		key: 'case-norm',
+		label: 'Case / Normalization',
+		description: 'Upper/lowercase extremes and Unicode NFD decomposition',
+		transforms: ['case-upper', 'case-lower', 'nfd-decompose'],
+	},
+	{
+		key: 'fullwidth-punct',
+		label: 'Fullwidth / Punctuation',
+		description: 'Fullwidth Unicode block and math-style punctuation',
+		transforms: ['fullwidth', 'punct-math'],
+	},
+	{
+		key: 'whitespace',
+		label: 'Whitespace / Layout',
+		description: 'Extreme spacing, dense lines, tabs, trailing whitespace, NBSP, fragmentation',
+		transforms: [
+			'ws-paragraphs',
+			'ws-dense',
+			'trailing-whitespace',
+			'nbsp-mix',
+			'tabs-heavy',
+			'one-word-per-line',
+		],
+	},
+	{
+		key: 'bidi-control',
+		label: 'Bidi / Control Characters',
+		description: 'Bidirectional overrides and zero-width control characters',
+		transforms: ['control-red', 'bidi-heavy'],
+	},
+	{
+		key: 'combined',
+		label: 'Combined Stress',
+		description: 'Multiple transforms stacked for maximum stress testing',
+		transforms: ['mixed', 'mixed-cyr-full', 'heavy-mixed'],
+	},
+] as const;
+
+export const ALL_TRANSFORM_NAMES: readonly string[] = VARIATION_CATEGORIES.flatMap(
+	(c) => c.transforms
+);
+
 export interface PrompterProjectDraft {
 	/** Base directory chosen by the user (the project folder is created inside). */
 	targetDir: string;
-	/** Project folder name; default "prompt-safety-lab". */
+	/** Project folder name; default "prompt-power-lab". */
 	projectName: string;
 	/** Show a dry-run plan before writing any files. */
 	dryRun: boolean;
@@ -327,6 +390,14 @@ export interface PrompterTask {
 	evidencePath?: string;
 	/** How many retries have been attempted (rate-limit / config-error). */
 	attempts?: number;
+	/** Response token count (when available from the agent). */
+	tokenCount?: number;
+	/** Response character length. */
+	responseLength?: number;
+	/** Refusal classification from the evaluator. */
+	classification?: RefusalClassification;
+	/** Evaluator confidence level. */
+	confidence?: 'high' | 'medium' | 'low';
 }
 
 export interface PrompterRunSummary {
@@ -338,6 +409,10 @@ export interface PrompterRunSummary {
 	failed: number;
 	skipped: number;
 	durationMs: number;
+	/** Aggregate token count across all completed tasks. */
+	totalTokens: number;
+	/** Average response length in characters. */
+	avgResponseLength: number;
 }
 
 export interface PrompterRun {
@@ -369,6 +444,11 @@ export interface PrompterRunConfig {
 	 * Defaults to true.
 	 */
 	includeVariations?: boolean;
+	/**
+	 * Which variation transforms to apply. When omitted or empty and
+	 * `includeVariations` is true, ALL transforms are used.
+	 */
+	selectedTransforms?: string[];
 }
 
 // ============================================================================
@@ -465,6 +545,30 @@ export interface PrompterLogEvent {
 }
 
 // ============================================================================
+// Instruction Export
+// ============================================================================
+
+/** Provider-specific envelope format for exporting a hardened instruction. */
+export type InstructionExportFormat =
+	| 'raw'
+	| 'claude-code'
+	| 'codex'
+	| 'copilot-cli'
+	| 'opencode'
+	| 'gemini'
+	| 'grok-build'
+	| 'agents';
+
+export interface InstructionExportResult {
+	/** Absolute path of the exported file. */
+	exportedPath: string;
+	/** Envelope filename used (e.g. CLAUDE.md, AGENTS.md). */
+	envelopeFile: string;
+	/** Format that was used. */
+	format: InstructionExportFormat;
+}
+
+// ============================================================================
 // Wizard resume (serializable subset of the wizard store)
 // ============================================================================
 
@@ -475,5 +579,6 @@ export interface SerializableWizardState {
 	selectedAgentIds: string[];
 	agentConfigs: PrompterAgentConfig[];
 	selectedSchemaIds: string[];
+	selectedTransformIds: string[];
 	savedAt: number;
 }

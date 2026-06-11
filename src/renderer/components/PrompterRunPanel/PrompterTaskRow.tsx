@@ -3,6 +3,11 @@ import type { Theme } from '../../types';
 import type { PrompterTask } from '../../../shared/prompter-types';
 import { PrompterResultBadge } from './PrompterResultBadge';
 
+function extractTransformName(filePath: string): string {
+	const match = filePath.match(/tv-[^/]+-([a-z0-9-]+)\.md$/);
+	return match?.[1] ?? 'variant';
+}
+
 export function PrompterTaskRow({
 	theme,
 	task,
@@ -53,6 +58,27 @@ export function PrompterTaskRow({
 			>
 				{task.instructionFile}
 			</span>
+			{task.instructionFile.startsWith('4-advanced-tests/character-variations/tv-') && (
+				<span
+					className="shrink-0 rounded px-1 py-0.5 text-[10px]"
+					style={{
+						color: theme.colors.accentText,
+						backgroundColor: `${theme.colors.accent}18`,
+						border: `1px solid ${theme.colors.accentDim}`,
+					}}
+				>
+					{extractTransformName(task.instructionFile)}
+				</span>
+			)}
+			{task.tokenCount != null && (
+				<span
+					className="shrink-0 text-[10px] font-mono"
+					style={{ color: theme.colors.textDim }}
+					title={`${task.tokenCount} tokens, ${task.responseLength ?? 0} chars`}
+				>
+					{task.tokenCount >= 1000 ? `${(task.tokenCount / 1000).toFixed(1)}k` : task.tokenCount}t
+				</span>
+			)}
 			{task.result ? <PrompterResultBadge theme={theme} band={task.result} size="sm" /> : null}
 			{task.error ? (
 				<span className="shrink-0 inline-flex" title={task.error}>

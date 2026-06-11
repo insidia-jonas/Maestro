@@ -1378,7 +1378,7 @@ function setupIpcHandlers() {
 		getAgentConfig: getAgentConfigForAgent,
 	});
 
-	// Register Prompter (Prompt Safety Lab) handlers
+	// Register Prompter (Prompt Power & Robustness Lab) handlers
 	registerPrompterHandlers({
 		getMainWindow: () => mainWindow,
 		getAgentDetector: () => agentDetector,

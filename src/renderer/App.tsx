@@ -1689,7 +1689,7 @@ function MaestroConsoleInner() {
 	// "Quit when idle" watcher - quits the app once all operations finish once armed
 	useQuitWhenIdle();
 
-	// Prompter (Prompt Safety Lab): subscribe to run/task/log events and recover
+	// Prompter (Prompt Power & Robustness Lab): subscribe to run/task/log events and recover
 	// interrupted runs on startup.
 	usePrompterListeners();
 	const prompterActiveRun = usePrompterStore((s) => s.activeRun);
@@ -3264,7 +3264,7 @@ function MaestroConsoleInner() {
 					</div>
 				)}
 
-				{/* --- PROMPT SAFETY LAB RUN VIEW (center, like group chat) --- */}
+				{/* --- PROMPT POWER & ROBUSTNESS LAB RUN VIEW (center, like group chat) --- */}
 				{!logViewerOpen && prompterRunActive && (
 					<div className="flex-1 flex flex-col min-w-0 p-3">
 						<PrompterRunPanel theme={theme} />

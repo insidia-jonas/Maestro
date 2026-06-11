@@ -1,6 +1,6 @@
 /**
  * @file prompter.ts (preload)
- * @description contextBridge factory for the Prompter (Prompt Safety Lab) API.
+ * @description contextBridge factory for the Prompter (Prompt Power & Robustness Lab) API.
  * invoke() methods mirror the IPC handlers in src/main/ipc/handlers/prompter.ts;
  * onXxx() subscriptions return an unsubscribe function.
  *
@@ -19,6 +19,8 @@ import type {
 	PrompterRunUpdatedEvent,
 	PrompterTaskUpdatedEvent,
 	PrompterLogEvent,
+	InstructionExportFormat,
+	InstructionExportResult,
 } from '../../shared/prompter-types';
 
 export function createPrompterApi() {
@@ -69,6 +71,23 @@ export function createPrompterApi() {
 		// Reports
 		exportReport: (runId: string, format: 'md' | 'json'): Promise<string> =>
 			ipcRenderer.invoke('prompter:exportReport', runId, format),
+
+		// Instruction export
+		exportInstruction: (
+			projectRoot: string,
+			instructionPath: string,
+			targetDir: string,
+			format: InstructionExportFormat
+		): Promise<InstructionExportResult> =>
+			ipcRenderer.invoke(
+				'prompter:exportInstruction',
+				projectRoot,
+				instructionPath,
+				targetDir,
+				format
+			),
+		selectExportFolder: (): Promise<string | null> =>
+			ipcRenderer.invoke('prompter:selectExportFolder'),
 
 		// Events
 		onRunUpdated: (callback: (payload: PrompterRunUpdatedEvent) => void): (() => void) => {

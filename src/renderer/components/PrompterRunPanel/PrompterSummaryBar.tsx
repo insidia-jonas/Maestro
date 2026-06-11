@@ -57,7 +57,20 @@ export function PrompterSummaryBar({
 			)}
 
 			{summary.skipped > 0 && (
-				<span style={{ color: theme.colors.textDim }}>uebersprungen: {summary.skipped}</span>
+				<span style={{ color: theme.colors.textDim }}>skip: {summary.skipped}</span>
+			)}
+
+			{summary.totalTokens > 0 && (
+				<span
+					className="font-mono"
+					style={{ color: theme.colors.accent }}
+					title={`${summary.totalTokens} tokens total, avg ${summary.avgResponseLength} chars/response`}
+				>
+					{summary.totalTokens >= 1000
+						? `${(summary.totalTokens / 1000).toFixed(1)}k`
+						: summary.totalTokens}{' '}
+					tokens
+				</span>
 			)}
 
 			<span className="ml-auto" style={{ color: theme.colors.textDim }}>

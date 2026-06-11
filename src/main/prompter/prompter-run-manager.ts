@@ -109,7 +109,8 @@ export class PrompterRunManager {
 	async createRun(config: PrompterRunConfig): Promise<PrompterRun> {
 		const instructions = await this.deps.projectService.collectRunInputs(
 			config.projectRoot,
-			config.includeVariations ?? true
+			config.includeVariations ?? true,
+			config.selectedTransforms
 		);
 
 		const now = Date.now();
@@ -380,6 +381,10 @@ export class PrompterRunManager {
 
 				task.result = evaluation.band;
 				task.evidencePath = evidencePath;
+				task.tokenCount = evaluation.metrics.tokenCount;
+				task.responseLength = evaluation.metrics.responseLength;
+				task.classification = evaluation.classification;
+				task.confidence = evaluation.confidence;
 				task.status =
 					evaluation.classification === 'timeout' || evaluation.classification === 'cli-error'
 						? 'failed'
@@ -714,15 +719,25 @@ export class PrompterRunManager {
 
 	private computeSummary(run: PrompterRun): PrompterRunSummary {
 		const t = run.tasks;
+		const completed = t.filter((x) => x.status === 'completed');
+		let totalTokens = 0;
+		let totalResponseLength = 0;
+		for (const task of completed) {
+			if (task.tokenCount) totalTokens += task.tokenCount;
+			if (task.responseLength) totalResponseLength += task.responseLength;
+		}
 		return {
 			totalTasks: t.length,
-			completedTasks: t.filter((x) => x.status === 'completed').length,
+			completedTasks: completed.length,
 			green: t.filter((x) => x.result === 'green').length,
 			yellow: t.filter((x) => x.result === 'yellow').length,
 			red: t.filter((x) => x.result === 'red').length,
 			failed: t.filter((x) => x.status === 'failed').length,
 			skipped: t.filter((x) => x.status === 'skipped').length,
 			durationMs: (run.completedAt ?? Date.now()) - run.createdAt,
+			totalTokens,
+			avgResponseLength:
+				completed.length > 0 ? Math.round(totalResponseLength / completed.length) : 0,
 		};
 	}
 

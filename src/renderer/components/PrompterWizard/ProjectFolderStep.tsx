@@ -6,7 +6,7 @@ import type { PrompterProjectDraft, ProjectPlan } from '../../../shared/prompter
 
 const DEFAULT_DRAFT: PrompterProjectDraft = {
 	targetDir: '',
-	projectName: 'prompt-safety-lab',
+	projectName: 'prompt-power-lab',
 	dryRun: true,
 };
 
@@ -82,7 +82,7 @@ export function ProjectFolderStep({ theme }: { theme: Theme }): JSX.Element {
 					Projektordner
 				</h2>
 				<p className="text-sm" style={{ color: theme.colors.textDim }}>
-					Waehle das Zielverzeichnis und den Projektnamen fuer das Prompt Safety Lab.
+					Waehle das Zielverzeichnis und den Projektnamen fuer das Prompt Power Lab.
 				</p>
 			</div>
 
@@ -134,7 +134,7 @@ export function ProjectFolderStep({ theme }: { theme: Theme }): JSX.Element {
 					type="text"
 					value={projectName}
 					onChange={(e) => handleNameChange(e.target.value)}
-					placeholder="prompt-safety-lab"
+					placeholder="prompt-power-lab"
 					className="w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-1"
 					style={{
 						backgroundColor: theme.colors.bgMain,

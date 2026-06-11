@@ -1,7 +1,6 @@
 import { CheckCircle, ListChecks, Save, AlertTriangle, FolderOpen } from 'lucide-react';
 import type { Theme } from '../../types';
 import { usePrompterStore } from '../../stores/prompterStore';
-import { PROMPTER_REFUSAL_PROBES } from '../../../shared/prompter-types';
 
 export function ReviewStep({
 	theme,
@@ -16,20 +15,19 @@ export function ReviewStep({
 	const selectedAgents = usePrompterStore((s) => s.selectedAgents);
 	const agentConfigs = usePrompterStore((s) => s.agentConfigs);
 	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
+	const selectedSchemas = usePrompterStore((s) => s.selectedSchemas);
+	const selectedTransforms = usePrompterStore((s) => s.selectedTransforms);
 
-	// Top-level base instructions are each varied into 23 character/layout
-	// fixtures that are always tested alongside the base files.
-	const VARIATIONS_PER_BASE = 23;
 	const instructionCount = availableInstructions.length;
 	const baseTopLevel = availableInstructions.filter((f) => !f.path.includes('/')).length;
-	const variationCount = baseTopLevel * VARIATIONS_PER_BASE;
+	const transformCount = selectedTransforms.size;
+	const variationCount = transformCount > 0 ? baseTopLevel * transformCount : 0;
 	const totalInputs = instructionCount + variationCount;
 	const agentCount = selectedAgents.length;
-	// Fixed refusal-probe set (no schema picker).
-	const schemaCount = PROMPTER_REFUSAL_PROBES.length;
+	const schemaCount = selectedSchemas.size;
 	const taskCount = totalInputs * agentCount * schemaCount;
 
-	const schemaList = [...PROMPTER_REFUSAL_PROBES];
+	const schemaList = Array.from(selectedSchemas);
 
 	const handleClampChange = (raw: number): void => {
 		if (Number.isNaN(raw)) {
@@ -127,7 +125,7 @@ export function ReviewStep({
 				)}
 			</div>
 
-			{/* Instructions */}
+			{/* Instructions + Variations */}
 			<div
 				className="flex flex-col gap-2 rounded-md p-3"
 				style={{
@@ -139,10 +137,13 @@ export function ReviewStep({
 					className="text-xs uppercase tracking-wide select-none"
 					style={{ color: theme.colors.textDim }}
 				>
-					Instructions
+					Instructions + Variationen
 				</span>
 				<span className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
-					{instructionCount} Dateien + {variationCount} Character-Variations (automatisch)
+					{instructionCount} Dateien
+					{variationCount > 0
+						? ` + ${variationCount} Variationen (${transformCount} Transforms)`
+						: ''}
 				</span>
 				{instructionCount > 0 && (
 					<div className="flex flex-col gap-1 select-text">
@@ -164,7 +165,7 @@ export function ReviewStep({
 				)}
 			</div>
 
-			{/* Refusal-Test (fixed probe set) */}
+			{/* Test-Schemata */}
 			<div
 				className="flex flex-col gap-1 rounded-md p-3"
 				style={{
@@ -176,13 +177,10 @@ export function ReviewStep({
 					className="text-xs uppercase tracking-wide select-none"
 					style={{ color: theme.colors.textDim }}
 				>
-					Refusal-Test ({schemaCount} Probes)
+					Test-Schemata ({schemaCount})
 				</span>
 				<span className="text-sm break-words select-text" style={{ color: theme.colors.textMain }}>
 					{schemaList.join(', ')}
-				</span>
-				<span className="text-xs" style={{ color: theme.colors.textDim }}>
-					Prueft, ob die Instruction akzeptiert wird und der Agent seine Grenzen konsistent haelt.
 				</span>
 			</div>
 
@@ -194,12 +192,11 @@ export function ReviewStep({
 				<ListChecks size={22} style={{ color: theme.colors.accent }} />
 				<div className="flex flex-col">
 					<span className="text-lg font-semibold" style={{ color: theme.colors.textMain }}>
-						{totalInputs} Inputs x {agentCount} Agents x {schemaCount} Probes ={' '}
+						{totalInputs} Inputs x {agentCount} Agents x {schemaCount} Schemata ={' '}
 						<span style={{ color: theme.colors.accent }}>{taskCount} Tasks</span>
 					</span>
 					<span className="text-xs" style={{ color: theme.colors.textDim }}>
-						{instructionCount} Basis-Instructions + {variationCount} Character-Variations, alle
-						mitgetestet.
+						{instructionCount} Basis + {variationCount} Variationen
 					</span>
 				</div>
 			</div>

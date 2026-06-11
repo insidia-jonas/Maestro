@@ -22,78 +22,31 @@ export function PrompterControls({ theme, run }: { theme: Theme; run: PrompterRu
 		e.currentTarget.style.color = theme.colors.textDim;
 	};
 
-	const handlePause = async (): Promise<void> => {
+	const withPending = (key: string, fn: () => Promise<void>) => async () => {
 		if (pending) return;
-		setPending('pause');
+		setPending(key);
 		try {
-			await window.maestro.prompter.pauseRun(run.id);
-		} catch {
-			// swallow quietly
+			await fn();
+		} catch (err) {
+			console.error(`[Prompter] ${key} failed:`, err);
 		} finally {
 			setPending(null);
 		}
 	};
 
-	const handleResume = async (): Promise<void> => {
-		if (pending) return;
-		setPending('resume');
-		try {
-			await window.maestro.prompter.resumeRun(run.id);
-		} catch {
-			// swallow quietly
-		} finally {
-			setPending(null);
-		}
-	};
-
-	const handleStop = async (): Promise<void> => {
-		if (pending) return;
-		setPending('stop');
-		try {
-			await window.maestro.prompter.stopRun(run.id);
-		} catch {
-			// swallow quietly
-		} finally {
-			setPending(null);
-		}
-	};
-
-	const handleOpenFolder = async (): Promise<void> => {
-		if (pending) return;
-		setPending('folder');
-		try {
-			await window.maestro.prompter.openProjectFolder(run.projectRoot);
-		} catch {
-			// swallow quietly
-		} finally {
-			setPending(null);
-		}
-	};
-
-	const handleExport = async (): Promise<void> => {
-		if (pending) return;
-		setPending('export');
-		try {
-			await window.maestro.prompter.exportReport(run.id, 'md');
-		} catch {
-			// swallow quietly
-		} finally {
-			setPending(null);
-		}
-	};
-
-	const handleDelete = async (): Promise<void> => {
-		if (pending) return;
-		setPending('delete');
-		try {
-			await window.maestro.prompter.deleteRun(run.id);
-			usePrompterStore.getState().clearActiveRun();
-		} catch {
-			// swallow quietly
-		} finally {
-			setPending(null);
-		}
-	};
+	const handlePause = withPending('pause', () => window.maestro.prompter.pauseRun(run.id));
+	const handleResume = withPending('resume', () => window.maestro.prompter.resumeRun(run.id));
+	const handleStop = withPending('stop', () => window.maestro.prompter.stopRun(run.id));
+	const handleOpenFolder = withPending('folder', () =>
+		window.maestro.prompter.openProjectFolder(run.projectRoot)
+	);
+	const handleExport = withPending('export', async () => {
+		await window.maestro.prompter.exportReport(run.id, 'md');
+	});
+	const handleDelete = withPending('delete', async () => {
+		await window.maestro.prompter.deleteRun(run.id);
+		usePrompterStore.getState().clearActiveRun();
+	});
 
 	return (
 		<div className="flex items-center gap-1 select-none">

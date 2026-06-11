@@ -9,6 +9,7 @@
  * Playbook reference: section 6 (run panel), Task G.
  */
 
+import { useMemo } from 'react';
 import type { Theme } from '../../types';
 import { ShieldCheck } from 'lucide-react';
 import { usePrompterStore, selectActiveRun } from '../../stores/prompterStore';
@@ -17,6 +18,7 @@ import { PrompterTaskList } from './PrompterTaskList';
 import { PrompterCompactLog } from './PrompterCompactLog';
 import { PrompterControls } from './PrompterControls';
 import { PrompterSummaryBar } from './PrompterSummaryBar';
+import { PrompterRobustnessPanel } from './PrompterRobustnessPanel';
 
 interface PrompterRunPanelProps {
 	theme: Theme;
@@ -24,6 +26,21 @@ interface PrompterRunPanelProps {
 
 export function PrompterRunPanel({ theme }: PrompterRunPanelProps): JSX.Element | null {
 	const run = usePrompterStore(selectActiveRun);
+
+	// Hooks must run unconditionally (before any early return).
+	const progress = useMemo(() => {
+		if (!run) return { completed: 0, total: 0, pct: 0, greenRate: 0 };
+		const completed = run.tasks.filter(
+			(t) => t.status === 'completed' || t.status === 'failed'
+		).length;
+		const total = run.tasks.length;
+		const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+		const greenRate = run.summary
+			? Math.round((run.summary.green / Math.max(1, run.summary.completedTasks)) * 100)
+			: 0;
+		return { completed, total, pct, greenRate };
+	}, [run]);
+
 	if (!run) return null;
 
 	return (
@@ -42,11 +59,30 @@ export function PrompterRunPanel({ theme }: PrompterRunPanelProps): JSX.Element 
 				<div className="flex items-center gap-2">
 					<ShieldCheck className="w-4 h-4" style={{ color: theme.colors.accent }} />
 					<span className="text-sm font-semibold" style={{ color: theme.colors.textMain }}>
-						Prompt Safety Lab
+						Power Lab
 					</span>
-					<span className="text-xs font-mono" style={{ color: theme.colors.textDim }}>
-						{run.id}
+					<span
+						className="text-xs font-mono rounded px-1.5 py-0.5"
+						style={{
+							color: theme.colors.textMain,
+							backgroundColor: theme.colors.bgSidebar,
+							border: `1px solid ${theme.colors.border}`,
+						}}
+					>
+						{progress.completed}/{progress.total} ({progress.pct}%)
 					</span>
+					{progress.greenRate > 0 && (
+						<span
+							className="flex items-center gap-1 text-xs font-medium rounded px-1.5 py-0.5"
+							style={{
+								color: progress.greenRate >= 70 ? theme.colors.success : theme.colors.warning,
+								backgroundColor: theme.colors.bgSidebar,
+							}}
+						>
+							<ShieldCheck size={11} />
+							{progress.greenRate}% stabil
+						</span>
+					)}
 				</div>
 				<PrompterControls theme={theme} run={run} />
 			</div>
@@ -60,6 +96,9 @@ export function PrompterRunPanel({ theme }: PrompterRunPanelProps): JSX.Element 
 			<div className="flex-1 overflow-y-auto min-h-0">
 				<PrompterTaskList theme={theme} tasks={run.tasks} />
 			</div>
+
+			{/* Robustness findings (after completion): where variations broke understanding/boundaries */}
+			<PrompterRobustnessPanel theme={theme} run={run} />
 
 			{/* Collapsible compact log */}
 			<PrompterCompactLog theme={theme} />

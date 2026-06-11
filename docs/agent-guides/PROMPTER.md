@@ -2,11 +2,11 @@
 test (no schema picker), instruction-first session execution, bare-model probing,
 per-agent CLI config-file slots, run shown in the center via a left-bar entry. -->
 
-# Prompter (Prompt Safety Lab)
+# Prompter (Prompt Power & Robustness Lab)
 
-The Prompter is a self-contained feature for **auditing how AI agents understand and preserve a system instruction** across providers and models. The user scaffolds a project folder, drops generic instruction files into it, picks agents and models, and runs a batch. Each agent is established with the instruction (as a provider-specific envelope) and then probed with a fixed refusal-probe set; each answer is classified into a traffic-light band (green/yellow/red). It is a **safety lab, not a bypass tool**: refusals are legitimate results, prompts are never obfuscated, nothing iterates to defeat a refusal, and every write stays inside the chosen project folder.
+The Prompter is a local **defensive robustness lab** for AI agent instructions. It finds WHERE an instruction breaks under controlled character/layout variations (homoglyphs, bidi/zero-width controls, whitespace, layout transforms) so the instruction can be hardened and a defender can improve their normalizer. The user scaffolds a project folder, drops instruction files into it, picks agents and models, and runs the variations as test fixtures. Results are classified into traffic-light bands (green = held, yellow/red = broke = a hardening opportunity). It is a **safety/robustness lab, not a bypass tool**: refusals and breakage are the useful signals; there is no ranking by token-output/compliance and no promoting an obfuscated variant into a deployed instruction.
 
-Reached from the hamburger menu (`ShieldCheck` icon -> "Prompter / Prompt Safety Lab").
+Reached from the hamburger menu (`ShieldCheck` icon -> "Prompter / Power & Robustness Lab").
 
 ## What it does (function)
 

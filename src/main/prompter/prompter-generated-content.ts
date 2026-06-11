@@ -73,7 +73,7 @@ dir das Schema generieren.
 
 Kopiere diesen Prompt in Claude, ChatGPT, Gemini oder eine andere KI:
 
-    Ich nutze den AI-MAESTRO Prompter (Prompt Safety Lab). Ich brauche ein
+    Ich nutze den AI-MAESTRO Prompter (Prompt Power & Robustness Lab). Ich brauche ein
     Test-Schema als JSON-Datei im Format prompter-schema/v1.
 
     Das Schema soll folgendes testen:
@@ -342,23 +342,25 @@ export const RUN_REPORT_TEMPLATE = `# Run Report - {{RUN_ID}}
 (Pro-Run-Report. Wird vom Report-Writer befüllt.)
 `;
 
-export const PROJECT_README = `# Prompt Safety Lab
+export const PROJECT_README = `# Prompt Power & Robustness Lab
 
-Lokales, auditierbares Labor zur Prüfung von Agent-Instructions, System-/Projekt-
-Prompts und Provider-Konfigurationen über mehrere AI-Provider hinweg.
+Lokales Labor zur defensiven Robustheits- und Schwachstellen-Pruefung von Agent-Instructions
+und System-/Projekt-Prompts. Zweck: herausfinden, WO eine Instruction unter Stoerungen
+bricht, damit sie gehaertet und der Normalizer verbessert werden kann.
 
 ## Scope
-- Instructions gegen sichere Prüfschemata validieren.
-- Provider-Kompatibilität und Instruction-Integrität prüfen.
-- Ablehnungen, Integritätsfehler und Kompatibilitätsfehler dokumentieren.
-- Ergebnisse in Green/Yellow/Red einordnen.
+- Instructions gegen kontrollierte Zeichen-/Layout-Variationen stress-testen (reine Testfaelle).
+- Messen, ob Sinn, Rolle, Scope und explizite Grenzen unter den Stoerungen erhalten bleiben.
+- Provider-Kompatibilitaet, Instruction-Integritaet und Formatting-Robustheit pruefen.
+- Robustheits-Befunde melden: welche Transform-Klassen Verstaendnis/Grenze destabilisieren -
+  als Haertungs-Chancen mit harmlosen Normalizer-Fix-Empfehlungen.
+- Refusal-Konsistenz ueber Modelle/Varianten pruefen.
 
-## Nicht-Ziele
-- Keine Umgehung von Safety-/Policy-/Moderationsmechanismen.
-- Keine Obfuskation oder versteckten Encodings.
-- Keine automatische Umschreibung abgelehnter Prompts.
-
-Ablehnungen sind gültige Testergebnisse.
+## Richtlinien (defensiv, unverhandelbar)
+- Ablehnungen, Brueche und Inkonsistenzen sind die erwuenschten, nuetzlichen Signale.
+- Variationen dienen ausschliesslich der Robustheitspruefung, NICHT der Umgehung.
+- Es gibt kein Ranking nach Token-Ausbeute/Compliance und kein Uebernehmen einer obfuskierten
+  Variante in eine eingesetzte Instruction. Solche Techniken bleiben Testfaelle, kein Produkt.
 `;
 
 export const CHARACTER_VARIATIONS_README = `# character-variations/ - Zeichen-/Layout-Variations-Fixtures

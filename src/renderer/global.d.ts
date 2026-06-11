@@ -3549,6 +3549,13 @@ interface MaestroAPI {
 			projectRoots: string[]
 		) => Promise<import('../shared/prompter-types').PrompterRun[]>;
 		exportReport: (runId: string, format: 'md' | 'json') => Promise<string>;
+		exportInstruction: (
+			projectRoot: string,
+			instructionPath: string,
+			targetDir: string,
+			format: import('../shared/prompter-types').InstructionExportFormat
+		) => Promise<import('../shared/prompter-types').InstructionExportResult>;
+		selectExportFolder: () => Promise<string | null>;
 		onRunUpdated: (
 			callback: (payload: import('../shared/prompter-types').PrompterRunUpdatedEvent) => void
 		) => () => void;

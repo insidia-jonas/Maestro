@@ -98,7 +98,7 @@ export const MODAL_PRIORITIES = {
 	/** Inline wizard exit confirmation dialog - appears when user presses Escape during wizard */
 	INLINE_WIZARD_EXIT_CONFIRM: 775,
 
-	/** Prompter (Prompt Safety Lab) wizard - standard high-priority wizard modal */
+	/** Prompter (Power & Robustness Lab) wizard - standard high-priority wizard modal */
 	PROMPTER: 758,
 
 	/** Prompter exit confirmation - appears above the Prompter wizard when exiting mid-flow */

@@ -40,7 +40,10 @@ import type {
 	ProjectPlanConflict,
 	PrompterProject,
 	InstructionFile,
+	InstructionExportFormat,
+	InstructionExportResult,
 } from '../../shared/prompter-types';
+import { envelopeFilesForAgent } from './prompter-agent-config-writer';
 
 const LOG = 'PrompterProjectService';
 const TOOL_VERSION = '1.0.0';
@@ -326,10 +329,14 @@ export class PrompterProjectService {
 	 * descriptors with project-root-relative paths. Only top-level instruction
 	 * files are varied (the examples/ subdir and meta files are skipped).
 	 */
-	async regenerateVariations(projectRoot: string): Promise<InstructionFile[]> {
+	async regenerateVariations(
+		projectRoot: string,
+		transformFilter?: string[]
+	): Promise<InstructionFile[]> {
 		const baseDir = assertSafeWritePath(INSTRUCTION_DIR, projectRoot);
 		const varDir = assertSafeWritePath(VARIATIONS_DIR, projectRoot);
 		await ensureDir(varDir);
+		const filterSet = transformFilter?.length ? new Set(transformFilter) : null;
 		const out: InstructionFile[] = [];
 		const bases = this.scanInstructions(projectRoot).filter((b) => !b.path.includes('/'));
 		for (const base of bases) {
@@ -342,6 +349,7 @@ export class PrompterProjectService {
 			}
 			const stem = base.path.replace(/\.[^.]+$/, '');
 			for (const variation of generateVariations(stem, content, base.hash.slice(0, 16))) {
+				if (filterSet && !filterSet.has(variation.transform)) continue;
 				const rel = path.posix.join(VARIATIONS_DIR, variation.filename);
 				const abs = assertSafeWritePath(rel, projectRoot);
 				await atomicWriteFile(abs, variation.content);
@@ -360,18 +368,67 @@ export class PrompterProjectService {
 	 * All instruction inputs for a run, with project-root-relative paths: the base
 	 * instructions (1-generic-instructions/) plus, when `includeVariations`, the
 	 * freshly regenerated character variations (4-advanced-tests/character-variations/).
+	 * When `transformFilter` is provided, only those transforms are generated.
 	 */
 	async collectRunInputs(
 		projectRoot: string,
-		includeVariations: boolean
+		includeVariations: boolean,
+		transformFilter?: string[]
 	): Promise<InstructionFile[]> {
 		const base = this.scanInstructions(projectRoot).map((f) => ({
 			...f,
 			path: path.posix.join(INSTRUCTION_DIR, f.path),
 		}));
 		if (!includeVariations) return base;
-		const variations = await this.regenerateVariations(projectRoot);
+		const variations = await this.regenerateVariations(projectRoot, transformFilter);
 		return [...base, ...variations];
+	}
+
+	/**
+	 * Export an instruction from 1-generic-instructions/ to a target
+	 * directory in a provider-specific envelope format. The raw content is read
+	 * from the project, optionally wrapped with a header, then written to the
+	 * chosen destination as the provider's expected instruction file.
+	 */
+	async exportInstruction(
+		projectRoot: string,
+		instructionPath: string,
+		targetDir: string,
+		format: InstructionExportFormat
+	): Promise<InstructionExportResult> {
+		const srcRel = path.posix.join(INSTRUCTION_DIR, instructionPath);
+		const srcAbs = resolveAndValidatePath(srcRel, projectRoot);
+		if (!fs.existsSync(srcAbs)) {
+			throw new Error(`Instruction nicht gefunden: ${instructionPath}`);
+		}
+		const content = fs.readFileSync(srcAbs, 'utf-8');
+
+		const formatToAgent: Record<string, string> = {
+			'claude-code': 'claude-code',
+			codex: 'codex',
+			'copilot-cli': 'copilot-cli',
+			opencode: 'opencode',
+			gemini: 'gemini',
+			'grok-build': 'grok-build',
+			agents: 'opencode',
+		};
+
+		let envelopeFile: string;
+		if (format === 'raw') {
+			envelopeFile = path.basename(instructionPath);
+		} else if (format === 'agents') {
+			envelopeFile = 'AGENTS.md';
+		} else {
+			const agentId = formatToAgent[format] ?? 'opencode';
+			const files = envelopeFilesForAgent(agentId);
+			envelopeFile = files[0];
+		}
+
+		const destAbs = path.resolve(targetDir, envelopeFile);
+		await ensureDir(path.dirname(destAbs));
+		await atomicWriteFile(destAbs, content);
+		logger.info(`Exported instruction to ${destAbs} (format: ${format})`, LOG);
+		return { exportedPath: destAbs, envelopeFile, format };
 	}
 
 	/** Load (or reload) project + shared custom schemas into the registry. */

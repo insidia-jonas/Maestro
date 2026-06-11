@@ -117,6 +117,8 @@ describe('prompterStore run events', () => {
 				failed: 0,
 				skipped: 0,
 				durationMs: 5,
+				totalTokens: 0,
+				avgResponseLength: 0,
 			},
 		};
 		usePrompterStore.getState().updateRunFromEvent(event);
@@ -138,6 +140,8 @@ describe('prompterStore run events', () => {
 				failed: 0,
 				skipped: 0,
 				durationMs: 0,
+				totalTokens: 0,
+				avgResponseLength: 0,
 			},
 		});
 		expect(usePrompterStore.getState().activeRun?.status).toBe('planned');

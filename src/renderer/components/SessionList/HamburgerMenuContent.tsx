@@ -333,7 +333,7 @@ export function HamburgerMenuContent({
 						Prompter
 					</div>
 					<div className="text-xs" style={{ color: theme.colors.textDim }}>
-						Prompt Safety Lab
+						Power & Robustness Lab
 					</div>
 				</div>
 			</button>

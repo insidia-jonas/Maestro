@@ -219,7 +219,7 @@ contextBridge.exposeInMainWorld('maestro', {
 	prompts: createPromptsApi(),
 	// Per-project Memory API (Claude Code memory viewer)
 	memory: createMemoryApi(),
-	// Prompter (Prompt Safety Lab) API
+	// Prompter (Prompt Power & Robustness Lab) API
 	prompter: createPrompterApi(),
 });
 
@@ -309,7 +309,7 @@ export {
 	createPromptsApi,
 	// Memory Viewer
 	createMemoryApi,
-	// Prompter (Prompt Safety Lab)
+	// Prompter (Prompt Power & Robustness Lab)
 	createPrompterApi,
 };
 
@@ -551,6 +551,6 @@ export type {
 	CorePromptData,
 } from './prompts';
 export type {
-	// From prompter (Prompt Safety Lab)
+	// From prompter (Prompt Power & Robustness Lab)
 	PrompterApi,
 } from './prompter';

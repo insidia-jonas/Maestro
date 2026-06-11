@@ -1,17 +1,18 @@
 /**
- * prompterStore - Zustand store for the Prompter (Prompt Safety Lab) feature.
+ * prompterStore - Zustand store for the Prompter (Power & Robustness Lab) feature.
  *
  * Holds the 7-step wizard state machine, the active run + live event updates,
  * the compact log, and a serializable resume snapshot persisted to localStorage
  * so an unfinished wizard survives an app restart.
  *
- * Playbook reference: 05-PLAYBOOK-PROMPTER-PROMPT-SAFETY-LAB, Task E.
+ * Playbook reference: 05-PLAYBOOK-PROMPTER-PROMPT-POWER-LAB, Task E.
  */
 
 import { create } from 'zustand';
 import { getAgentDisplayName } from '../../shared/agentMetadata';
 import {
 	PROMPTER_WIZARD_STEPS,
+	ALL_TRANSFORM_NAMES,
 	type PrompterWizardStep,
 	type PrompterProjectDraft,
 	type ProjectPlan,
@@ -41,6 +42,7 @@ interface PrompterStoreState {
 	selectedAgents: PrompterAgentSelection[];
 	agentConfigs: Map<string, PrompterAgentConfig>;
 	selectedSchemas: Set<string>;
+	selectedTransforms: Set<string>;
 	availableInstructions: InstructionFile[];
 
 	// Run
@@ -76,6 +78,11 @@ interface PrompterStoreActions {
 	// Schemas
 	toggleSchema: (schemaId: string) => void;
 	setSelectedSchemas: (schemaIds: string[]) => void;
+
+	// Transforms
+	toggleTransform: (transformId: string) => void;
+	setSelectedTransforms: (transformIds: string[]) => void;
+	toggleTransformCategory: (transforms: string[]) => void;
 
 	// Instructions
 	setAvailableInstructions: (instructions: InstructionFile[]) => void;
@@ -114,6 +121,7 @@ const initialWizardState = (): PrompterStoreState => ({
 	selectedAgents: [],
 	agentConfigs: new Map(),
 	selectedSchemas: new Set(),
+	selectedTransforms: new Set(ALL_TRANSFORM_NAMES),
 	availableInstructions: [],
 	activeRun: null,
 	runHistory: [],
@@ -179,6 +187,26 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 		}),
 	setSelectedSchemas: (schemaIds) => set({ selectedSchemas: new Set(schemaIds) }),
 
+	// --------------------------------------------------------- transforms
+	toggleTransform: (transformId) =>
+		set((state) => {
+			const selectedTransforms = new Set(state.selectedTransforms);
+			if (selectedTransforms.has(transformId)) selectedTransforms.delete(transformId);
+			else selectedTransforms.add(transformId);
+			return { selectedTransforms };
+		}),
+	setSelectedTransforms: (transformIds) => set({ selectedTransforms: new Set(transformIds) }),
+	toggleTransformCategory: (transforms) =>
+		set((state) => {
+			const selectedTransforms = new Set(state.selectedTransforms);
+			const allSelected = transforms.every((t) => selectedTransforms.has(t));
+			for (const t of transforms) {
+				if (allSelected) selectedTransforms.delete(t);
+				else selectedTransforms.add(t);
+			}
+			return { selectedTransforms };
+		}),
+
 	// -------------------------------------------------------- instructions
 	setAvailableInstructions: (availableInstructions) => set({ availableInstructions }),
 
@@ -228,6 +256,7 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 			selectedAgentIds: s.selectedAgents.map((a) => a.agentId),
 			agentConfigs: Array.from(s.agentConfigs.values()),
 			selectedSchemaIds: Array.from(s.selectedSchemas),
+			selectedTransformIds: Array.from(s.selectedTransforms),
 			savedAt: Date.now(),
 		};
 		try {
@@ -263,6 +292,11 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 				selectedAgents,
 				agentConfigs,
 				selectedSchemas: new Set(snapshot.selectedSchemaIds),
+				selectedTransforms: new Set(
+					snapshot.selectedTransformIds?.length
+						? snapshot.selectedTransformIds
+						: ALL_TRANSFORM_NAMES
+				),
 				savedWizardState: snapshot,
 			};
 		}),

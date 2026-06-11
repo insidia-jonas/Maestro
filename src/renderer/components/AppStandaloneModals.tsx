@@ -364,7 +364,7 @@ function AppStandaloneModalsInner({
 				</Suspense>
 			)}
 
-			{/* --- PROMPTER (PROMPT SAFETY LAB) WIZARD (lazy-loaded) --- */}
+			{/* --- PROMPTER (PROMPT POWER & ROBUSTNESS LAB) WIZARD (lazy-loaded) --- */}
 			{prompterModalOpen && (
 				<Suspense fallback={null}>
 					<PrompterWizardModal theme={theme} />

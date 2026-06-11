@@ -1,5 +1,5 @@
 /**
- * usePrompterListeners - app-level wiring for the Prompter (Prompt Safety Lab):
+ * usePrompterListeners - app-level wiring for the Prompter (Power & Robustness Lab):
  * subscribes to the main-process run/task/log events and routes them into the
  * prompterStore, and on startup recovers interrupted runs from known project
  * folders (no auto-resume: a recovered run is shown paused so the user decides).

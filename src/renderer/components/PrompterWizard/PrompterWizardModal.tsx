@@ -1,5 +1,5 @@
 /**
- * PrompterWizardModal - orchestrator for the 7-step Prompter (Prompt Safety Lab)
+ * PrompterWizardModal - orchestrator for the 7-step Prompter (Power & Robustness Lab)
  * wizard. Visibility is driven by the modal store id 'prompter' (the parent
  * mounts this only when open). Owns step navigation, per-step advance
  * validation, the exit-confirm flow, and the terminal "Run starten" action
@@ -16,11 +16,7 @@ import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Modal } from '../ui/Modal';
 import { useModalStore } from '../../stores/modalStore';
 import { usePrompterStore, selectIsFirstStep, selectIsLastStep } from '../../stores/prompterStore';
-import {
-	PROMPTER_WIZARD_STEPS,
-	PROMPTER_REFUSAL_PROBES,
-	type PrompterRunConfig,
-} from '../../../shared/prompter-types';
+import { PROMPTER_WIZARD_STEPS, type PrompterRunConfig } from '../../../shared/prompter-types';
 import { rememberPrompterProjectRoot } from '../../hooks/prompter/usePrompterListeners';
 import { PrompterWizardStepper } from './PrompterWizardStepper';
 import { PrompterExitConfirmModal } from './PrompterExitConfirmModal';
@@ -29,6 +25,7 @@ import { CreateStructureStep } from './CreateStructureStep';
 import { AgentSelectionStep } from './AgentSelectionStep';
 import { ModelConfigStep } from './ModelConfigStep';
 import { InstructionStep } from './InstructionStep';
+import { SchemaSelectionStep } from './SchemaSelectionStep';
 import { ReviewStep } from './ReviewStep';
 
 interface PrompterWizardModalProps {
@@ -53,6 +50,8 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 	const selectedAgents = usePrompterStore((s) => s.selectedAgents);
 	const agentConfigs = usePrompterStore((s) => s.agentConfigs);
 	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
+	const selectedSchemas = usePrompterStore((s) => s.selectedSchemas);
+	const selectedTransforms = usePrompterStore((s) => s.selectedTransforms);
 
 	const [showExitConfirm, setShowExitConfirm] = useState(false);
 	const [maxParallelAgents, setMaxParallelAgents] = useState(4);
@@ -85,6 +84,8 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 				);
 			case 'instructions':
 				return availableInstructions.length >= 1;
+			case 'schema-selection':
+				return selectedSchemas.size >= 1;
 			case 'review':
 				return true;
 			default:
@@ -97,6 +98,7 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		selectedAgents,
 		agentConfigs,
 		availableInstructions,
+		selectedSchemas,
 	]);
 
 	const handleCloseRequest = useCallback(() => {
@@ -125,13 +127,15 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		if (!createdProject || starting) return;
 		setStarting(true);
 		try {
+			const transforms = Array.from(selectedTransforms);
 			const config: PrompterRunConfig = {
 				projectId: createdProject.id,
 				projectRoot: createdProject.rootPath,
 				agents: Array.from(agentConfigs.values()),
-				// Fixed refusal-probe set (no schema picker).
-				schemas: [...PROMPTER_REFUSAL_PROBES],
+				schemas: Array.from(selectedSchemas),
 				maxParallelAgents,
+				includeVariations: transforms.length > 0,
+				selectedTransforms: transforms,
 			};
 			const run = await window.maestro.prompter.createRun(config);
 			await window.maestro.prompter.startRun(run.id);
@@ -149,6 +153,8 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		createdProject,
 		starting,
 		agentConfigs,
+		selectedSchemas,
+		selectedTransforms,
 		maxParallelAgents,
 		setActiveRun,
 		clearResumeState,
@@ -162,7 +168,7 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		<>
 			<Modal
 				theme={theme}
-				title="Prompter - Prompt Safety Lab"
+				title="Prompter - Power & Robustness Lab"
 				priority={MODAL_PRIORITIES.PROMPTER}
 				onClose={handleCloseRequest}
 				headerIcon={<ShieldCheck className="w-4 h-4" style={{ color: theme.colors.accent }} />}
@@ -214,6 +220,7 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 						{wizardStep === 'agent-selection' && <AgentSelectionStep theme={theme} />}
 						{wizardStep === 'model-config' && <ModelConfigStep theme={theme} />}
 						{wizardStep === 'instructions' && <InstructionStep theme={theme} />}
+						{wizardStep === 'schema-selection' && <SchemaSelectionStep theme={theme} />}
 						{wizardStep === 'review' && (
 							<ReviewStep
 								theme={theme}

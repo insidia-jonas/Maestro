@@ -33,7 +33,7 @@ export function PrompterSidebarEntry({ theme }: { theme: Theme }): JSX.Element |
 		<button
 			type="button"
 			onClick={() => usePrompterStore.getState().focusPrompterRun()}
-			title="Prompt Safety Lab im Center oeffnen"
+			title="Prompt Power Lab im Center oeffnen"
 			className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors select-none"
 			style={{
 				backgroundColor: focused ? `${theme.colors.accent}22` : 'transparent',
@@ -43,7 +43,7 @@ export function PrompterSidebarEntry({ theme }: { theme: Theme }): JSX.Element |
 			<ShieldCheck className="w-4 h-4 shrink-0" style={{ color: theme.colors.accent }} />
 			<div className="flex-1 min-w-0">
 				<div className="text-sm font-medium truncate" style={{ color: theme.colors.textMain }}>
-					Prompt Safety Lab
+					Prompt Power Lab
 				</div>
 				<div className="text-xs truncate" style={{ color: theme.colors.textDim }}>
 					{done}/{total} Tasks

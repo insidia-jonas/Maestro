@@ -1,8 +1,129 @@
 import { useEffect, useState } from 'react';
-import { FileText, FolderOpen, RefreshCw, AlertTriangle } from 'lucide-react';
+import { FileText, FolderOpen, RefreshCw, AlertTriangle, CheckSquare, Square } from 'lucide-react';
 import type { Theme } from '../../types';
 import { usePrompterStore } from '../../stores/prompterStore';
-import type { InstructionFile } from '../../../shared/prompter-types';
+import { VARIATION_CATEGORIES, type InstructionFile } from '../../../shared/prompter-types';
+
+function VariationTransformPicker({ theme }: { theme: Theme }): JSX.Element {
+	const selectedTransforms = usePrompterStore((s) => s.selectedTransforms);
+	const toggleTransformCategory = usePrompterStore((s) => s.toggleTransformCategory);
+	const toggleTransform = usePrompterStore((s) => s.toggleTransform);
+
+	const [expanded, setExpanded] = useState<string | null>(null);
+	const totalSelected = selectedTransforms.size;
+
+	return (
+		<div
+			className="flex flex-col gap-2 rounded-md p-3"
+			style={{
+				backgroundColor: theme.colors.bgSidebar,
+				border: `1px solid ${theme.colors.border}`,
+			}}
+		>
+			<div className="flex items-center justify-between">
+				<span className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+					Character-Variationen ({totalSelected} aktiv)
+				</span>
+				<div className="flex gap-2">
+					<button
+						type="button"
+						onClick={() =>
+							usePrompterStore
+								.getState()
+								.setSelectedTransforms(VARIATION_CATEGORIES.flatMap((c) => c.transforms))
+						}
+						className="text-xs rounded px-2 py-0.5"
+						style={{
+							color: theme.colors.accentText,
+							border: `1px solid ${theme.colors.accentDim}`,
+						}}
+					>
+						Alle
+					</button>
+					<button
+						type="button"
+						onClick={() => usePrompterStore.getState().setSelectedTransforms([])}
+						className="text-xs rounded px-2 py-0.5"
+						style={{ color: theme.colors.textDim, border: `1px solid ${theme.colors.border}` }}
+					>
+						Keine
+					</button>
+				</div>
+			</div>
+			<span className="text-xs" style={{ color: theme.colors.textDim }}>
+				Jede Basis-Instruction wird in den aktiven Variationen erzeugt und mitgetestet.
+			</span>
+
+			<div className="flex flex-col gap-1.5 mt-1">
+				{VARIATION_CATEGORIES.map((cat) => {
+					const catSelected = cat.transforms.filter((t) => selectedTransforms.has(t)).length;
+					const allOn = catSelected === cat.transforms.length;
+					const isExpanded = expanded === cat.key;
+					const CatIcon = allOn ? CheckSquare : Square;
+					return (
+						<div key={cat.key} className="flex flex-col">
+							<div className="flex items-center gap-2">
+								<button
+									type="button"
+									onClick={() => toggleTransformCategory(cat.transforms)}
+									className="flex items-center gap-2"
+								>
+									<CatIcon
+										size={15}
+										style={{
+											color: allOn ? theme.colors.accent : theme.colors.textDim,
+										}}
+									/>
+									<span
+										className="text-sm"
+										style={{
+											color: catSelected > 0 ? theme.colors.textMain : theme.colors.textDim,
+										}}
+									>
+										{cat.label}
+									</span>
+								</button>
+								<span className="text-xs" style={{ color: theme.colors.textDim }}>
+									{catSelected}/{cat.transforms.length}
+								</span>
+								<button
+									type="button"
+									onClick={() => setExpanded(isExpanded ? null : cat.key)}
+									className="text-xs ml-auto"
+									style={{ color: theme.colors.accentText }}
+								>
+									{isExpanded ? 'weniger' : 'details'}
+								</button>
+							</div>
+							{isExpanded && (
+								<div className="flex flex-wrap gap-1.5 pl-6 pt-1.5">
+									{cat.transforms.map((t) => {
+										const on = selectedTransforms.has(t);
+										return (
+											<button
+												key={t}
+												type="button"
+												onClick={() => toggleTransform(t)}
+												className="text-xs rounded px-2 py-0.5 transition-colors"
+												style={{
+													backgroundColor: on ? `${theme.colors.accent}22` : theme.colors.bgMain,
+													color: on ? theme.colors.accent : theme.colors.textDim,
+													border: `1px solid ${on ? theme.colors.accent : theme.colors.border}`,
+												}}
+											>
+												{t}
+											</button>
+										);
+									})}
+								</div>
+							)}
+						</div>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
 
 function formatBytes(bytes: number): string {
 	if (bytes < 1024) {
@@ -125,10 +246,7 @@ export function InstructionStep({ theme }: { theme: Theme }): JSX.Element {
 				Alle Dateien in diesem Ordner werden automatisch in jeden Test einbezogen. Lege weitere
 				Dateien ab oder importiere sie.
 			</p>
-			<p className="text-sm" style={{ color: theme.colors.textDim }}>
-				Zusaetzlich wird jede Basis-Instruction in 23 Character-/Layout-Variationen (Homoglyphen,
-				Fullwidth, Whitespace, Bidi/Control u.a.) erzeugt und immer mitgetestet.
-			</p>
+			<VariationTransformPicker theme={theme} />
 
 			{count === 0 && !loading && (
 				<div

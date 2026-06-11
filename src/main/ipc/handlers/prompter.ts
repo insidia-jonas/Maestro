@@ -1,6 +1,6 @@
 /**
  * @file prompter.ts (IPC handlers)
- * @description IPC surface for the Prompter (Prompt Safety Lab) feature. Wires
+ * @description IPC surface for the Prompter (Prompt Power & Robustness Lab) feature. Wires
  * the main-process services (project service, schema registry, model discovery,
  * config writer, evaluator, report writer, run manager) to renderer-facing
  * channels and forwards run/task/log events to the renderer.
@@ -29,7 +29,11 @@ import {
 	type PrompterSpawnFn,
 	type PrompterEventSink,
 } from '../../prompter/prompter-run-manager';
-import type { PrompterRunConfig, PrompterModelOption } from '../../../shared/prompter-types';
+import type {
+	PrompterRunConfig,
+	PrompterModelOption,
+	InstructionExportFormat,
+} from '../../../shared/prompter-types';
 
 const LOG_CONTEXT = '[Prompter]';
 
@@ -261,5 +265,37 @@ export function registerPrompterHandlers(deps: PrompterHandlerDependencies): voi
 				return reportWriter.writeRunReport(run.projectRoot, run);
 			}
 		)
+	);
+
+	// --------------------------------------------------- instruction export
+
+	ipcMain.handle(
+		'prompter:exportInstruction',
+		withIpcErrorLogging(
+			handlerOpts('exportInstruction'),
+			async (
+				projectRoot: string,
+				instructionPath: string,
+				targetDir: string,
+				format: InstructionExportFormat
+			) => projectService.exportInstruction(projectRoot, instructionPath, targetDir, format)
+		)
+	);
+
+	ipcMain.handle(
+		'prompter:selectExportFolder',
+		withIpcErrorLogging(handlerOpts('selectExportFolder'), async (): Promise<string | null> => {
+			const win = getMainWindow();
+			const result = win
+				? await dialog.showOpenDialog(win, {
+						properties: ['openDirectory', 'createDirectory'],
+						title: 'Export-Zielverzeichnis waehlen',
+					})
+				: await dialog.showOpenDialog({
+						properties: ['openDirectory', 'createDirectory'],
+						title: 'Export-Zielverzeichnis waehlen',
+					});
+			return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
+		})
 	);
 }

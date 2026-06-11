@@ -329,7 +329,7 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerPromptsHandlers();
 	// Register project Memory handlers (Claude Code per-project memory viewer)
 	registerMemoryHandlers();
-	// Register Prompter (Prompt Safety Lab) handlers
+	// Register Prompter (Prompt Power & Robustness Lab) handlers
 	registerPrompterHandlers({
 		getMainWindow: deps.getMainWindow,
 		getAgentDetector: deps.getAgentDetector,

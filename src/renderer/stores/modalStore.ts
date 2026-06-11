@@ -304,7 +304,7 @@ export type ModalId =
 	// Maestro Cue
 	| 'cueModal'
 	| 'cueYamlEditor'
-	// Prompter (Prompt Safety Lab)
+	// Prompter (Power & Robustness Lab)
 	| 'prompter'
 	| 'prompterExitConfirm';
 
@@ -907,7 +907,7 @@ export function getModalActions() {
 		setSymphonyModalOpen: (open: boolean) =>
 			open ? openModal('symphony') : closeModal('symphony'),
 
-		// Prompter (Prompt Safety Lab) Modals
+		// Prompter (Power & Robustness Lab) Modals
 		setPrompterModalOpen: (open: boolean) =>
 			open ? openModal('prompter') : closeModal('prompter'),
 		setPrompterExitConfirmModalOpen: (open: boolean) =>
@@ -1220,7 +1220,7 @@ export function useModalActions() {
 		// Maestro Cue Modal
 		cueModalOpen,
 
-		// Prompter (Prompt Safety Lab) Modal
+		// Prompter (Power & Robustness Lab) Modal
 		prompterModalOpen,
 
 		// Maestro Cue YAML Editor (standalone)
