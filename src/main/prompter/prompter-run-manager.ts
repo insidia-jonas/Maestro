@@ -228,26 +228,53 @@ export class PrompterRunManager {
 		tasks: PrompterTask[]
 	): Promise<void> {
 		const agentConfig = state.run.agents.find((a) => a.agentId === agentId);
-		for (const task of tasks) {
-			while (state.run.status === 'paused') {
-				await this.waitForResume(state);
-			}
-			if (state.run.status === 'stopping' || state.abortController.signal.aborted) {
-				if (task.status === 'pending') {
-					task.status = 'skipped';
-					this.emitTask(state, task);
+		const modelId = agentConfig?.modelId ?? tasks[0]?.modelId ?? '';
+		// Each input (instruction file) runs as ONE conversation: the instruction
+		// is delivered on the first turn, then the probes resume that session.
+		for (const [, groupTasks] of this.groupByInstruction(tasks)) {
+			let sessionId: string | undefined;
+			for (const task of groupTasks) {
+				while (state.run.status === 'paused') {
+					await this.waitForResume(state);
 				}
-				continue;
+				if (state.run.status === 'stopping' || state.abortController.signal.aborted) {
+					if (task.status === 'pending') {
+						task.status = 'skipped';
+						this.emitTask(state, task);
+					}
+					continue;
+				}
+				if (task.status === 'completed') continue; // already done (resume case)
+				sessionId = await this.executeTask(state, task, modelId, sessionId);
 			}
-			if (task.status === 'completed') continue; // already done (resume case)
-			await this.executeTask(state, task, agentConfig?.modelId ?? task.modelId);
 		}
+	}
+
+	private groupByInstruction(tasks: PrompterTask[]): Map<string, PrompterTask[]> {
+		const groups = new Map<string, PrompterTask[]>();
+		for (const task of tasks) {
+			const list = groups.get(task.instructionFile);
+			if (list) list.push(task);
+			else groups.set(task.instructionFile, [task]);
+		}
+		return groups;
 	}
 
 	// ---------------------------------------------------------------- one task
 
-	private async executeTask(state: RunState, task: PrompterTask, modelId: string): Promise<void> {
+	/**
+	 * Run one probe turn. `resumeSessionId` continues the per-input conversation
+	 * (undefined for the first turn, which establishes the instruction). Returns
+	 * the session id to carry to the next probe in the same input group.
+	 */
+	private async executeTask(
+		state: RunState,
+		task: PrompterTask,
+		modelId: string,
+		resumeSessionId: string | undefined
+	): Promise<string | undefined> {
 		const { run } = state;
+		let nextSessionId = resumeSessionId;
 		task.status = 'running';
 		task.startedAt = Date.now();
 		this.emitTask(state, task);
@@ -288,8 +315,11 @@ export class PrompterRunManager {
 				workDir,
 				prompt,
 				instructionContent,
-				timeoutMs
+				timeoutMs,
+				resumeSessionId
 			);
+			// Carry the (new or resumed) session id forward to the next probe.
+			if (result.agentSessionId) nextSessionId = result.agentSessionId;
 
 			if (rateLimitExhausted) {
 				// Rate-limit after all retries: failed, band yellow, reason rate-limit.
@@ -349,6 +379,7 @@ export class PrompterRunManager {
 		run.summary = this.computeSummary(run);
 		this.emitRun(state);
 		await this.persist(state, { force: true });
+		return nextSessionId;
 	}
 
 	private async spawnWithRetries(
@@ -358,7 +389,8 @@ export class PrompterRunManager {
 		workDir: string,
 		prompt: string,
 		instructionContent: string,
-		timeoutMs: number
+		timeoutMs: number,
+		resumeSessionId: string | undefined
 	): Promise<{ result: SpawnResult; rateLimitExhausted: boolean }> {
 		const options: SpawnOptions = {
 			customModel: modelId,
@@ -370,7 +402,14 @@ export class PrompterRunManager {
 				return { result: { success: false, error: 'Run gestoppt' }, rateLimitExhausted: false };
 			}
 			task.attempts = (task.attempts ?? 0) + 1;
-			const result = await this.spawnWithTimeout(task.agentId, workDir, prompt, options, timeoutMs);
+			const result = await this.spawnWithTimeout(
+				task.agentId,
+				workDir,
+				prompt,
+				resumeSessionId,
+				options,
+				timeoutMs
+			);
 
 			const haystack = `${result.error || ''} ${result.response || ''}`;
 			const rateLimited = /rate[- ]?limit/i.test(haystack);
@@ -397,6 +436,7 @@ export class PrompterRunManager {
 		agentId: string,
 		cwd: string,
 		prompt: string,
+		sessionId: string | undefined,
 		options: SpawnOptions,
 		timeoutMs: number
 	): Promise<SpawnResult> {
@@ -408,7 +448,7 @@ export class PrompterRunManager {
 					resolve({ success: false, error: 'ETIMEDOUT' });
 				}
 			}, timeoutMs);
-			this.deps.spawn(agentId, cwd, prompt, undefined, options).then(
+			this.deps.spawn(agentId, cwd, prompt, sessionId, options).then(
 				(r) => {
 					if (!settled) {
 						settled = true;

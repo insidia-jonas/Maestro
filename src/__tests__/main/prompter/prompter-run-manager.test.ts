@@ -224,6 +224,29 @@ describe('PrompterRunManager', () => {
 		expect(fs.readdirSync(varDir).filter((f) => f.startsWith('tv-eni-')).length).toBe(23);
 	});
 
+	it('runs the probes for one input as a resumed session (instruction first, then probes resume)', async () => {
+		const calls: Array<{ sessionId: string | undefined }> = [];
+		const sessionSpawn: PrompterSpawnFn = async (_t, _c, _p, sessionId, options) => {
+			calls.push({ sessionId });
+			return {
+				success: true,
+				response: options.appendSystemPrompt ?? 'ok',
+				agentSessionId: 'sess-1',
+			} as SpawnResult;
+		};
+		const mgr = makeManager(sessionSpawn);
+		const run = await mgr.createRun(
+			runConfig(['baseline', 'safety-boundary', 'refusal-consistency'])
+		);
+		// 1 instruction x 3 probes, same input -> one conversation.
+		expect(run.tasks).toHaveLength(3);
+		await mgr.startRun(run.id);
+		expect(calls).toHaveLength(3);
+		expect(calls[0].sessionId).toBeUndefined(); // first turn establishes the instruction
+		expect(calls[1].sessionId).toBe('sess-1'); // probe resumes the session
+		expect(calls[2].sessionId).toBe('sess-1');
+	});
+
 	it('pauseRun and resumeRun flip the run status', async () => {
 		const mgr = makeManager();
 		const run = await mgr.createRun(runConfig(['baseline']));
