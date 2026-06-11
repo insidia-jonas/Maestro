@@ -198,4 +198,26 @@ describe('PrompterRunManager', () => {
 		await mgr.deleteRun(run.id);
 		expect(fs.existsSync(path.join(projectRoot, '3-temp-results', 'runs', run.id))).toBe(false);
 	});
+
+	it('pauseRun and resumeRun flip the run status', async () => {
+		const mgr = makeManager();
+		const run = await mgr.createRun(runConfig(['baseline']));
+		await mgr.pauseRun(run.id);
+		expect(mgr.getRun(run.id)?.status).toBe('paused');
+		await mgr.resumeRun(run.id);
+		expect(mgr.getRun(run.id)?.status).toBe('running');
+	});
+
+	it('stopRun before start skips all tasks and completes', async () => {
+		const mgr = makeManager();
+		const run = await mgr.createRun(runConfig(['baseline', 'formatting-robustness']));
+		await mgr.stopRun(run.id);
+		expect(mgr.getRun(run.id)?.status).toBe('stopping');
+		// Starting an aborted run drains the queue as skipped, then completes.
+		await mgr.startRun(run.id);
+		const fresh = mgr.getRun(run.id);
+		expect(fresh?.status).toBe('completed');
+		expect(fresh?.summary?.skipped).toBe(2);
+		expect(fresh?.summary?.green).toBe(0);
+	});
 });

@@ -74,6 +74,7 @@ vi.mock('lucide-react', () => ({
 	BarChart3: () => <span data-testid="icon-bar-chart" />,
 	Server: () => <span data-testid="icon-server" />,
 	Music: () => <span data-testid="icon-music" />,
+	ShieldCheck: () => <span data-testid="icon-shield-check" />,
 	Command: () => <span data-testid="icon-command" />,
 	MessageSquare: () => <span data-testid="icon-message-square" />,
 	MessageSquarePlus: () => <span data-testid="icon-message-square-plus" />,
