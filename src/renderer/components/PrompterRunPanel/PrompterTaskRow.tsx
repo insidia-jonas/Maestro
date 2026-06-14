@@ -79,6 +79,28 @@ export function PrompterTaskRow({
 					{task.tokenCount >= 1000 ? `${(task.tokenCount / 1000).toFixed(1)}k` : task.tokenCount}t
 				</span>
 			)}
+			{task.complianceScore != null && (
+				<span
+					className="shrink-0 text-[10px] font-mono rounded px-1 py-0.5"
+					style={{
+						color:
+							task.complianceScore >= 0.7
+								? theme.colors.warning
+								: task.complianceScore >= 0.4
+									? theme.colors.accent
+									: theme.colors.textDim,
+						backgroundColor:
+							task.complianceScore >= 0.7
+								? `${theme.colors.warning}18`
+								: task.complianceScore >= 0.4
+									? `${theme.colors.accent}18`
+									: 'transparent',
+					}}
+					title={`Compliance Score: ${Math.round(task.complianceScore * 100)}%`}
+				>
+					{Math.round(task.complianceScore * 100)}%
+				</span>
+			)}
 			{task.result ? <PrompterResultBadge theme={theme} band={task.result} size="sm" /> : null}
 			{task.error ? (
 				<span className="shrink-0 inline-flex" title={task.error}>

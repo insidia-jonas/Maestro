@@ -2,9 +2,8 @@
  * @file prompter-variation-generator.ts
  * @description Deterministic character/layout variation transforms ported from
  * the user's generate-tv-variations.py. Each base instruction is run through all
- * transforms to produce `tv-<stem>-<transform>.md` fixtures used to stress-test
- * the robustness/audit schemas (normalization-audit, formatting-robustness,
- * instruction-integrity, ...).
+ * transforms to produce `tv-<stem>-<transform>.md` fixtures used for controlled
+ * adversarial model evaluation and injection research.
  *
  * These are CONTROLLED TEST FIXTURES, not production prompts and not obfuscation
  * recipes: every transform is deterministic and reversible-in-principle, and the

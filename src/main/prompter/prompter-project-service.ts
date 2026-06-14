@@ -34,6 +34,9 @@ import {
 	RUN_REPORT_TEMPLATE,
 	PROJECT_README,
 	CHARACTER_VARIATIONS_README,
+	HARDENED_INSTRUCTIONS_README,
+	APPROVED_FIXTURES_README,
+	STEGO_EVIDENCE_EXAMPLE,
 } from './prompter-generated-content';
 import type {
 	ProjectPlan,
@@ -42,6 +45,7 @@ import type {
 	InstructionFile,
 	InstructionExportFormat,
 	InstructionExportResult,
+	TestTarget,
 } from '../../shared/prompter-types';
 import { envelopeFilesForAgent } from './prompter-agent-config-writer';
 
@@ -67,6 +71,7 @@ const FOLDERS: string[] = [
 	'4-advanced-tests',
 	'4-advanced-tests/approved-fixtures',
 	'4-advanced-tests/character-variations',
+	'5-hardened-instructions',
 	'documentation',
 	'documentation/templates',
 	'tools',
@@ -100,11 +105,15 @@ const STATIC_FILES: GeneratedFile[] = [
 	{ relativePath: '3-temp-results/2-yellow/.gitkeep', content: '' },
 	{ relativePath: '3-temp-results/3-red/.gitkeep', content: '' },
 	{ relativePath: '4-advanced-tests/README.md', content: ADVANCED_README },
-	{ relativePath: '4-advanced-tests/approved-fixtures/.gitkeep', content: '' },
+	{
+		relativePath: '4-advanced-tests/approved-fixtures/README.md',
+		content: APPROVED_FIXTURES_README,
+	},
 	{
 		relativePath: '4-advanced-tests/character-variations/README.md',
 		content: CHARACTER_VARIATIONS_README,
 	},
+	{ relativePath: '5-hardened-instructions/README.md', content: HARDENED_INSTRUCTIONS_README },
 	{ relativePath: 'documentation/FINAL-REPORT.md', content: FINAL_REPORT_TEMPLATE },
 	{ relativePath: 'documentation/RUNBOOK.md', content: RUNBOOK_CONTENT },
 	{
@@ -114,6 +123,10 @@ const STATIC_FILES: GeneratedFile[] = [
 	{
 		relativePath: 'documentation/templates/final-report.template.md',
 		content: FINAL_REPORT_TEMPLATE,
+	},
+	{
+		relativePath: 'documentation/templates/stego-evidence-example.md',
+		content: STEGO_EVIDENCE_EXAMPLE,
 	},
 	{ relativePath: 'tools/README.md', content: TOOLS_README },
 	{ relativePath: 'tools/evaluators/EVALUATOR-GUIDE.md', content: EVALUATOR_GUIDE_CONTENT },
@@ -245,6 +258,24 @@ export class PrompterProjectService {
 		if (fs.existsSync(abs)) return;
 		await ensureDir(path.dirname(abs));
 		await atomicWriteFile(abs, content);
+	}
+
+	/**
+	 * Update the project manifest with test targets. Reads the existing manifest,
+	 * merges testTargets, and writes it back atomically.
+	 */
+	async updateProjectTargets(projectRoot: string, targets: TestTarget[]): Promise<void> {
+		const resolved = path.resolve(projectRoot);
+		const manifestPath = path.join(resolved, PROJECT_MANIFEST);
+		if (!fs.existsSync(manifestPath)) {
+			logger.warn(`Cannot update targets: no manifest at ${manifestPath}`, LOG);
+			return;
+		}
+		const raw = fs.readFileSync(manifestPath, 'utf-8');
+		const manifest = JSON.parse(raw) as PrompterProject;
+		manifest.testTargets = targets.length > 0 ? targets : undefined;
+		await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+		logger.info(`Updated project targets (${targets.length}) at ${resolved}`, LOG);
 	}
 
 	/**

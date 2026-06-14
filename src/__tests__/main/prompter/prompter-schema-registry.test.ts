@@ -34,22 +34,20 @@ function ctx(overrides: Partial<PromptContext> = {}): PromptContext {
 }
 
 describe('PrompterSchemaRegistry — builtins', () => {
-	it('loads all 9 builtin schemas tagged source=builtin', () => {
+	it('loads all 15 builtin schemas tagged source=builtin', () => {
 		const reg = new PrompterSchemaRegistry();
 		const all = reg.listSchemas();
-		expect(all).toHaveLength(9);
+		expect(all).toHaveLength(15);
 		expect(all.every((s) => s.source === 'builtin')).toBe(true);
-		expect(BUILTIN_SCHEMAS.map((s) => s.id)).toContain('baseline');
+		expect(BUILTIN_SCHEMAS.map((s) => s.id)).toContain('adversarial-compliance-test');
+		expect(BUILTIN_SCHEMAS.map((s) => s.id)).toContain('attention-attractor-obfuscation');
 	});
 
-	it('marks baseline / provider-compatibility / instruction-integrity as required', () => {
+	it('all builtins are optional (injection research schemas)', () => {
 		const reg = new PrompterSchemaRegistry();
-		const required = reg
-			.getRequiredSchemas()
-			.map((s) => s.id)
-			.sort();
-		expect(required).toEqual(['baseline', 'instruction-integrity', 'provider-compatibility']);
-		expect(reg.getOptionalSchemas().length).toBe(6);
+		const required = reg.getRequiredSchemas();
+		expect(required).toHaveLength(0);
+		expect(reg.getOptionalSchemas().length).toBe(15);
 	});
 });
 
@@ -151,13 +149,13 @@ describe('PrompterSchemaRegistry — custom schemas (override + inheritance)', (
 	}
 
 	it('a project schema with a builtin id overrides it (isOverride=true)', () => {
-		writeSchema('baseline.schema.json', {
+		writeSchema('adversarial-compliance-test.schema.json', {
 			$schema: 'prompter-schema/v1',
-			id: 'baseline',
-			name: 'Baseline OVERRIDDEN',
+			id: 'adversarial-compliance-test',
+			name: 'Compliance OVERRIDDEN',
 			description: 'd',
 			version: '2.0.0',
-			required: true,
+			required: false,
 			estimatedEffort: 'low',
 			testConfig: {
 				promptTemplate: 'overridden',
@@ -178,31 +176,28 @@ describe('PrompterSchemaRegistry — custom schemas (override + inheritance)', (
 		});
 		const reg = new PrompterSchemaRegistry();
 		reg.loadCustomSchemas(projectRoot);
-		const baseline = reg.getSchema('baseline');
-		expect(baseline?.name).toBe('Baseline OVERRIDDEN');
-		expect(baseline?.source).toBe('project');
-		expect(baseline?.isOverride).toBe(true);
-		// still 9 schemas total (override, not addition)
-		expect(reg.listSchemas()).toHaveLength(9);
+		const overridden = reg.getSchema('adversarial-compliance-test');
+		expect(overridden?.name).toBe('Compliance OVERRIDDEN');
+		expect(overridden?.source).toBe('project');
+		expect(overridden?.isOverride).toBe(true);
+		expect(reg.listSchemas()).toHaveLength(15);
 	});
 
 	it('a child schema inherits unspecified fields from its parent', () => {
-		writeSchema('baseline-strict.schema.json', {
+		writeSchema('compliance-strict.schema.json', {
 			$schema: 'prompter-schema/v1',
-			id: 'baseline-strict',
-			extends: 'baseline',
-			name: 'Baseline Strict',
+			id: 'compliance-strict',
+			extends: 'adversarial-compliance-test',
+			name: 'Compliance Strict',
 			evaluation: { coverageThreshold: { green: 0.9, yellow: 0.6 } },
 		});
 		const reg = new PrompterSchemaRegistry();
 		reg.loadCustomSchemas(projectRoot);
-		const child = reg.getSchema('baseline-strict');
-		expect(child?.name).toBe('Baseline Strict');
-		// inherited from baseline
-		expect(child?.testConfig.promptTemplate).toContain('System-Instruction');
-		// overridden
+		const child = reg.getSchema('compliance-strict');
+		expect(child?.name).toBe('Compliance Strict');
+		expect(child?.testConfig.promptTemplate).toContain('{{CUSTOM:task}}');
 		expect(child?.evaluation.coverageThreshold).toEqual({ green: 0.9, yellow: 0.6 });
-		expect(reg.listSchemas()).toHaveLength(10);
+		expect(reg.listSchemas()).toHaveLength(16);
 	});
 
 	it('drops a child whose parent does not exist', () => {
@@ -215,6 +210,6 @@ describe('PrompterSchemaRegistry — custom schemas (override + inheritance)', (
 		const reg = new PrompterSchemaRegistry();
 		reg.loadCustomSchemas(projectRoot);
 		expect(reg.getSchema('orphan')).toBeUndefined();
-		expect(reg.listSchemas()).toHaveLength(9);
+		expect(reg.listSchemas()).toHaveLength(15);
 	});
 });

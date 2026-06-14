@@ -92,13 +92,35 @@ export class PrompterReportWriter {
 	}
 }
 
+/**
+ * Inverse of renderEvidence: pull the raw agent response back out of an evidence
+ * markdown file. Matches the `## Agent-Antwort` section and returns the content of
+ * its fenced code block. Greedy to the last closing fence so an inner ``` inside
+ * the response does not truncate it (the response block is always the last section
+ * renderEvidence writes). Returns null when the format does not match, so callers
+ * skip rather than persist the whole evidence scaffold as if it were the response.
+ */
+export function parseEvidenceResponse(markdown: string): string | null {
+	const headingIdx = markdown.indexOf('## Agent-Antwort');
+	if (headingIdx === -1) return null;
+	const afterHeading = markdown.slice(headingIdx);
+	const fenceOpen = afterHeading.match(/```[^\n]*\n/);
+	if (!fenceOpen || fenceOpen.index === undefined) return null;
+	const body = afterHeading.slice(fenceOpen.index + fenceOpen[0].length);
+	const fenceCloseIdx = body.lastIndexOf('\n```');
+	if (fenceCloseIdx === -1) return null;
+	const response = body.slice(0, fenceCloseIdx).trim();
+	return response.length > 0 ? response : null;
+}
+
 function renderEvidence(
 	task: PrompterTask,
 	responseOrError: string,
 	evaluation: EvaluatorOutput
 ): string {
 	const emoji = BAND_EMOJI[evaluation.band];
-	return [
+	const lines = [
+		'<!-- For security research and model robustness evaluation only -->',
 		`# Evidence: ${task.agentId} / ${task.schemaId}`,
 		'',
 		`- Band: ${emoji} ${evaluation.band}`,
@@ -108,6 +130,29 @@ function renderEvidence(
 		`- Instruction-Hash: \`${task.instructionHash}\``,
 		`- Modell: ${task.modelId}`,
 		'',
+	];
+
+	if (task.craftStrategy) {
+		lines.push(
+			'## Red-Team Crafter Modifikation',
+			'',
+			`- Strategie: ${task.craftStrategy}`,
+			`- Aenderung: ${task.craftModificationSummary ?? 'k.A.'}`
+		);
+		if (task.crafterAgentId) {
+			lines.push(`- Crafter: ${task.crafterAgentId} / ${task.crafterModelId ?? 'k.A.'}`);
+		}
+		lines.push('');
+		if (task.originalPrompt) {
+			const excerpt =
+				task.originalPrompt.length > 300
+					? task.originalPrompt.slice(0, 300) + '...'
+					: task.originalPrompt;
+			lines.push(`- Original-Prompt (Auszug): ${excerpt}`, '');
+		}
+	}
+
+	lines.push(
 		`## Bewertung`,
 		'',
 		evaluation.reason,
@@ -119,14 +164,16 @@ function renderEvidence(
 		'```',
 		responseOrError,
 		'```',
-		'',
-	].join('\n');
+		''
+	);
+	return lines.join('\n');
 }
 
 function renderAmpel(run: PrompterRun, task: PrompterTask, evaluation: EvaluatorOutput): string {
 	const emoji = BAND_EMOJI[evaluation.band];
 	const reportPath = path.posix.join('3-temp-results', 'runs', run.id, 'report.md');
 	return [
+		'<!-- For security research and model robustness evaluation only -->',
 		`# ${emoji} ${evaluation.band.toUpperCase()} - ${task.agentId} / ${task.schemaId}`,
 		'',
 		`- Run: \`${run.id}\``,
@@ -143,6 +190,9 @@ function renderAmpel(run: PrompterRun, task: PrompterTask, evaluation: Evaluator
 function renderRunReport(run: PrompterRun): string {
 	const s = run.summary;
 	const lines: string[] = [
+		'<!-- For security research and model robustness evaluation only.',
+		'     Green results indicate model vulnerabilities to adversarial techniques',
+		'     and are used to derive hardening recommendations. -->',
 		`# Prompter Run Report`,
 		'',
 		`- Run: \`${run.id}\``,
@@ -153,6 +203,65 @@ function renderRunReport(run: PrompterRun): string {
 	if (run.completedAt) {
 		lines.push(`- Abgeschlossen: ${new Date(run.completedAt).toISOString()}`);
 	}
+	if (run.testTargets && run.testTargets.length > 0) {
+		lines.push(
+			'',
+			'## Deklarierte Ziel-Modelle',
+			'',
+			'| Agent | Modell | Rolle | Primaer |',
+			'| --- | --- | --- | --- |'
+		);
+		for (const t of run.testTargets) {
+			const role = t.isExecutor ? 'Executor + Ziel' : 'Nur Ziel';
+			lines.push(`| ${t.agentId} | ${t.modelId} | ${role} | ${t.isPrimary ? '*' : ''} |`);
+		}
+	}
+
+	if (run.crafterConfig?.enabled) {
+		lines.push(
+			'',
+			'## Red-Team Crafter',
+			'',
+			`- Standard-Crafter: ${run.crafterConfig.crafterAgentId} / ${run.crafterConfig.crafterModelId}`,
+			`- Strategien: ${run.crafterConfig.strategies.join(', ')}`,
+			`- Profiling: ${run.crafterConfig.profileInstruction ? 'aktiv' : 'aus'}`,
+			`- Feedback-Tiefe: ${run.crafterConfig.feedbackDepth}`,
+			`- Pairing-Modus: ${run.crafterConfig.pairingMode ?? 'auto'}`
+		);
+
+		if (run.crafterAgents && run.crafterAgents.length > 0) {
+			lines.push('', '### Crafter-Pool (Angreifer)', '', '| Agent | Modell |', '| --- | --- |');
+			for (const c of run.crafterAgents) {
+				lines.push(`| ${c.agentId} | ${c.modelId} |`);
+			}
+		}
+
+		const crafterPairings = new Map<string, { greens: number; total: number }>();
+		for (const t of run.tasks) {
+			if (t.crafterAgentId && t.crafterModelId) {
+				const pairKey = `${t.crafterAgentId}/${t.crafterModelId} -> ${t.agentId}/${t.modelId}`;
+				const entry = crafterPairings.get(pairKey) ?? { greens: 0, total: 0 };
+				entry.total++;
+				if (t.result === 'green') entry.greens++;
+				crafterPairings.set(pairKey, entry);
+			}
+		}
+
+		if (crafterPairings.size > 0) {
+			lines.push(
+				'',
+				'### Crafter-Ziel Pairings',
+				'',
+				'| Pairing | Tasks | Greens | Rate |',
+				'| --- | --- | --- | --- |'
+			);
+			for (const [pairing, stats] of crafterPairings) {
+				const rate = stats.total > 0 ? Math.round((stats.greens / stats.total) * 100) : 0;
+				lines.push(`| ${pairing} | ${stats.total} | ${stats.greens} | ${rate}% |`);
+			}
+		}
+	}
+
 	lines.push('', `## Zusammenfassung`, '');
 	if (s) {
 		lines.push(

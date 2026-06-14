@@ -12,7 +12,11 @@
 import { useMemo } from 'react';
 import type { Theme } from '../../types';
 import { ShieldCheck } from 'lucide-react';
-import { usePrompterStore, selectActiveRun } from '../../stores/prompterStore';
+import {
+	usePrompterStore,
+	selectActiveRun,
+	selectActiveCampaign,
+} from '../../stores/prompterStore';
 import { PrompterTimeline } from './PrompterTimeline';
 import { PrompterTaskList } from './PrompterTaskList';
 import { PrompterCompactLog } from './PrompterCompactLog';
@@ -21,6 +25,13 @@ import { PrompterSummaryBar } from './PrompterSummaryBar';
 import { PrompterRobustnessPanel } from './PrompterRobustnessPanel';
 import { PrompterConsistencyMatrix } from './PrompterConsistencyMatrix';
 import { PrompterHardeningPanel } from './PrompterHardeningPanel';
+import { PrompterTestMetricsPanel } from './PrompterTestMetricsPanel';
+import { PrompterCampaignPanel } from './PrompterCampaignPanel';
+import { PrompterCampaignCreator } from './PrompterCampaignCreator';
+import { PrompterInjectionBuilderPanel } from './PrompterInjectionBuilderPanel';
+import { PrompterSearchPathPanel } from './PrompterSearchPathPanel';
+import { PrompterWeaknessExportPanel } from './PrompterWeaknessExportPanel';
+import { PrompterHardenedNotice } from './PrompterHardenedNotice';
 
 interface PrompterRunPanelProps {
 	theme: Theme;
@@ -28,6 +39,14 @@ interface PrompterRunPanelProps {
 
 export function PrompterRunPanel({ theme }: PrompterRunPanelProps): JSX.Element | null {
 	const run = usePrompterStore(selectActiveRun);
+	const campaign = usePrompterStore(selectActiveCampaign);
+	// Campaign context is derived from the active run (always present when this
+	// panel renders), NOT from wizard state. resetWizard() clears createdProject
+	// and agentConfigs right after the wizard finishes, which left the campaign
+	// creator with projectRoot=null / agents=[] and made it silently disappear
+	// (CampaignCreator returns null in that case).
+	const projectRoot = run?.projectRoot ?? null;
+	const agents = useMemo(() => run?.agents ?? [], [run]);
 
 	// Hooks must run unconditionally (before any early return).
 	const progress = useMemo(() => {
@@ -105,8 +124,29 @@ export function PrompterRunPanel({ theme }: PrompterRunPanelProps): JSX.Element 
 			{/* Refusal-consistency heatmap (models x transform classes) */}
 			<PrompterConsistencyMatrix theme={theme} run={run} />
 
+			{/* Adversarial test metrics (for model evaluation research) */}
+			<PrompterTestMetricsPanel theme={theme} run={run} />
+
+			{/* Search path visualization (schema → technique tree) */}
+			<PrompterSearchPathPanel theme={theme} run={run} />
+
+			{/* Test refinement assistant (injection builder) */}
+			<PrompterInjectionBuilderPanel theme={theme} run={run} />
+
+			{/* Weakness database with structured export */}
+			<PrompterWeaknessExportPanel theme={theme} run={run} />
+
 			{/* Benign hardening / quality suggestions for the instruction wording */}
 			<PrompterHardeningPanel theme={theme} run={run} />
+
+			{/* Auto-generated hardened instruction notice (post-run) */}
+			<PrompterHardenedNotice theme={theme} run={run} />
+
+			{/* Campaign creator stays available so each new start creates a separate Campaign entry. */}
+			<PrompterCampaignCreator theme={theme} projectRoot={projectRoot} agents={agents} />
+
+			{/* Autonomous campaign dashboard (when a campaign is active) */}
+			<PrompterCampaignPanel theme={theme} campaign={campaign} />
 
 			{/* Collapsible compact log */}
 			<PrompterCompactLog theme={theme} />

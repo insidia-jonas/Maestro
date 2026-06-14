@@ -1,5 +1,5 @@
 /**
- * PrompterWizardModal - orchestrator for the 7-step Prompter (Power & Robustness Lab)
+ * PrompterWizardModal - orchestrator for the 8-step Prompter (Power & Robustness Lab)
  * wizard. Visibility is driven by the modal store id 'prompter' (the parent
  * mounts this only when open). Owns step navigation, per-step advance
  * validation, the exit-confirm flow, and the terminal "Run starten" action
@@ -26,6 +26,8 @@ import { AgentSelectionStep } from './AgentSelectionStep';
 import { ModelConfigStep } from './ModelConfigStep';
 import { InstructionStep } from './InstructionStep';
 import { SchemaSelectionStep } from './SchemaSelectionStep';
+import { TargetModelsStep } from './TargetModelsStep';
+import { CustomDataStep } from './CustomDataStep';
 import { ReviewStep } from './ReviewStep';
 
 interface PrompterWizardModalProps {
@@ -52,6 +54,7 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
 	const selectedSchemas = usePrompterStore((s) => s.selectedSchemas);
 	const selectedTransforms = usePrompterStore((s) => s.selectedTransforms);
+	const testTargets = usePrompterStore((s) => s.testTargets);
 
 	const [showExitConfirm, setShowExitConfirm] = useState(false);
 	const [maxParallelAgents, setMaxParallelAgents] = useState(4);
@@ -84,8 +87,12 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 				);
 			case 'instructions':
 				return availableInstructions.length >= 1;
+			case 'target-models':
+				return testTargets.length >= 1;
 			case 'schema-selection':
 				return selectedSchemas.size >= 1;
+			case 'custom-data':
+				return true;
 			case 'review':
 				return true;
 			default:
@@ -98,6 +105,7 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		selectedAgents,
 		agentConfigs,
 		availableInstructions,
+		testTargets,
 		selectedSchemas,
 	]);
 
@@ -123,20 +131,47 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		close();
 	}, [clearResumeState, resetWizard, close]);
 
+	const customDataOverrides = usePrompterStore((s) => s.customDataOverrides);
+
 	const handleStart = useCallback(async () => {
 		if (!createdProject || starting) return;
 		setStarting(true);
 		try {
 			const transforms = Array.from(selectedTransforms);
+			const overrides =
+				Object.keys(customDataOverrides).length > 0 ? customDataOverrides : undefined;
+			const targets = usePrompterStore.getState().testTargets;
+			const crafterConfig = usePrompterStore.getState().crafterConfig ?? undefined;
+			const crafterPool = usePrompterStore.getState().crafterAgents;
+			const executorAgents = Array.from(agentConfigs.values());
+			const executorKeys = new Set(executorAgents.map((a) => `${a.agentId}:${a.modelId}`));
+			const targetOnlyAgents = targets
+				.filter((t) => !executorKeys.has(`${t.agentId}:${t.modelId}`))
+				.map((t) => ({
+					agentId: t.agentId,
+					modelId: t.modelId,
+					modelSource: 'discovery' as const,
+					instructionFile: '*',
+					providerConfigOverrides: {},
+					generatedFiles: [],
+				}));
+
 			const config: PrompterRunConfig = {
 				projectId: createdProject.id,
 				projectRoot: createdProject.rootPath,
-				agents: Array.from(agentConfigs.values()),
+				agents: [...executorAgents, ...targetOnlyAgents],
 				schemas: Array.from(selectedSchemas),
 				maxParallelAgents,
 				includeVariations: transforms.length > 0,
 				selectedTransforms: transforms,
+				customDataOverrides: overrides,
+				testTargets: targets.length > 0 ? targets : undefined,
+				crafterConfig,
+				crafterAgents: crafterPool.length > 0 ? crafterPool : undefined,
 			};
+			if (targets.length > 0) {
+				await window.maestro.prompter.updateProjectTargets(createdProject.rootPath, targets);
+			}
 			const run = await window.maestro.prompter.createRun(config);
 			await window.maestro.prompter.startRun(run.id);
 			rememberPrompterProjectRoot(createdProject.rootPath);
@@ -155,6 +190,7 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 		agentConfigs,
 		selectedSchemas,
 		selectedTransforms,
+		customDataOverrides,
 		maxParallelAgents,
 		setActiveRun,
 		clearResumeState,
@@ -220,7 +256,9 @@ export function PrompterWizardModal({ theme }: PrompterWizardModalProps): JSX.El
 						{wizardStep === 'agent-selection' && <AgentSelectionStep theme={theme} />}
 						{wizardStep === 'model-config' && <ModelConfigStep theme={theme} />}
 						{wizardStep === 'instructions' && <InstructionStep theme={theme} />}
+						{wizardStep === 'target-models' && <TargetModelsStep theme={theme} />}
 						{wizardStep === 'schema-selection' && <SchemaSelectionStep theme={theme} />}
+						{wizardStep === 'custom-data' && <CustomDataStep theme={theme} />}
 						{wizardStep === 'review' && (
 							<ReviewStep
 								theme={theme}

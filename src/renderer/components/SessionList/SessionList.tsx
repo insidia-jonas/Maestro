@@ -21,6 +21,7 @@ import {
 	Trash2,
 	Bot,
 	Star,
+	ShieldCheck,
 } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import type { Session, Group, Theme } from '../../types';
@@ -28,6 +29,11 @@ import { getBadgeForTime } from '../../constants/conductorBadges';
 import { SessionItem } from '../SessionItem';
 import { GroupChatList } from '../GroupChatList';
 import { PrompterSidebarEntry } from '../PrompterRunPanel/PrompterSidebarEntry';
+import {
+	selectActiveCampaign,
+	selectCampaignHistory,
+	usePrompterStore,
+} from '../../stores/prompterStore';
 import { useLiveOverlay, useResizablePanel } from '../../hooks';
 import { useGitFileStatus } from '../../contexts/GitStatusContext';
 import { useUIStore } from '../../stores/uiStore';
@@ -59,13 +65,14 @@ import {
 	onStarredSessionsChanged,
 } from '../../utils/starredSessions';
 import { updateSessionWith } from '../../stores/sessionStore';
+import type { Campaign } from '../../../shared/prompter-types';
 
 // ============================================================================
 // SessionContextMenu - Right-click context menu for session items
 // ============================================================================
 
 interface SessionListProps {
-	// Computed values (not in stores — remain as props)
+	// Computed values (not in stores - remain as props)
 	theme: Theme;
 	sortedSessions: Session[];
 	navIndexMap?: Map<string, number>;
@@ -224,7 +231,7 @@ function SessionListInner(props: SessionListProps) {
 	}, [wizardActiveSessions, sessions]);
 
 	// Cue session status map: sessionId → { count, active }
-	// Always fetched — the indicator shows whenever a .maestro/cue.yaml has subscriptions,
+	// Always fetched - the indicator shows whenever a .maestro/cue.yaml has subscriptions,
 	// regardless of whether the Cue Encore Feature is enabled (that only gates execution).
 	const [cueSessionMap, setCueSessionMap] = useState<
 		Map<string, { count: number; active: boolean }>
@@ -245,7 +252,7 @@ function SessionListInner(props: SessionListProps) {
 						});
 					}
 				}
-				// Preserve referential identity when nothing changed — the map is fed
+				// Preserve referential identity when nothing changed - the map is fed
 				// to every SessionItem as a prop, and a fresh reference busts memo even
 				// when contents are equal. With cue activity ticks coming in at ~1Hz this
 				// would otherwise re-render all sidebar rows on every tick.
@@ -348,6 +355,26 @@ function SessionListInner(props: SessionListProps) {
 				projectPath: string;
 				sessionName: string;
 		  };
+
+	const campaignHistory = usePrompterStore(selectCampaignHistory);
+	const activeCampaign = usePrompterStore(selectActiveCampaign);
+	const setActiveCampaign = usePrompterStore((s) => s.setActiveCampaign);
+	const dismissCampaign = usePrompterStore((s) => s.dismissCampaign);
+	const focusPrompterRun = usePrompterStore((s) => s.focusPrompterRun);
+	const openCampaign = useCallback(
+		(campaign: Campaign) => {
+			setActiveCampaign(campaign);
+			focusPrompterRun();
+		},
+		[focusPrompterRun, setActiveCampaign]
+	);
+	const closeCampaign = useCallback(
+		(event: React.MouseEvent, campaignId: string) => {
+			event.stopPropagation();
+			dismissCampaign(campaignId);
+		},
+		[dismissCampaign]
+	);
 	const starredItems = useMemo<StarredItem[]>(() => {
 		if (!showStarredSessionsSection) return [];
 		const items: StarredItem[] = [];
@@ -592,7 +619,7 @@ function SessionListInner(props: SessionListProps) {
 		? sessions.find((s) => s.id === contextMenu.sessionId)
 		: null;
 
-	// Group context menu state — opened by right-clicking a group header
+	// Group context menu state - opened by right-clicking a group header
 	const [groupContextMenu, setGroupContextMenu] = useState<{
 		x: number;
 		y: number;
@@ -775,7 +802,7 @@ function SessionListInner(props: SessionListProps) {
 
 	// PERF: Cached callback maps to prevent SessionItem re-renders.
 	// These Maps store stable function references keyed by session id. They only
-	// depend on the *set of session ids* — not on per-session field changes — so
+	// depend on the *set of session ids* - not on per-session field changes - so
 	// rebuilding them on every sidebar field change (state/name/etc.) was
 	// wasted work that broke SessionItem's React.memo bail-out (5 × N closures
 	// per flush). Key off a derived id signature instead.
@@ -879,7 +906,7 @@ function SessionListInner(props: SessionListProps) {
 
 		const content = (
 			<>
-				{/* Parent session — chevron in SessionItem toggles worktree expansion. */}
+				{/* Parent session - chevron in SessionItem toggles worktree expansion. */}
 				<SessionItem
 					session={session}
 					variant={effectiveVariant}
@@ -1733,6 +1760,74 @@ function SessionListInner(props: SessionListProps) {
 
 					{/* Flexible spacer to push group chats to bottom */}
 					<div className="flex-grow min-h-4" />
+
+					{/* PROMPTER CAMPAIGNS SECTION - each Campaign is its own row above Group Chats */}
+					{campaignHistory.length > 0 && (
+						<div className="px-1 pb-2 border-b" style={{ borderColor: theme.colors.border }}>
+							<div
+								className="text-[10px] font-medium mb-1 px-1 flex items-center gap-1"
+								style={{ color: theme.colors.accent }}
+							>
+								<ShieldCheck className="w-3 h-3" />
+								Prompter Campaigns
+							</div>
+							{campaignHistory.map((campaign) => (
+								<div
+									key={campaign.id}
+									className="group flex items-center gap-1 rounded transition-colors hover:bg-white/5"
+									style={{
+										backgroundColor:
+											activeCampaign?.id === campaign.id
+												? `${theme.colors.accent}18`
+												: 'transparent',
+									}}
+								>
+									<button
+										type="button"
+										onClick={() => openCampaign(campaign)}
+										className="min-w-0 flex-1 flex items-center gap-2 px-2 py-1 text-left text-xs"
+										style={{ color: theme.colors.textMain }}
+										title={`Campaign oeffnen: ${campaign.config.name || campaign.id}`}
+									>
+										<ShieldCheck
+											className="w-3 h-3 shrink-0"
+											style={{
+												color:
+													campaign.status === 'completed'
+														? theme.colors.success
+														: campaign.status === 'running'
+															? theme.colors.accent
+															: campaign.status === 'paused'
+																? theme.colors.warning
+																: theme.colors.textDim,
+											}}
+										/>
+										<span className="truncate flex-1">{campaign.config.name || campaign.id}</span>
+										<span className="text-[10px] opacity-60 tabular-nums">{campaign.status}</span>
+									</button>
+									{(() => {
+										const locked = campaign.status === 'running' || campaign.status === 'paused';
+										return (
+											<button
+												type="button"
+												onClick={(event) => closeCampaign(event, campaign.id)}
+												disabled={locked}
+												className="shrink-0 rounded p-1 transition-opacity hover:opacity-100"
+												style={{
+													color: theme.colors.textDim,
+													opacity: locked ? 0.25 : 0.6,
+													cursor: locked ? 'not-allowed' : 'pointer',
+												}}
+												title={locked ? 'Erst stoppen, dann ausblenden' : 'Campaign ausblenden'}
+											>
+												<X className="w-3 h-3" />
+											</button>
+										);
+									})()}
+								</div>
+							))}
+						</div>
+					)}
 
 					{/* GROUP CHATS SECTION - Only show when at least 2 AI agents exist */}
 					{onNewGroupChat &&

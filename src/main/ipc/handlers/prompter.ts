@@ -29,10 +29,18 @@ import {
 	type PrompterSpawnFn,
 	type PrompterEventSink,
 } from '../../prompter/prompter-run-manager';
+import { PrompterCampaignManager } from '../../prompter/prompter-campaign-manager';
+import {
+	exportRunResearchData,
+	exportCampaignResearchData,
+} from '../../prompter/prompter-research-export';
 import type {
 	PrompterRunConfig,
 	PrompterModelOption,
 	InstructionExportFormat,
+	CampaignConfig,
+	ResearchExportFormat,
+	TestTarget,
 } from '../../../shared/prompter-types';
 
 const LOG_CONTEXT = '[Prompter]';
@@ -118,6 +126,16 @@ export function registerPrompterHandlers(deps: PrompterHandlerDependencies): voi
 		withIpcErrorLogging(handlerOpts('deleteProject'), async (projectRoot: string) => {
 			await projectService.deleteProject(projectRoot);
 		})
+	);
+
+	ipcMain.handle(
+		'prompter:updateProjectTargets',
+		withIpcErrorLogging(
+			handlerOpts('updateProjectTargets'),
+			async (projectRoot: string, targets: TestTarget[]) => {
+				await projectService.updateProjectTargets(projectRoot, targets);
+			}
+		)
 	);
 
 	ipcMain.handle(
@@ -309,5 +327,111 @@ export function registerPrompterHandlers(deps: PrompterHandlerDependencies): voi
 					});
 			return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
 		})
+	);
+
+	// --------------------------------------------------- campaigns (autonomous test loops)
+
+	const campaignEmit = (event: import('../../../shared/prompter-types').CampaignUpdatedEvent) => {
+		const win = getMainWindow();
+		if (!win || win.isDestroyed()) return;
+		win.webContents.send('prompter:campaignUpdated', event);
+	};
+
+	const campaignManager = new PrompterCampaignManager(runManager, campaignEmit);
+
+	ipcMain.handle(
+		'prompter:createCampaign',
+		withIpcErrorLogging(handlerOpts('createCampaign'), async (config: CampaignConfig) =>
+			campaignManager.createCampaign(config)
+		)
+	);
+
+	ipcMain.handle(
+		'prompter:startCampaign',
+		withIpcErrorLogging(handlerOpts('startCampaign'), async (campaignId: string) => {
+			void campaignManager.startCampaign(campaignId).catch((error) => {
+				const win = getMainWindow();
+				if (win && !win.isDestroyed()) {
+					win.webContents.send('prompter:log', {
+						runId: campaignId,
+						level: 'error',
+						message: `Campaign fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
+						timestamp: Date.now(),
+					});
+				}
+			});
+		})
+	);
+
+	ipcMain.handle(
+		'prompter:pauseCampaign',
+		withIpcErrorLogging(handlerOpts('pauseCampaign'), async (campaignId: string) => {
+			await campaignManager.pauseCampaign(campaignId);
+		})
+	);
+
+	ipcMain.handle(
+		'prompter:resumeCampaign',
+		withIpcErrorLogging(handlerOpts('resumeCampaign'), async (campaignId: string) => {
+			await campaignManager.resumeCampaign(campaignId);
+		})
+	);
+
+	ipcMain.handle(
+		'prompter:stopCampaign',
+		withIpcErrorLogging(handlerOpts('stopCampaign'), async (campaignId: string) => {
+			await campaignManager.stopCampaign(campaignId);
+		})
+	);
+
+	ipcMain.handle(
+		'prompter:getCampaign',
+		withIpcErrorLogging(handlerOpts('getCampaign'), async (campaignId: string) =>
+			campaignManager.getCampaign(campaignId)
+		)
+	);
+
+	ipcMain.handle(
+		'prompter:listCampaigns',
+		withIpcErrorLogging(handlerOpts('listCampaigns'), async () => campaignManager.listCampaigns())
+	);
+
+	// --------------------------------------------------- hardened instruction generation
+
+	ipcMain.handle(
+		'prompter:generateHardenedInstruction',
+		withIpcErrorLogging(handlerOpts('generateHardenedInstruction'), async (runId: string) => {
+			const run = runManager.getRun(runId);
+			if (!run) throw new Error(`Run nicht gefunden: ${runId}`);
+			const { generateHardenedInstruction } =
+				await import('../../prompter/prompter-hardened-generator');
+			return generateHardenedInstruction(run, run.projectRoot, runManager, run.agents);
+		})
+	);
+
+	// --------------------------------------------------- research export
+
+	ipcMain.handle(
+		'prompter:exportResearchData',
+		withIpcErrorLogging(
+			handlerOpts('exportResearchData'),
+			async (runId: string, targetDir: string, format: ResearchExportFormat) => {
+				const run = runManager.getRun(runId);
+				if (!run) throw new Error(`Run nicht gefunden: ${runId}`);
+				return exportRunResearchData(run, targetDir, format);
+			}
+		)
+	);
+
+	ipcMain.handle(
+		'prompter:exportCampaignData',
+		withIpcErrorLogging(
+			handlerOpts('exportCampaignData'),
+			async (campaignId: string, targetDir: string, format: ResearchExportFormat) => {
+				const campaign = campaignManager.getCampaign(campaignId);
+				if (!campaign) throw new Error(`Campaign nicht gefunden: ${campaignId}`);
+				return exportCampaignResearchData(campaign, targetDir, format);
+			}
+		)
 	);
 }

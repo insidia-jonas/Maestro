@@ -4,8 +4,6 @@ import type { PrompterRunPhase, PrompterRunStatus } from '../../../shared/prompt
 
 const PHASE_ORDER: PrompterRunPhase[] = [
 	'scaffold',
-	'baseline',
-	'provider-config',
 	'schema-test',
 	'evaluate',
 	'write-results',
@@ -14,8 +12,6 @@ const PHASE_ORDER: PrompterRunPhase[] = [
 
 const PHASE_LABELS: Record<PrompterRunPhase, string> = {
 	scaffold: 'Scaffold',
-	baseline: 'Baseline',
-	'provider-config': 'Provider',
 	'schema-test': 'Schema-Test',
 	evaluate: 'Evaluate',
 	'write-results': 'Ergebnisse',

@@ -49,10 +49,35 @@ export function usePrompterListeners(): void {
 		const unsubLog = window.maestro.prompter.onLog((payload) => {
 			usePrompterStore.getState().appendLog(payload);
 		});
+		const unsubCampaign = window.maestro.prompter.onCampaignUpdated((payload) => {
+			usePrompterStore.getState().updateCampaignFromEvent(payload);
+		});
 		return () => {
 			unsubRun();
 			unsubTask();
 			unsubLog();
+			unsubCampaign();
+		};
+	}, []);
+
+	// Surface existing in-memory campaigns on startup so the Left Bar list can
+	// show multiple visible campaigns, newest first.
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			try {
+				const campaigns = await window.maestro.prompter.listCampaigns();
+				if (cancelled || campaigns.length === 0) return;
+				usePrompterStore.getState().loadCampaignHistory(campaigns);
+				if (!usePrompterStore.getState().activeCampaign) {
+					usePrompterStore.getState().setActiveCampaign(campaigns[0]);
+				}
+			} catch {
+				/* campaign restore is best-effort */
+			}
+		})();
+		return () => {
+			cancelled = true;
 		};
 	}, []);
 

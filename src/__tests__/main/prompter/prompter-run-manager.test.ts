@@ -95,7 +95,9 @@ describe('PrompterRunManager', () => {
 
 	it('createRun builds the agent x instruction x schema matrix and persists a manifest', async () => {
 		const mgr = makeManager();
-		const run = await mgr.createRun(runConfig(['baseline', 'formatting-robustness']));
+		const run = await mgr.createRun(
+			runConfig(['adversarial-compliance-test', 'green-to-hardened-instruction'])
+		);
 		// 1 agent x 1 instruction x 2 schemas = 2 tasks
 		expect(run.tasks).toHaveLength(2);
 		expect(run.status).toBe('planned');
@@ -103,23 +105,30 @@ describe('PrompterRunManager', () => {
 		expect(fs.existsSync(manifest)).toBe(true);
 	});
 
-	it('startRun completes all tasks green and writes evidence, ampel and report', async () => {
+	it('startRun completes all tasks and writes evidence, ampel and report', async () => {
 		const mgr = makeManager();
-		const run = await mgr.createRun(runConfig(['baseline', 'formatting-robustness']));
+		const run = await mgr.createRun(
+			runConfig(['adversarial-compliance-test', 'green-to-hardened-instruction'])
+		);
 		await mgr.startRun(run.id);
 
 		const fresh = mgr.getRun(run.id);
 		expect(fresh?.status).toBe('completed');
-		expect(fresh?.summary?.green).toBe(2);
+		expect(fresh?.summary?.completedTasks).toBe(2);
 		expect(fresh?.tasks.every((t) => t.status === 'completed')).toBe(true);
 
 		// report
 		expect(
 			fs.existsSync(path.join(projectRoot, '3-temp-results', 'runs', run.id, 'report.md'))
 		).toBe(true);
-		// ampel entries in the green folder
-		const greenDir = path.join(projectRoot, '3-temp-results', '1-green');
-		expect(fs.readdirSync(greenDir).filter((f) => f.endsWith('.md')).length).toBe(2);
+		// ampel entries exist
+		const resultsDir = path.join(projectRoot, '3-temp-results');
+		const ampelFiles = [
+			...fs.readdirSync(path.join(resultsDir, '1-green')).filter((f) => f.endsWith('.md')),
+			...fs.readdirSync(path.join(resultsDir, '2-yellow')).filter((f) => f.endsWith('.md')),
+			...fs.readdirSync(path.join(resultsDir, '3-red')).filter((f) => f.endsWith('.md')),
+		];
+		expect(ampelFiles.length).toBe(2);
 		// evidence
 		const evidenceDir = path.join(
 			projectRoot,
@@ -140,7 +149,7 @@ describe('PrompterRunManager', () => {
 					'I cannot comply with this request. It violates my policy and as an AI I must decline.',
 			}) as SpawnResult;
 		const mgr = makeManager(refuseSpawn);
-		const run = await mgr.createRun(runConfig(['baseline']));
+		const run = await mgr.createRun(runConfig(['adversarial-compliance-test']));
 		await mgr.startRun(run.id);
 		const fresh = mgr.getRun(run.id);
 		expect(fresh?.summary?.red).toBe(1);
@@ -151,7 +160,7 @@ describe('PrompterRunManager', () => {
 		const mgr = makeManager();
 		const run = await mgr.createRun(
 			runConfig(
-				['baseline'],
+				['adversarial-compliance-test'],
 				[agentConfig('claude-code', 'claude-fable-5'), agentConfig('codex', 'o3')]
 			)
 		);
@@ -167,7 +176,7 @@ describe('PrompterRunManager', () => {
 
 	it('recoverInterruptedRuns marks a running manifest paused and its task failed', async () => {
 		const mgr = makeManager();
-		const run = await mgr.createRun(runConfig(['baseline']));
+		const run = await mgr.createRun(runConfig(['adversarial-compliance-test']));
 		// Simulate a crash mid-run by hand-writing a "running" manifest.
 		run.status = 'running';
 		run.tasks[0].status = 'running';
@@ -194,7 +203,7 @@ describe('PrompterRunManager', () => {
 
 	it('listRuns and deleteRun manage run folders', async () => {
 		const mgr = makeManager();
-		const run = await mgr.createRun(runConfig(['baseline']));
+		const run = await mgr.createRun(runConfig(['adversarial-compliance-test']));
 		expect(mgr.listRuns(projectRoot).map((r) => r.id)).toContain(run.id);
 		await mgr.deleteRun(run.id);
 		expect(fs.existsSync(path.join(projectRoot, '3-temp-results', 'runs', run.id))).toBe(false);
@@ -206,7 +215,7 @@ describe('PrompterRunManager', () => {
 			projectId: 'p1',
 			projectRoot,
 			agents: [agentConfig('claude-code', 'claude-fable-5')],
-			schemas: ['baseline'],
+			schemas: ['adversarial-compliance-test'],
 			includeVariations: true,
 		});
 		// 1 base instruction (eni.md) -> 23 tv-variations; (1 + 23) x 1 schema.
@@ -236,7 +245,11 @@ describe('PrompterRunManager', () => {
 		};
 		const mgr = makeManager(sessionSpawn);
 		const run = await mgr.createRun(
-			runConfig(['baseline', 'safety-boundary', 'refusal-consistency'])
+			runConfig([
+				'adversarial-compliance-test',
+				'bidi-zero-width-evasion',
+				'edge-case-injection-finder',
+			])
 		);
 		// 1 instruction x 3 probes, same input -> one conversation.
 		expect(run.tasks).toHaveLength(3);
@@ -245,6 +258,55 @@ describe('PrompterRunManager', () => {
 		expect(calls[0].sessionId).toBeUndefined(); // first turn establishes the instruction
 		expect(calls[1].sessionId).toBe('sess-1'); // probe resumes the session
 		expect(calls[2].sessionId).toBe('sess-1');
+	});
+
+	it('keeps one crafter per run and feeds task results back into later prompts', async () => {
+		let profileCalls = 0;
+		const craftPrompts: string[] = [];
+		const spawn: PrompterSpawnFn = async (tool, _cwd, prompt, _sessionId, options) => {
+			if (tool === 'claude-code' && options.customModel === 'crafter-model') {
+				if (prompt.includes('Analysiere die folgende System-Instruction')) {
+					profileCalls++;
+					return {
+						success: true,
+						response: JSON.stringify({
+							persona: 'tester',
+							boundaries: ['no leaks'],
+							style: 'plain',
+							weakPoints: ['vague edge'],
+							keyPhrases: ['secret keys'],
+							structureType: 'markdown',
+						}),
+					} as SpawnResult;
+				}
+				craftPrompts.push(prompt);
+				return { success: true, response: 'crafted prompt' } as SpawnResult;
+			}
+			return { success: true, response: options.appendSystemPrompt ?? 'ok' } as SpawnResult;
+		};
+		const mgr = makeManager(spawn);
+		const run = await mgr.createRun({
+			...runConfig(['adversarial-compliance-test', 'green-to-hardened-instruction']),
+			autoGenerateHardenedInstruction: false,
+			crafterConfig: {
+				enabled: true,
+				crafterAgentId: 'claude-code',
+				crafterModelId: 'crafter-model',
+				strategies: ['semantic-reframe', 'context-blend', 'adaptive-combined'],
+				profileInstruction: true,
+				feedbackDepth: 5,
+				crafterTimeoutMs: 1000,
+			},
+		});
+
+		await mgr.startRun(run.id);
+
+		expect(profileCalls).toBe(1);
+		expect(craftPrompts).toHaveLength(2);
+		expect(craftPrompts[0]).toContain('## Deine Strategie: Semantisches Reframing');
+		expect(craftPrompts[0]).not.toContain('## Bisherige Ergebnisse (Feedback-Loop)');
+		expect(craftPrompts[1]).toContain('## Bisherige Ergebnisse (Feedback-Loop)');
+		expect(craftPrompts[1]).toContain('Schema adversarial-compliance-test');
 	});
 
 	it('runs an agent with no instruction against the bare model (no system prompt)', async () => {
@@ -267,7 +329,7 @@ describe('PrompterRunManager', () => {
 					generatedFiles: [],
 				},
 			],
-			schemas: ['baseline'],
+			schemas: ['adversarial-compliance-test'],
 			includeVariations: false,
 		});
 		// bare: 1 bare input x 1 probe = 1 task with an empty instruction path
@@ -279,7 +341,7 @@ describe('PrompterRunManager', () => {
 
 	it('pauseRun and resumeRun flip the run status', async () => {
 		const mgr = makeManager();
-		const run = await mgr.createRun(runConfig(['baseline']));
+		const run = await mgr.createRun(runConfig(['adversarial-compliance-test']));
 		await mgr.pauseRun(run.id);
 		expect(mgr.getRun(run.id)?.status).toBe('paused');
 		await mgr.resumeRun(run.id);
@@ -288,7 +350,9 @@ describe('PrompterRunManager', () => {
 
 	it('stopRun before start skips all tasks and completes', async () => {
 		const mgr = makeManager();
-		const run = await mgr.createRun(runConfig(['baseline', 'formatting-robustness']));
+		const run = await mgr.createRun(
+			runConfig(['adversarial-compliance-test', 'green-to-hardened-instruction'])
+		);
 		await mgr.stopRun(run.id);
 		expect(mgr.getRun(run.id)?.status).toBe('stopping');
 		// Starting an aborted run drains the queue as skipped, then completes.

@@ -25,6 +25,11 @@ import {
 	type PrompterRunUpdatedEvent,
 	type PrompterTaskUpdatedEvent,
 	type SerializableWizardState,
+	type TestTarget,
+	type RedTeamCrafterConfig,
+	type CrafterAgent,
+	type Campaign,
+	type CampaignUpdatedEvent,
 } from '../../shared/prompter-types';
 
 const RESUME_KEY = 'prompter:wizard-resume';
@@ -44,6 +49,10 @@ interface PrompterStoreState {
 	selectedSchemas: Set<string>;
 	selectedTransforms: Set<string>;
 	availableInstructions: InstructionFile[];
+	testTargets: TestTarget[];
+	crafterConfig: RedTeamCrafterConfig | null;
+	crafterAgents: CrafterAgent[];
+	customDataOverrides: Record<string, string>;
 
 	// Run
 	activeRun: PrompterRun | null;
@@ -52,6 +61,10 @@ interface PrompterStoreState {
 	logFilter: PrompterLogFilter;
 	/** When true the active run is shown in the center workspace (like group chat). */
 	prompterFocused: boolean;
+
+	// Campaign (autonomous adversarial test loops)
+	activeCampaign: Campaign | null;
+	campaignHistory: Campaign[];
 
 	// Resume
 	savedWizardState: SerializableWizardState | null;
@@ -84,6 +97,20 @@ interface PrompterStoreActions {
 	setSelectedTransforms: (transformIds: string[]) => void;
 	toggleTransformCategory: (transforms: string[]) => void;
 
+	// Test Targets
+	setTestTargets: (targets: TestTarget[]) => void;
+	toggleTestTarget: (target: TestTarget) => void;
+	setPrimaryTarget: (agentId: string, modelId: string) => void;
+
+	// Red-Team Crafter
+	setCrafterConfig: (config: RedTeamCrafterConfig | null) => void;
+	setCrafterAgents: (agents: CrafterAgent[]) => void;
+	toggleCrafterAgent: (agent: CrafterAgent) => void;
+
+	// Custom Data
+	setCustomDataOverride: (key: string, value: string) => void;
+	setCustomDataOverrides: (overrides: Record<string, string>) => void;
+
 	// Instructions
 	setAvailableInstructions: (instructions: InstructionFile[]) => void;
 
@@ -99,6 +126,13 @@ interface PrompterStoreActions {
 	focusPrompterRun: () => void;
 	/** Leave the run view (return to agents / group chat). */
 	blurPrompterRun: () => void;
+
+	// Campaign
+	setActiveCampaign: (campaign: Campaign | null) => void;
+	updateCampaignFromEvent: (event: CampaignUpdatedEvent) => void;
+	clearActiveCampaign: () => void;
+	loadCampaignHistory: (campaigns: Campaign[]) => void;
+	dismissCampaign: (campaignId: string) => void;
 
 	// Resume
 	saveStateForResume: () => void;
@@ -123,16 +157,35 @@ const initialWizardState = (): PrompterStoreState => ({
 	selectedSchemas: new Set(),
 	selectedTransforms: new Set(ALL_TRANSFORM_NAMES),
 	availableInstructions: [],
+	testTargets: [],
+	crafterConfig: null,
+	crafterAgents: [],
+	customDataOverrides: {},
 	activeRun: null,
 	runHistory: [],
 	compactLog: [],
 	logFilter: 'all',
 	prompterFocused: false,
+	activeCampaign: null,
+	campaignHistory: [],
 	savedWizardState: null,
 });
 
 function stepIndex(step: PrompterWizardStep): number {
 	return PROMPTER_WIZARD_STEPS.indexOf(step);
+}
+
+function sortCampaignsNewestFirst(campaigns: Campaign[]): Campaign[] {
+	return [...campaigns].sort((a, b) => {
+		const bTime = b.createdAt || b.updatedAt || 0;
+		const aTime = a.createdAt || a.updatedAt || 0;
+		return bTime - aTime;
+	});
+}
+
+function upsertCampaign(campaigns: Campaign[], campaign: Campaign): Campaign[] {
+	const next = [campaign, ...campaigns.filter((c) => c.id !== campaign.id)];
+	return sortCampaignsNewestFirst(next);
 }
 
 export const usePrompterStore = create<PrompterStore>()((set, get) => ({
@@ -207,6 +260,51 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 			return { selectedTransforms };
 		}),
 
+	// --------------------------------------------------- test targets
+	setTestTargets: (testTargets) => set({ testTargets }),
+	toggleTestTarget: (target) =>
+		set((state) => {
+			const exists = state.testTargets.some(
+				(t) => t.agentId === target.agentId && t.modelId === target.modelId
+			);
+			const testTargets = exists
+				? state.testTargets.filter(
+						(t) => !(t.agentId === target.agentId && t.modelId === target.modelId)
+					)
+				: [...state.testTargets, target];
+			return { testTargets };
+		}),
+	setPrimaryTarget: (agentId, modelId) =>
+		set((state) => ({
+			testTargets: state.testTargets.map((t) => ({
+				...t,
+				isPrimary: t.agentId === agentId && t.modelId === modelId,
+			})),
+		})),
+
+	// ------------------------------------------------- red-team crafter
+	setCrafterConfig: (crafterConfig) => set({ crafterConfig }),
+	setCrafterAgents: (crafterAgents) => set({ crafterAgents }),
+	toggleCrafterAgent: (agent) =>
+		set((state) => {
+			const exists = state.crafterAgents.some(
+				(c) => c.agentId === agent.agentId && c.modelId === agent.modelId
+			);
+			const crafterAgents = exists
+				? state.crafterAgents.filter(
+						(c) => !(c.agentId === agent.agentId && c.modelId === agent.modelId)
+					)
+				: [...state.crafterAgents, agent];
+			return { crafterAgents };
+		}),
+
+	// ------------------------------------------------------ custom data
+	setCustomDataOverride: (key, value) =>
+		set((state) => ({
+			customDataOverrides: { ...state.customDataOverrides, [key]: value },
+		})),
+	setCustomDataOverrides: (customDataOverrides) => set({ customDataOverrides }),
+
 	// -------------------------------------------------------- instructions
 	setAvailableInstructions: (availableInstructions) => set({ availableInstructions }),
 
@@ -244,6 +342,61 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 	focusPrompterRun: () => set({ prompterFocused: true }),
 	blurPrompterRun: () => set({ prompterFocused: false }),
 
+	// ---------------------------------------------------------- campaign
+	setActiveCampaign: (activeCampaign) =>
+		set((state) => ({
+			activeCampaign,
+			campaignHistory: activeCampaign
+				? upsertCampaign(state.campaignHistory, activeCampaign)
+				: state.campaignHistory,
+		})),
+	updateCampaignFromEvent: (event) =>
+		set((state) => {
+			// Prefer the full snapshot so the dashboard reflects live iterations,
+			// findings, metrics and hardened instructions. Fall back to a scalar
+			// status merge if an older emitter omits the snapshot.
+			const existing =
+				state.activeCampaign?.id === event.campaignId
+					? state.activeCampaign
+					: state.campaignHistory.find((c) => c.id === event.campaignId);
+			const updated = event.campaign
+				? event.campaign
+				: existing
+					? {
+							...existing,
+							status: event.status,
+							updatedAt: Date.now(),
+						}
+					: null;
+			if (!updated) return {};
+			return {
+				activeCampaign:
+					state.activeCampaign?.id === event.campaignId ? updated : state.activeCampaign,
+				campaignHistory: upsertCampaign(state.campaignHistory, updated),
+			};
+		}),
+	clearActiveCampaign: () => set({ activeCampaign: null }),
+	loadCampaignHistory: (campaignHistory) =>
+		set((state) => {
+			const sorted = sortCampaignsNewestFirst(campaignHistory);
+			const activeCampaign =
+				state.activeCampaign && sorted.some((c) => c.id === state.activeCampaign?.id)
+					? (sorted.find((c) => c.id === state.activeCampaign?.id) ?? state.activeCampaign)
+					: state.activeCampaign;
+			return { campaignHistory: sorted, activeCampaign };
+		}),
+	dismissCampaign: (campaignId) =>
+		set((state) => {
+			const campaignHistory = state.campaignHistory.filter((c) => c.id !== campaignId);
+			if (state.activeCampaign?.id !== campaignId) {
+				return { campaignHistory };
+			}
+			return {
+				campaignHistory,
+				activeCampaign: campaignHistory[0] ?? null,
+			};
+		}),
+
 	// -------------------------------------------------------------- resume
 	saveStateForResume: () => {
 		const s = get();
@@ -257,6 +410,11 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 			agentConfigs: Array.from(s.agentConfigs.values()),
 			selectedSchemaIds: Array.from(s.selectedSchemas),
 			selectedTransformIds: Array.from(s.selectedTransforms),
+			customDataOverrides:
+				Object.keys(s.customDataOverrides).length > 0 ? s.customDataOverrides : undefined,
+			testTargets: s.testTargets.length > 0 ? s.testTargets : undefined,
+			crafterConfig: s.crafterConfig ?? undefined,
+			crafterAgents: s.crafterAgents.length > 0 ? s.crafterAgents : undefined,
 			savedAt: Date.now(),
 		};
 		try {
@@ -297,6 +455,10 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 						? snapshot.selectedTransformIds
 						: ALL_TRANSFORM_NAMES
 				),
+				testTargets: snapshot.testTargets ?? [],
+				crafterConfig: snapshot.crafterConfig ?? null,
+				crafterAgents: snapshot.crafterAgents ?? [],
+				customDataOverrides: snapshot.customDataOverrides ?? {},
 				savedWizardState: snapshot,
 			};
 		}),
@@ -320,6 +482,9 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 			activeRun: state.activeRun,
 			runHistory: state.runHistory,
 			compactLog: state.compactLog,
+			prompterFocused: state.prompterFocused,
+			activeCampaign: state.activeCampaign,
+			campaignHistory: state.campaignHistory,
 		})),
 }));
 
@@ -332,6 +497,10 @@ export const selectWizardStep = (state: PrompterStore): PrompterWizardStep => st
 export const selectActiveRun = (state: PrompterStore): PrompterRun | null => state.activeRun;
 export const selectCreatedProject = (state: PrompterStore): PrompterProject | null =>
 	state.createdProject;
+
+export const selectActiveCampaign = (state: PrompterStore): Campaign | null => state.activeCampaign;
+
+export const selectCampaignHistory = (state: PrompterStore): Campaign[] => state.campaignHistory;
 
 export const selectIsFirstStep = (state: PrompterStore): boolean =>
 	stepIndex(state.wizardStep) === 0;

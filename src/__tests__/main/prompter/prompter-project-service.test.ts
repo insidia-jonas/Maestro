@@ -33,25 +33,31 @@ describe('PrompterProjectService', () => {
 		const plan = svc.planProject(base, 'lab');
 		expect(plan.projectRoot).toBe(path.join(base, 'lab'));
 		expect(plan.foldersToCreate).toContain('1-generic-instructions');
-		expect(plan.filesToCreate).toContain('2-test-schemas/baseline.schema.json');
+		expect(plan.filesToCreate).toContain('2-test-schemas/adversarial-compliance-test.schema.json');
 		expect(plan.filesToCreate).toContain('1-generic-instructions/GUIDE.md');
 		expect(plan.conflicts).toHaveLength(0);
 		// nothing written
 		expect(fs.existsSync(path.join(base, 'lab'))).toBe(false);
 	});
 
-	it('createProject scaffolds the full structure incl. 9 builtin schemas', async () => {
+	it('createProject scaffolds the full structure incl. 15 builtin schemas', async () => {
 		const project = await svc.createProject(base, 'lab');
 		const root = project.rootPath;
 		expect(fs.existsSync(path.join(root, '1-generic-instructions/GUIDE.md'))).toBe(true);
 		expect(fs.existsSync(path.join(root, '2-test-schemas/SCHEMA-GUIDE.md'))).toBe(true);
 		expect(fs.existsSync(path.join(root, '2-test-schemas/_template.schema.json'))).toBe(true);
 		expect(fs.existsSync(path.join(root, 'tools/evaluators/EVALUATOR-GUIDE.md'))).toBe(true);
+		expect(fs.existsSync(path.join(root, '4-advanced-tests/approved-fixtures/README.md'))).toBe(
+			true
+		);
+		expect(
+			fs.existsSync(path.join(root, 'documentation/templates/stego-evidence-example.md'))
+		).toBe(true);
 		expect(fs.existsSync(path.join(root, '.prompter-project.json'))).toBe(true);
 		const schemaFiles = fs
 			.readdirSync(path.join(root, '2-test-schemas'))
 			.filter((f) => f.endsWith('.schema.json') && !f.startsWith('_'));
-		expect(schemaFiles).toHaveLength(9);
+		expect(schemaFiles).toHaveLength(15);
 	});
 
 	it('createProject does not overwrite an existing user file', async () => {

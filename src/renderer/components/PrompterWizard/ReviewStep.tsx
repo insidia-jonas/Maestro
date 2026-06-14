@@ -1,6 +1,15 @@
-import { CheckCircle, ListChecks, Save, AlertTriangle, FolderOpen } from 'lucide-react';
+import {
+	CheckCircle,
+	ListChecks,
+	Save,
+	AlertTriangle,
+	FolderOpen,
+	Zap,
+	Swords,
+} from 'lucide-react';
 import type { Theme } from '../../types';
 import { usePrompterStore } from '../../stores/prompterStore';
+import { RED_TEAM_STRATEGIES } from '../../../shared/prompter-types';
 
 export function ReviewStep({
 	theme,
@@ -17,6 +26,9 @@ export function ReviewStep({
 	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
 	const selectedSchemas = usePrompterStore((s) => s.selectedSchemas);
 	const selectedTransforms = usePrompterStore((s) => s.selectedTransforms);
+	const testTargets = usePrompterStore((s) => s.testTargets);
+	const crafterConfig = usePrompterStore((s) => s.crafterConfig);
+	const crafterAgents = usePrompterStore((s) => s.crafterAgents);
 
 	const instructionCount = availableInstructions.length;
 	const baseTopLevel = availableInstructions.filter((f) => !f.path.includes('/')).length;
@@ -124,6 +136,141 @@ export function ReviewStep({
 					</div>
 				)}
 			</div>
+
+			{/* Test Targets */}
+			{testTargets.length > 0 && (
+				<div
+					className="flex flex-col gap-2 rounded-md p-3"
+					style={{
+						backgroundColor: theme.colors.bgSidebar,
+						border: `1px solid ${theme.colors.border}`,
+					}}
+				>
+					<span
+						className="text-xs uppercase tracking-wide select-none"
+						style={{ color: theme.colors.textDim }}
+					>
+						Ziel-Modelle ({testTargets.length})
+					</span>
+					<div className="flex flex-col gap-1.5 select-text">
+						{testTargets.map((target) => (
+							<div
+								key={`${target.agentId}-${target.modelId}`}
+								className="flex items-center justify-between gap-3 text-sm"
+							>
+								<span style={{ color: theme.colors.textMain }}>
+									{target.displayName ?? `${target.agentId} / ${target.modelId}`}
+								</span>
+								<div className="flex items-center gap-1.5">
+									{target.isExecutor ? (
+										<span
+											className="text-[10px] rounded px-1.5 py-0.5"
+											style={{
+												color: theme.colors.accentText,
+												backgroundColor: theme.colors.bgMain,
+												border: `1px solid ${theme.colors.accent}`,
+											}}
+										>
+											Executor + Ziel
+										</span>
+									) : (
+										<span
+											className="text-[10px] rounded px-1.5 py-0.5"
+											style={{
+												color: theme.colors.textDim,
+												backgroundColor: theme.colors.bgMain,
+												border: `1px solid ${theme.colors.border}`,
+											}}
+										>
+											Nur Ziel
+										</span>
+									)}
+									{target.isPrimary && (
+										<span
+											className="text-[10px] rounded px-1.5 py-0.5"
+											style={{
+												color: theme.colors.warning,
+												backgroundColor: theme.colors.bgMain,
+												border: `1px solid ${theme.colors.warning}`,
+											}}
+										>
+											Primaer
+										</span>
+									)}
+								</div>
+							</div>
+						))}
+					</div>
+				</div>
+			)}
+
+			{/* Red-Team Crafter */}
+			{crafterConfig?.enabled && (
+				<div
+					className="flex flex-col gap-2 rounded-md p-3"
+					style={{
+						backgroundColor: theme.colors.bgSidebar,
+						border: `1px solid ${theme.colors.border}`,
+					}}
+				>
+					<div className="flex items-center gap-2">
+						<Zap size={12} style={{ color: theme.colors.warning }} />
+						<span
+							className="text-xs uppercase tracking-wide select-none"
+							style={{ color: theme.colors.textDim }}
+						>
+							Red-Team Crafter
+						</span>
+					</div>
+					<div className="flex flex-col gap-1 select-text">
+						<span className="text-sm" style={{ color: theme.colors.textMain }}>
+							{crafterConfig.crafterAgentId} / {crafterConfig.crafterModelId}
+						</span>
+						<span className="text-xs" style={{ color: theme.colors.textDim }}>
+							Strategien:{' '}
+							{crafterConfig.strategies
+								.map((s) => RED_TEAM_STRATEGIES.find((r) => r.key === s)?.label ?? s)
+								.join(', ')}
+						</span>
+						<span className="text-xs" style={{ color: theme.colors.textDim }}>
+							Profiling: {crafterConfig.profileInstruction ? 'aktiv' : 'aus'} | Feedback-Tiefe:{' '}
+							{crafterConfig.feedbackDepth}
+						</span>
+					</div>
+				</div>
+			)}
+
+			{/* Crafter Pool */}
+			{crafterAgents.length > 0 && (
+				<div
+					className="flex flex-col gap-2 rounded-md p-3"
+					style={{
+						backgroundColor: theme.colors.bgSidebar,
+						border: `1px solid ${theme.colors.border}`,
+					}}
+				>
+					<div className="flex items-center gap-2">
+						<Swords size={12} style={{ color: theme.colors.warning }} />
+						<span
+							className="text-xs uppercase tracking-wide select-none"
+							style={{ color: theme.colors.textDim }}
+						>
+							Crafter-Pool ({crafterAgents.length} Angreifer)
+						</span>
+					</div>
+					<div className="flex flex-col gap-1 select-text">
+						{crafterAgents.map((c) => (
+							<span
+								key={`${c.agentId}-${c.modelId}`}
+								className="text-sm"
+								style={{ color: theme.colors.textMain }}
+							>
+								{c.displayName ?? `${c.agentId} / ${c.modelId}`}
+							</span>
+						))}
+					</div>
+				</div>
+			)}
 
 			{/* Instructions + Variations */}
 			<div

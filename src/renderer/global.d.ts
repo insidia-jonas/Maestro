@@ -3521,6 +3521,10 @@ interface MaestroAPI {
 		deleteProject: (projectRoot: string) => Promise<void>;
 		openProjectFolder: (projectRoot: string) => Promise<void>;
 		selectFile: () => Promise<string | null>;
+		updateProjectTargets: (
+			projectRoot: string,
+			targets: import('../shared/prompter-types').TestTarget[]
+		) => Promise<void>;
 		listInstructions: (
 			projectRoot: string
 		) => Promise<import('../shared/prompter-types').InstructionFile[]>;
@@ -3557,6 +3561,36 @@ interface MaestroAPI {
 			format: import('../shared/prompter-types').InstructionExportFormat
 		) => Promise<import('../shared/prompter-types').InstructionExportResult>;
 		selectExportFolder: () => Promise<string | null>;
+		// Campaigns (autonomous adversarial test loops)
+		createCampaign: (
+			config: import('../shared/prompter-types').CampaignConfig
+		) => Promise<import('../shared/prompter-types').Campaign>;
+		startCampaign: (campaignId: string) => Promise<void>;
+		pauseCampaign: (campaignId: string) => Promise<void>;
+		resumeCampaign: (campaignId: string) => Promise<void>;
+		stopCampaign: (campaignId: string) => Promise<void>;
+		getCampaign: (
+			campaignId: string
+		) => Promise<import('../shared/prompter-types').Campaign | null>;
+		listCampaigns: () => Promise<import('../shared/prompter-types').Campaign[]>;
+		// Hardened instruction generation
+		generateHardenedInstruction: (runId: string) => Promise<{
+			path: string;
+			basedOn: string;
+			findingsAddressed: string[];
+		} | null>;
+		// Research export
+		exportResearchData: (
+			runId: string,
+			targetDir: string,
+			format: import('../shared/prompter-types').ResearchExportFormat
+		) => Promise<import('../shared/prompter-types').ResearchExportResult>;
+		exportCampaignData: (
+			campaignId: string,
+			targetDir: string,
+			format: import('../shared/prompter-types').ResearchExportFormat
+		) => Promise<import('../shared/prompter-types').ResearchExportResult>;
+		// Events
 		onRunUpdated: (
 			callback: (payload: import('../shared/prompter-types').PrompterRunUpdatedEvent) => void
 		) => () => void;
@@ -3565,6 +3599,9 @@ interface MaestroAPI {
 		) => () => void;
 		onLog: (
 			callback: (payload: import('../shared/prompter-types').PrompterLogEvent) => void
+		) => () => void;
+		onCampaignUpdated: (
+			callback: (payload: import('../shared/prompter-types').CampaignUpdatedEvent) => void
 		) => () => void;
 	};
 }

@@ -11,7 +11,10 @@
  */
 
 import type { PrompterRun, PrompterResultBand } from '../../shared/prompter-types';
-import { computeRobustnessFindings } from '../../shared/prompter-robustness';
+import {
+	computeRobustnessFindings,
+	computeAdversarialMetrics,
+} from '../../shared/prompter-robustness';
 
 const BAND_LABEL: Record<PrompterResultBand, string> = {
 	green: 'held',
@@ -66,6 +69,34 @@ export function buildDefenderGapReport(run: PrompterRun): string {
 	lines.push('', '## Empfohlene Normalizer-Haertung', '');
 	for (const fix of uniqueFixes) lines.push(`- ${fix}`);
 	lines.push('');
+
+	// Adversarial test metrics section (for model evaluation research).
+	const metrics = computeAdversarialMetrics(run.tasks);
+	if (metrics.totalVariationTasks > 0) {
+		const pct = (n: number): string => `${Math.round(n * 100)}%`;
+		lines.push(
+			'## Adversarial Test Metrics (Model Evaluation)',
+			'',
+			'*For research and model evaluation purposes only. Not for real-world harmful use.*',
+			'',
+			`- Models: ${metrics.models.join(', ')}`,
+			`- Variation tests: ${metrics.totalVariationTasks}`,
+			`- Overall test compliance: ${pct(metrics.overallComplianceRate)}`,
+			`- Overall avg tokens: ${metrics.overallAvgTokens}`,
+			`- Baseline compliance: ${pct(metrics.baseline.complianceRate)} (${metrics.baseline.total} tests, ${metrics.baseline.avgTokens} avg tokens)`,
+			'',
+			'### Per-Technique Test Compliance',
+			'',
+			'| Technique | Tests | Compliance | Avg Tokens | Green | Yellow | Red |',
+			'| --- | --- | --- | --- | --- | --- | --- |'
+		);
+		for (const t of metrics.techniques) {
+			lines.push(
+				`| ${t.technique} | ${t.total} | ${pct(t.complianceRate)} | ${t.avgTokens} | ${t.green} | ${t.yellow} | ${t.red} |`
+			);
+		}
+		lines.push('');
+	}
 
 	return lines.join('\n') + '\n';
 }

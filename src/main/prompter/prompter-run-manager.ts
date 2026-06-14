@@ -17,6 +17,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../utils/logger';
+import { captureException } from '../utils/sentry';
 import { generateUUID } from '../../shared/uuid';
 import { getAgentDisplayName } from '../../shared/agentMetadata';
 import { atomicWriteFile, ensureDir } from './prompter-fs';
@@ -26,6 +27,10 @@ import { PrompterAgentConfigWriter } from './prompter-agent-config-writer';
 import { PrompterEvaluator } from './prompter-evaluator';
 import { PrompterReportWriter } from './prompter-report-writer';
 import type { PromptContext } from './prompter-schema-registry';
+import { RedTeamCrafter } from './prompter-red-team-crafter';
+import { loadCrafterLearnings, appendCrafterLearnings } from './prompter-learnings-store';
+import { STEGO_SCHEMA_IDS } from '../../shared/prompter-robustness';
+import { VARIATION_TRANSFORM_NAMES } from './prompter-variation-generator';
 import type {
 	PrompterRun,
 	PrompterRunConfig,
@@ -38,6 +43,7 @@ import type {
 	PrompterRunPhase,
 	PrompterRunStatus,
 	InstructionFile,
+	CrafterAgent,
 } from '../../shared/prompter-types';
 
 const LOG = 'PrompterRunManager';
@@ -94,6 +100,7 @@ interface RunState {
 	runDir: string;
 	resumeWaiters: Array<() => void>;
 	lastPersistAt: number;
+	crafter?: RedTeamCrafter;
 }
 
 export class PrompterRunManager {
@@ -133,6 +140,12 @@ export class PrompterRunManager {
 			maxParallelAgents: config.maxParallelAgents ?? 4,
 			createdAt: now,
 			updatedAt: now,
+			customDataOverrides: config.customDataOverrides,
+			autoGenerateHardenedInstruction: config.autoGenerateHardenedInstruction,
+			crafterConfig: config.crafterConfig,
+			crafterAgents: config.crafterAgents,
+			selectedTransforms: config.selectedTransforms,
+			testTargets: config.testTargets,
 		};
 		run.summary = this.computeSummary(run);
 
@@ -219,8 +232,34 @@ export class PrompterRunManager {
 		} catch (error) {
 			this.log(state, 'error', `Report konnte nicht geschrieben werden: ${String(error)}`);
 		}
+
+		if (run.autoGenerateHardenedInstruction !== false && !run.customDataOverrides) {
+			await this.maybeGenerateHardenedInstruction(state);
+		}
+
+		await this.persistRunLearnings(state);
+
 		await this.persist(state, { force: true });
 		this.emitRun(state);
+	}
+
+	/**
+	 * Persist this run's crafter learnings to the cross-campaign store, so future
+	 * runs/campaigns can load them. No-op when no crafter was active or no crafted
+	 * green was produced. Single-instruction assumption: learnings are keyed by the
+	 * first crafted-green instruction of the run.
+	 */
+	private async persistRunLearnings(state: RunState): Promise<void> {
+		const { run, crafter } = state;
+		if (!crafter) return;
+		const greenCrafted = run.tasks.find((t) => t.result === 'green' && t.craftStrategy);
+		if (!greenCrafted) return;
+		const entries = crafter.exportLearnings(run.id, greenCrafted.instructionHash);
+		await appendCrafterLearnings(
+			greenCrafted.instructionHash,
+			path.basename(greenCrafted.instructionFile),
+			entries
+		);
 	}
 
 	private async scaffoldRun(state: RunState): Promise<void> {
@@ -330,20 +369,99 @@ export class PrompterRunManager {
 				providerName: task.agentId,
 				runId: run.id,
 				timestamp: new Date(task.startedAt).toISOString(),
+				customData: run.customDataOverrides,
 			};
-			const prompt = registry.buildPrompt(schema, ctx);
+			let finalPrompt = registry.buildPrompt(schema, ctx);
 			const timeoutMs = schema.testConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+			// Red-Team Crafter: intelligent prompt modification (when enabled)
+			if (run.crafterConfig?.enabled) {
+				const crafter = this.getRunCrafter(state);
+				const feedbackKey = `${task.instructionFile}::${task.agentId}::${task.modelId}`;
+				try {
+					if (run.crafterConfig.profileInstruction) {
+						await crafter.profileInstruction(
+							run.crafterConfig,
+							workDir,
+							instructionContent,
+							task.instructionHash
+						);
+					}
+					const crafterOverride = this.selectCrafterForTask(state, task);
+					const craftResult = await crafter.craftModification(
+						run.crafterConfig,
+						finalPrompt,
+						instructionContent,
+						task,
+						workDir,
+						this.activeTransformsForTask(run, task),
+						STEGO_SCHEMA_IDS.has(task.schemaId),
+						feedbackKey,
+						crafterOverride
+					);
+					if (craftResult) {
+						task.originalPrompt = finalPrompt;
+						task.craftStrategy = craftResult.strategy;
+						task.craftModificationSummary = craftResult.modificationSummary;
+						task.crafterAgentId = crafterOverride?.agentId ?? run.crafterConfig.crafterAgentId;
+						task.crafterModelId = crafterOverride?.modelId ?? run.crafterConfig.crafterModelId;
+						finalPrompt = craftResult.modifiedPrompt;
+						this.log(
+							state,
+							'info',
+							`[CRAFTER] ${task.agentId}/${task.schemaId}: ${craftResult.modificationSummary}`,
+							task.id
+						);
+					}
+				} catch (err) {
+					this.log(
+						state,
+						'warn',
+						`[CRAFTER] Fehler: ${err instanceof Error ? err.message : String(err)}`,
+						task.id
+					);
+				}
+			}
+
+			const truncate = (s: string, max = 500) =>
+				s.length > max ? s.slice(0, max) + `... [${s.length} chars total]` : s;
+
+			this.log(
+				state,
+				'info',
+				`[DEBUG] ${task.agentId}/${task.schemaId} prompt (${finalPrompt.length} chars): ${truncate(finalPrompt)}`,
+				task.id
+			);
+			if (instructionContent) {
+				this.log(
+					state,
+					'info',
+					`[DEBUG] ${task.agentId}/${task.schemaId} instruction: ${path.basename(task.instructionFile)} (${instructionContent.length} chars)`,
+					task.id
+				);
+			}
 
 			const { result, rateLimitExhausted } = await this.spawnWithRetries(
 				state,
 				task,
 				modelId,
 				workDir,
-				prompt,
+				finalPrompt,
 				instructionContent,
 				timeoutMs,
 				resumeSessionId
 			);
+
+			this.log(
+				state,
+				result.success ? 'info' : 'warn',
+				`[DEBUG] ${task.agentId}/${task.schemaId} spawn result: success=${result.success}, ` +
+					`response=${result.response ? truncate(result.response) : '(none)'}, ` +
+					`error=${result.error ? truncate(result.error) : '(none)'}, ` +
+					`sessionId=${result.agentSessionId ?? '(none)'}`,
+				task.id
+			);
+
 			// Carry the (new or resumed) session id forward to the next probe.
 			if (result.agentSessionId) nextSessionId = result.agentSessionId;
 
@@ -360,6 +478,11 @@ export class PrompterRunManager {
 					task.id
 				);
 			} else {
+				const resolvedCustomData = {
+					...(schema.testConfig.customData ?? {}),
+					...(run.customDataOverrides ?? {}),
+				};
+				const resolvedCustomTask = resolvedCustomData.task || undefined;
 				const evaluator = new PrompterEvaluator(run.projectRoot);
 				const evaluation = await evaluator.evaluate({
 					task,
@@ -368,6 +491,7 @@ export class PrompterRunManager {
 					originalInstruction: instructionContent,
 					originalInstructionHash: task.instructionHash,
 					responseTimeMs: Date.now() - task.startedAt,
+					resolvedCustomTask,
 				});
 
 				const evidencePath = await this.deps.reportWriter.writeEvidence(
@@ -385,11 +509,13 @@ export class PrompterRunManager {
 				task.responseLength = evaluation.metrics.responseLength;
 				task.classification = evaluation.classification;
 				task.confidence = evaluation.confidence;
+				task.complianceScore = evaluation.complianceScore?.overall;
 				task.status =
 					evaluation.classification === 'timeout' || evaluation.classification === 'cli-error'
 						? 'failed'
 						: 'completed';
 				if (!result.success && !task.error) task.error = result.error;
+				this.addCrafterFeedback(state, task, result.response || result.error || '');
 				this.log(
 					state,
 					evaluation.band === 'red' ? 'warn' : 'info',
@@ -425,6 +551,12 @@ export class PrompterRunManager {
 		const options: SpawnOptions = {
 			customModel: modelId,
 			// Empty for a bare-model probe: send no system instruction.
+			// TODO(prompter): for claude-code the instruction is currently delivered
+			// twice: as the CLAUDE.md envelope written by writeEnvelope() in
+			// runTask() AND via appendSystemPrompt (--append-system-prompt). The
+			// desktop path (src/main/ipc/handlers/process.ts) uses only
+			// --append-system-prompt. Settle on one canonical delivery path for
+			// Prompter Claude runs so the model does not see the instruction twice.
 			appendSystemPrompt: instructionContent || undefined,
 		};
 		let backoffIndex = 0;
@@ -532,6 +664,41 @@ export class PrompterRunManager {
 		waiters.forEach((w) => w());
 		this.emitRun(state);
 		await this.persist(state, { force: true });
+	}
+
+	// -------------------------------------------------------- post-run hardening
+
+	private async maybeGenerateHardenedInstruction(state: RunState): Promise<void> {
+		const { run } = state;
+		try {
+			const { hasQualifyingGreens, generateHardenedInstruction } =
+				await import('./prompter-hardened-generator');
+			if (!hasQualifyingGreens(run)) {
+				this.log(state, 'info', 'Keine Green Findings von adversariellen Schemata');
+				return;
+			}
+			this.log(state, 'info', 'Green Findings erkannt - starte Haertungs-Generierung...');
+			const result = await generateHardenedInstruction(run, run.projectRoot, this, run.agents);
+			if (result) {
+				if (!run.hardenedInstructions) run.hardenedInstructions = [];
+				run.hardenedInstructions.push({
+					...result,
+					generatedAt: Date.now(),
+				});
+				this.log(state, 'info', `Gehaertete Instruction: ${path.basename(result.path)}`);
+			}
+		} catch (err) {
+			// This outer catch covers setup failures (dynamic import,
+			// hasQualifyingGreens). Generation-internal failures are caught and
+			// reported inside generateHardenedInstruction itself, so they do not reach
+			// here. Report this distinct setup failure to Sentry instead of only logging.
+			this.log(
+				state,
+				'warn',
+				`Haertungs-Generierung fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`
+			);
+			void captureException(err, { scope: 'maybeGenerateHardenedInstruction', runId: run.id });
+		}
 	}
 
 	// ----------------------------------------------------------- query/delete
@@ -650,7 +817,75 @@ export class PrompterRunManager {
 			runDir: this.runDirFor(projectRoot, run.id),
 			resumeWaiters: [],
 			lastPersistAt: 0,
+			crafter: run.crafterConfig?.enabled ? this.createCrafter() : undefined,
 		};
+	}
+
+	/**
+	 * Create a crafter and prime it with cross-campaign learnings from disk, so
+	 * crafter selection can prefer historically effective strategies/agents.
+	 */
+	private createCrafter(): RedTeamCrafter {
+		const crafter = new RedTeamCrafter(this.deps.spawn);
+		crafter.loadLearnings(loadCrafterLearnings());
+		return crafter;
+	}
+
+	private getRunCrafter(state: RunState): RedTeamCrafter {
+		if (!state.crafter) state.crafter = this.createCrafter();
+		return state.crafter;
+	}
+
+	private addCrafterFeedback(state: RunState, task: PrompterTask, response: string): void {
+		if (!state.run.crafterConfig?.enabled || !task.craftStrategy) return;
+		const feedbackKey = `${task.instructionFile}::${task.agentId}::${task.modelId}`;
+		const crafter = this.getRunCrafter(state);
+		crafter.addFeedback(feedbackKey, {
+			schemaId: task.schemaId,
+			strategy: task.craftStrategy,
+			modificationSummary: task.craftModificationSummary ?? '',
+			result: task.result ?? 'red',
+			complianceScore: task.complianceScore,
+			responseExcerpt: response.slice(0, 500),
+			targetModelId: task.modelId,
+		});
+		if (task.crafterAgentId && task.crafterModelId) {
+			crafter.recordCrafterResult(
+				task.crafterAgentId,
+				task.crafterModelId,
+				task.modelId,
+				task.result ?? 'red'
+			);
+		}
+	}
+
+	private selectCrafterForTask(state: RunState, task: PrompterTask): CrafterAgent | undefined {
+		const { run } = state;
+		const pool = run.crafterAgents;
+		if (!pool || pool.length === 0 || !run.crafterConfig) return undefined;
+		const target = run.testTargets?.find(
+			(t) => t.agentId === task.agentId && t.modelId === task.modelId
+		);
+		return this.getRunCrafter(state).selectCrafterFromPool(
+			run.crafterConfig,
+			pool,
+			task,
+			target?.preferredCrafterAgentId,
+			target?.preferredCrafterModelId
+		);
+	}
+
+	private activeTransformsForTask(run: PrompterRun, task: PrompterTask): string[] {
+		const filename = path.basename(task.instructionFile);
+		if (!filename.startsWith('tv-') || !filename.endsWith('.md')) return [];
+		const selected = run.selectedTransforms?.length
+			? new Set(run.selectedTransforms)
+			: new Set(VARIATION_TRANSFORM_NAMES);
+		const stemless = filename.slice(3, -3);
+		const transform = [...VARIATION_TRANSFORM_NAMES]
+			.sort((a, b) => b.length - a.length)
+			.find((candidate) => stemless.endsWith(`-${candidate}`));
+		return transform && selected.has(transform) ? [transform] : [];
 	}
 
 	private runDirFor(projectRoot: string, runId: string): string {

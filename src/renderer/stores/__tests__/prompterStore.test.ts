@@ -1,5 +1,5 @@
 /**
- * Tests for prompterStore — the 7-step wizard state machine, run-event
+ * Tests for prompterStore - the 7-step wizard state machine, run-event
  * reducers, and localStorage-backed resume.
  */
 
@@ -11,7 +11,45 @@ import type {
 	PrompterTask,
 	PrompterRunUpdatedEvent,
 	PrompterTaskUpdatedEvent,
+	Campaign,
+	CampaignUpdatedEvent,
 } from '../../../shared/prompter-types';
+
+function baseCampaign(overrides: Partial<Campaign> = {}): Campaign {
+	return {
+		id: 'camp-1',
+		config: {} as Campaign['config'],
+		status: 'planned',
+		iterations: [],
+		findings: [],
+		metrics: {
+			totalIterations: 0,
+			totalRuns: 0,
+			totalTasks: 0,
+			overallSuccessRate: 0,
+			bestTechnique: '',
+			bestSuccessRate: 0,
+			weakestBoundary: '',
+			strongestBoundary: '',
+		},
+		createdAt: 0,
+		updatedAt: 0,
+		...overrides,
+	};
+}
+
+function campaignEvent(overrides: Partial<CampaignUpdatedEvent> = {}): CampaignUpdatedEvent {
+	return {
+		campaignId: 'camp-1',
+		status: 'running',
+		currentIteration: 0,
+		totalIterations: 5,
+		findings: 0,
+		overallComplianceRate: 0,
+		campaign: baseCampaign({ status: 'running' }),
+		...overrides,
+	};
+}
 
 const agent = (id: string): PrompterAgentSelection => ({
 	agentId: id,
@@ -26,7 +64,7 @@ function baseRun(): PrompterRun {
 		runId: 'run-1',
 		agentId: 'claude-code',
 		modelId: 'claude-fable-5',
-		schemaId: 'baseline',
+		schemaId: 'adversarial-compliance-test',
 		instructionFile: 'eni.md',
 		instructionHash: 'h',
 		status: 'pending',
@@ -38,7 +76,7 @@ function baseRun(): PrompterRun {
 		status: 'planned',
 		phase: 'scaffold',
 		agents: [],
-		schemas: ['baseline'],
+		schemas: ['adversarial-compliance-test'],
 		tasks: [task],
 		maxParallelAgents: 4,
 		createdAt: 1,
@@ -89,10 +127,14 @@ describe('prompterStore agents + schemas', () => {
 
 	it('toggleSchema flips membership in the set', () => {
 		const s = usePrompterStore.getState();
-		s.toggleSchema('baseline');
-		expect(usePrompterStore.getState().selectedSchemas.has('baseline')).toBe(true);
-		usePrompterStore.getState().toggleSchema('baseline');
-		expect(usePrompterStore.getState().selectedSchemas.has('baseline')).toBe(false);
+		s.toggleSchema('adversarial-compliance-test');
+		expect(usePrompterStore.getState().selectedSchemas.has('adversarial-compliance-test')).toBe(
+			true
+		);
+		usePrompterStore.getState().toggleSchema('adversarial-compliance-test');
+		expect(usePrompterStore.getState().selectedSchemas.has('adversarial-compliance-test')).toBe(
+			false
+		);
 	});
 });
 
@@ -183,12 +225,12 @@ describe('prompterStore resume', () => {
 		s.setProjectDraft({ targetDir: '/tmp', projectName: 'lab', dryRun: true });
 		s.toggleAgent(agent('claude-code'));
 		s.setWizardStep('schema-selection');
-		s.toggleSchema('baseline');
+		s.toggleSchema('adversarial-compliance-test');
 		s.saveStateForResume();
 
 		expect(localStorage.getItem('prompter:wizard-resume')).toBeTruthy();
 		const snapshot = usePrompterStore.getState().savedWizardState;
-		expect(snapshot?.selectedSchemaIds).toContain('baseline');
+		expect(snapshot?.selectedSchemaIds).toContain('adversarial-compliance-test');
 		expect(snapshot?.selectedAgentIds).toContain('claude-code');
 
 		// wipe + restore
@@ -196,7 +238,9 @@ describe('prompterStore resume', () => {
 		expect(usePrompterStore.getState().selectedAgents).toHaveLength(0);
 		usePrompterStore.getState().restoreFromSavedState(snapshot!);
 		expect(usePrompterStore.getState().wizardStep).toBe('schema-selection');
-		expect(usePrompterStore.getState().selectedSchemas.has('baseline')).toBe(true);
+		expect(usePrompterStore.getState().selectedSchemas.has('adversarial-compliance-test')).toBe(
+			true
+		);
 		expect(usePrompterStore.getState().selectedAgents[0].agentId).toBe('claude-code');
 	});
 
@@ -207,5 +251,80 @@ describe('prompterStore resume', () => {
 		usePrompterStore.getState().clearResumeState();
 		expect(localStorage.getItem('prompter:wizard-resume')).toBeNull();
 		expect(usePrompterStore.getState().savedWizardState).toBeNull();
+	});
+});
+
+describe('prompterStore campaign event reducer', () => {
+	beforeEach(() => {
+		usePrompterStore.setState({ activeCampaign: null, campaignHistory: [] });
+	});
+
+	it('adds each new campaign as its own newest-first sidebar entry', () => {
+		const first = baseCampaign({
+			id: 'camp-1',
+			createdAt: 100,
+			config: { name: 'First' } as Campaign['config'],
+		});
+		const second = baseCampaign({
+			id: 'camp-2',
+			createdAt: 200,
+			config: { name: 'Second' } as Campaign['config'],
+		});
+
+		usePrompterStore.getState().setActiveCampaign(first);
+		usePrompterStore.getState().setActiveCampaign(second);
+
+		const state = usePrompterStore.getState();
+		expect(state.activeCampaign?.id).toBe('camp-2');
+		expect(state.campaignHistory.map((c) => c.id)).toEqual(['camp-2', 'camp-1']);
+	});
+
+	it('applies the full campaign snapshot so progress fields reach the dashboard', () => {
+		usePrompterStore.getState().setActiveCampaign(baseCampaign());
+		const snapshot = baseCampaign({
+			status: 'running',
+			iterations: [{ iterationNumber: 1 } as unknown as Campaign['iterations'][number]],
+			findings: [{ technique: 'authority-frame' } as unknown as Campaign['findings'][number]],
+			metrics: { ...baseCampaign().metrics, overallSuccessRate: 0.42 },
+			updatedAt: 123,
+		});
+		usePrompterStore.getState().updateCampaignFromEvent(campaignEvent({ campaign: snapshot }));
+
+		const active = usePrompterStore.getState().activeCampaign;
+		expect(active?.iterations).toHaveLength(1);
+		expect(active?.findings).toHaveLength(1);
+		expect(active?.metrics.overallSuccessRate).toBe(0.42);
+		expect(active?.status).toBe('running');
+		expect(usePrompterStore.getState().campaignHistory[0].status).toBe('running');
+	});
+
+	it('keeps focus when an event arrives for a different visible campaign', () => {
+		usePrompterStore.getState().setActiveCampaign(baseCampaign({ id: 'camp-1' }));
+		usePrompterStore
+			.getState()
+			.setActiveCampaign(baseCampaign({ id: 'other', status: 'running', createdAt: 200 }));
+		usePrompterStore.getState().setActiveCampaign(baseCampaign({ id: 'camp-1', createdAt: 100 }));
+		usePrompterStore.getState().updateCampaignFromEvent(
+			campaignEvent({
+				campaignId: 'other',
+				status: 'completed',
+				campaign: baseCampaign({ id: 'other', status: 'completed', createdAt: 200 }),
+			})
+		);
+		expect(usePrompterStore.getState().activeCampaign?.status).toBe('planned');
+		expect(usePrompterStore.getState().campaignHistory.find((c) => c.id === 'other')?.status).toBe(
+			'completed'
+		);
+	});
+
+	it('dismisses a campaign without deleting the remaining entries', () => {
+		usePrompterStore.getState().setActiveCampaign(baseCampaign({ id: 'camp-1', createdAt: 100 }));
+		usePrompterStore.getState().setActiveCampaign(baseCampaign({ id: 'camp-2', createdAt: 200 }));
+
+		usePrompterStore.getState().dismissCampaign('camp-2');
+
+		const state = usePrompterStore.getState();
+		expect(state.campaignHistory.map((c) => c.id)).toEqual(['camp-1']);
+		expect(state.activeCampaign?.id).toBe('camp-1');
 	});
 });

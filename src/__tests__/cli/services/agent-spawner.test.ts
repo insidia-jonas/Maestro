@@ -1257,6 +1257,45 @@ Some text with [x] in it that's not a checkbox
 			expect(result.agentSessionId).toBe('first-id');
 		});
 
+		it('should preserve stream-json result text on non-zero exit with empty stderr', async () => {
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			const policyText = 'API Error: request blocked by the provider content policy.';
+			mockStdout.emit('data', Buffer.from('{"session_id":"policy-session"}\n'));
+			mockStdout.emit(
+				'data',
+				Buffer.from(JSON.stringify({ type: 'result', result: policyText }) + '\n')
+			);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockChild.emit('close', 1);
+
+			const result = await resultPromise;
+
+			expect(result.success).toBe(false);
+			expect(result.response).toBe(policyText);
+			expect(result.error).toBe(policyText);
+			expect(result.agentSessionId).toBe('policy-session');
+		});
+
+		it('should prefer stderr as error but keep response on non-zero exit', async () => {
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			mockStdout.emit('data', Buffer.from('{"type":"result","result":"Partial answer"}\n'));
+			mockStderr.emit('data', Buffer.from('Fatal: credit exhausted\n'));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockChild.emit('close', 1);
+
+			const result = await resultPromise;
+
+			expect(result.success).toBe(false);
+			expect(result.response).toBe('Partial answer');
+			expect(result.error).toContain('credit exhausted');
+		});
+
 		it('should preserve session_id and usageStats on error', async () => {
 			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
 

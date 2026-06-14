@@ -1,5 +1,5 @@
 /**
- * PrompterWizardStepper - horizontal step indicator for the 7-step Prompter
+ * PrompterWizardStepper - horizontal step indicator for the 8-step Prompter
  * wizard. Mirrors the existing wizard's compact breadcrumb style.
  */
 
@@ -12,7 +12,9 @@ const STEP_LABELS: Record<PrompterWizardStep, string> = {
 	'agent-selection': 'Agents',
 	'model-config': 'Modelle',
 	instructions: 'Instructions',
+	'target-models': 'Ziele',
 	'schema-selection': 'Schemata',
+	'custom-data': 'Custom Data',
 	review: 'Review',
 };
 

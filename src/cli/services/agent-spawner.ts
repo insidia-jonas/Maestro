@@ -534,9 +534,13 @@ async function spawnClaudeAgent(
 					usageStats,
 				});
 			} else {
+				// Preserve any structured result text emitted before the non-zero
+				// exit (e.g. a provider policy block) so callers like the Prompter
+				// evaluator can classify the real failure instead of "unknown".
 				resolve({
 					success: false,
-					error: stderr || `Process exited with code ${code}`,
+					response: finalResult,
+					error: stderr || finalResult || `Process exited with code ${code}`,
 					agentSessionId: sessionId,
 					usageStats,
 				});
@@ -795,10 +799,14 @@ async function spawnJsonLineAgent(
 			stdio: ['pipe', 'pipe', 'pipe'],
 		};
 
+		console.log(`[agent-spawner DEBUG] command: ${spawnCommand} ${spawnArgs.join(' ')}`);
+		console.log(`[agent-spawner DEBUG] cwd: ${spawnCwd}`);
+
 		const child = spawn(spawnCommand, spawnArgs, options);
 
 		let jsonBuffer = '';
 		let result: string | undefined;
+		let textAccumulator = '';
 		let sessionId: string | undefined;
 		let usageStats: UsageStats | undefined;
 		let stderr = '';
@@ -818,6 +826,11 @@ async function spawnJsonLineAgent(
 			if (!sessionId) {
 				const extracted = parser.extractSessionId(event);
 				if (extracted) sessionId = extracted;
+			}
+
+			if (event.type === 'text' && event.text) {
+				if (textAccumulator) textAccumulator += '\n';
+				textAccumulator += event.text;
 			}
 
 			if (event.type === 'result' && event.text) {
@@ -866,12 +879,29 @@ async function spawnJsonLineAgent(
 				processEvent(parser.parseJsonLine(jsonBuffer));
 			}
 
+			const finalResponse = result || textAccumulator || undefined;
+
+			console.log(`[agent-spawner DEBUG] ${agentName} exit code: ${code}`);
+			if (stderr) {
+				const truncStderr =
+					stderr.length > 1000 ? stderr.slice(0, 1000) + `... [${stderr.length} chars]` : stderr;
+				console.log(`[agent-spawner DEBUG] ${agentName} stderr: ${truncStderr}`);
+			}
+			if (finalResponse) {
+				const truncResult =
+					finalResponse.length > 500
+						? finalResponse.slice(0, 500) + `... [${finalResponse.length} chars]`
+						: finalResponse;
+				console.log(`[agent-spawner DEBUG] ${agentName} result: ${truncResult}`);
+			}
+
 			if (code === 0 && !errorText) {
-				resolve({ success: true, response: result, agentSessionId: sessionId, usageStats });
+				resolve({ success: true, response: finalResponse, agentSessionId: sessionId, usageStats });
 			} else {
 				resolve({
 					success: false,
 					error: errorText || stderr || `Process exited with code ${code}`,
+					response: finalResponse,
 					agentSessionId: sessionId,
 					usageStats,
 				});
