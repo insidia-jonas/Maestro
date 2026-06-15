@@ -1,4 +1,4 @@
-<!-- Verified 2026-06-14 against feat/prompter. Covers 15 builtins, 23 transforms, 9-step wizard, independent targets, Red-Team Crafter, autonomous campaigns, hardening, research export, stego decoder, and run dashboard panels. Do not edit docs/releases.md for Prompter changes. -->
+<!-- Verified 2026-06-15 against feat/prompter. Covers 15 builtins, 23 transforms, 9-step wizard, executed independent targets (per-target instruction routing), Red-Team Crafter, autonomous campaigns, hardening, research export, stego decoder, the Left Bar Prompt Power Lab section, and run dashboard panels. Do not edit docs/releases.md for Prompter changes. -->
 
 # Prompter (Prompt Power and Robustness Lab)
 
@@ -18,14 +18,24 @@ Major changes delivered in this window:
 4. Advanced lab features: independent target models, Red-Team Crafter, multi-crafter pools, custom data placeholders, compliance scoring, reliability scoring, stego decoder, autonomous campaign manager, refinement engine, hardened instruction generator, research exports, weakness export panels, search path panels, injection builder, campaign dashboard, and hardened instruction notices.
 5. Review fixes: Crafter feedback loop is run-scoped, profile cache persists across tasks, task-specific transforms are passed to Crafter, Crafter spawns in task work dirs, Evidence parser is shared, campaign live snapshots reach the dashboard, crafter provenance reaches findings, stego banding affects results, createRun failures become errored iterations, and custom evaluators get normalization audit details.
 
+## Clarity and accuracy pass (2026-06-15)
+
+A second pass tightened the wizard, evaluator, Left Bar, and target execution. Each larger change was reviewed by Codex (which caught a stemmer over-collapse, a stale run-history snapshot race, and a recovered-session gap):
+
+1. Wizard clarity: removed the redundant dry-run toggle (the plan preview is always shown), clarified that selected agents are executors, moved the character-variation picker from the instructions step to the schema step, show per-agent instruction routing only when more than one instruction exists, and separated the auto-filled hardening placeholders (`base_instruction`, `green_findings`) from the real `task` input.
+2. Target-models fix: the internal `terminal` agent (and hidden agents) no longer leak into the target list.
+3. Evaluator red-accuracy: refusal patterns are now speech-acts only (bare topic words like "Sicherheit"/"dangerous" no longer count), with position + length gating, and coverage scoring is paraphrase/inflection tolerant via a light stemmer.
+4. Left Bar: a single `PrompterLabSection` replaces the per-run sidebar entry and the inline campaign list, grouping Tests (run history), Kampagnen, and Logs (per-run evidence folder). Run history is kept live in the store and loaded from project folders on startup.
+5. Executed independent targets (A1): target-only models are really tested with per-target instruction routing, deduped against executors; lane sessions are keyed by `model + instruction` and each task spawns with its own model.
+
 ## What it does
 
 1. **Scaffold** a lab project with instructions, schemas, results, advanced fixtures, hardening output, docs, and evaluator tooling.
 2. **Collect** every instruction under `1-generic-instructions/`, hash it, and optionally generate 23 deterministic character/layout variations under `4-advanced-tests/character-variations/`.
 3. **Configure executors** with agent, model, instruction routing, optional bare-model mode, and CLI config-file attachments.
-4. **Declare target models** independently from executors. Executor targets are preselected, but additional target-only agent/model pairs can be included for reporting and comparison.
-5. **Select schemas** from 15 builtins plus custom schemas and fill `{{CUSTOM:*}}` placeholders.
-6. **Run** the matrix in per-agent lanes with per-input conversation continuity and rate-limit backoff.
+4. **Declare target models** independently from executors. Executor targets are preselected; additional target-only agent/model pairs are **really tested** (own tasks), each with its own instruction routing, for a true cross-model comparison.
+5. **Select schemas** from 15 builtins plus custom schemas and fill `{{CUSTOM:*}}` placeholders. The character-variation picker lives in this step (it defines what is tested alongside the schemas).
+6. **Run** the matrix in per-agent lanes with per `model + instruction` conversation continuity and rate-limit backoff.
 7. **Optionally craft** modified test prompts through Red-Team Crafter with feedback-driven strategy selection.
 8. **Evaluate** each result with failure, refusal, schema, compliance, stego, normalization, and optional custom-evaluator logic.
 9. **Persist** evidence, ampel files, run reports, Defender Gap Reports, hardening output, research exports, and campaign state.
@@ -105,7 +115,7 @@ prompter-defender-report
 | `src/main/prompter/prompter-defender-report.ts`       | Defender Gap Report generation.                                                                                          |
 | `src/main/ipc/handlers/prompter.ts`                   | 33 IPC handlers and event forwarding.                                                                                    |
 | `src/main/preload/prompter.ts`                        | `window.maestro.prompter` bridge.                                                                                        |
-| `src/renderer/stores/prompterStore.ts`                | Wizard state, active run, active campaign, logs, resume snapshots, event reducers.                                       |
+| `src/renderer/stores/prompterStore.ts`                | Wizard state, active run, run history, active campaign, logs, resume snapshots, event reducers.                          |
 | `src/renderer/hooks/prompter/usePrompterListeners.ts` | IPC subscriptions and startup run recovery.                                                                              |
 | `src/renderer/components/PrompterWizard/*`            | 9-step wizard.                                                                                                           |
 | `src/renderer/components/PrompterRunPanel/*`          | Run dashboard, campaign UI, metrics, panels, controls, exports.                                                          |
@@ -180,7 +190,7 @@ Add builtins in `prompter-schema-registry.ts`. Add custom schema support through
 
 ## Variation transforms
 
-`prompter-variation-generator.ts` exports 23 transform names. Generated file names are `tv-<stem>-<transform>.md`. `selectedTransforms` is stored on `PrompterRun` and must be used for task-specific transform context. Do not infer transforms globally by checking for `tv-` anywhere in the run.
+`prompter-variation-generator.ts` exports 23 transform names. Generated file names are `tv-<stem>-<transform>.md`. `selectedTransforms` is stored on `PrompterRun` and must be used for task-specific transform context. Do not infer transforms globally by checking for `tv-` anywhere in the run. The variation picker is rendered in `SchemaSelectionStep` (it defines what is tested alongside the schemas), not in the instructions step.
 
 ## Executor agents, target models, and config files
 
@@ -191,7 +201,7 @@ Add builtins in `prompter-schema-registry.ts`. Add custom schema support through
 - `instructionFile: 'none'` for bare-model probing.
 - `attachedFiles` for provider-specific config files copied into the work dir.
 
-`TestTarget` declares agent/model targets for reporting and comparison. Targets can be executor-backed or target-only. `TargetModelsStep` detects agents and model options, auto-seeds executor targets, and stores target metadata for reports.
+`TestTarget` declares agent/model targets that are really tested. Targets can be executor-backed or target-only. A target-only target (its `agentId+modelId` pair is not an executor) gets its own tasks in the matrix, routed by `TestTarget.instructionFile` (`'*'` / `'none'` / a path, default `'*'`). `TargetModelsStep` detects agents and model options (excluding the internal `terminal` agent and hidden agents), auto-seeds executor targets, and exposes a per-target instruction-routing select for target-only models. Executor-backed targets ignore `instructionFile` (their routing comes from the executor config).
 
 `AGENT_FILE_SLOTS` / `agentFileSlots(agentId)` define CLI config-file slots. Add provider slots there and copy behavior in `PrompterAgentConfigWriter.writeAttachedFiles()`.
 
@@ -199,10 +209,11 @@ Add builtins in `prompter-schema-registry.ts`. Add custom schema support through
 
 Important behavior in `prompter-run-manager.ts`:
 
-- Builds task matrix from agents, instruction inputs, schemas, and independent targets.
-- Groups lanes by `agentId` and tasks by instruction file.
-- Keeps one provider session per input group by passing `agentSessionId` forward.
-- Creates per-agent work dirs and writes provider envelopes before spawning.
+- Builds the task matrix from executors first, then deduped target-only `agentId+modelId` pairs (each routed by its own instruction selection via `resolveInstructionInputs`).
+- Groups lanes by `agentId`; within a lane, session groups are keyed by `modelId + instructionFile` so a target-only model never resumes another model's conversation.
+- Each task spawns with its own `task.modelId` (executor model or independent target model), not a single lane model.
+- Keeps one provider session per `model + instruction` group by passing `agentSessionId` forward; the id is also stored on `PrompterTask.agentSessionId` so a recovered grouped run resumes the right conversation.
+- Creates work + evidence dirs for every agent in the matrix (including target-only agents), not just executors, then writes provider envelopes before spawning.
 - Copies attached CLI config files into the work dir even for bare probes.
 - Applies Red-Team Crafter before normal spawning when configured.
 - Retries rate limits with 30s, 60s, and 120s backoffs.
@@ -240,6 +251,8 @@ Crafter pairing modes: `round-robin`, `best-performer`, `manual`, `auto`.
 7. Confidence calculation.
 
 Custom evaluators return early from schema scoring but are still augmented with normalization audit details. If a custom evaluator fails, the evaluator falls back to rule-based scoring.
+
+Red-accuracy contract (do not regress): `REFUSAL_PATTERNS` are first-person refusal speech-acts only. Bare topic words (`harmful`, `dangerous`, `unethical`, `as an ai`, German `Sicherheit`/`Richtlinien`/`policy`) are deliberately NOT refusal signals, because a model that complies with a defensive or security-themed task uses that vocabulary constantly and would otherwise be mislabelled red. `detectRefusal` gates on position + length: a real refusal leads early (`REFUSAL_HEAD_CHARS`) and is short (`REFUSAL_SHORT_LIMIT`); refusal-shaped phrasing buried in a long cooperative answer becomes `partial`, not a hard `safety-policy` red. Coverage scoring is paraphrase/inflection tolerant via `stemToken` (an ordered suffix-stripping rule list, `ies/ied -> y`, no blanket single-char `e/n/y/er` suffixes, so `policy != police` and `rules != ruler`). Calibration cases live in `prompter-evaluator.test.ts`.
 
 ## Evidence parser and hardening
 
@@ -357,6 +370,8 @@ Events: `prompter:runUpdated`, `prompter:taskUpdated`, `prompter:log`, `prompter
 
 Keep panel additions surgical and prefer existing shared metrics utilities over recomputing analysis in React.
 
+The Left Bar entry point is `PrompterLabSection` (in `PrompterRunPanel/`), rendered once by `SessionList`. It reads `prompterStore` directly and groups Tests (run history, newest first, each row opens the run in the center and has a folder button to its evidence dir), Kampagnen (the campaign list), and a `+ Test` launcher that opens the wizard. It renders nothing when there are no runs and no campaigns. There is no longer a separate `PrompterSidebarEntry`.
+
 ## Testing
 
 Relevant tests live in:
@@ -366,7 +381,7 @@ Relevant tests live in:
 - `src/__tests__/renderer/components/PrompterWizard/`
 - `src/renderer/stores/__tests__/prompterStore.test.ts`
 
-Current Prompter slice after the 2026-06-14 fixes: 18 files, 212 tests.
+Current Prompter slice after the 2026-06-15 clarity pass: 19 files, 236 tests.
 
 Useful commands:
 
@@ -382,6 +397,9 @@ No real agents should be spawned in tests. Use injected `spawn` and `delay` depe
 - Do not hand-roll formatters, path helpers, IDs, or event hooks. Check the shared guide docs first.
 - Do not infer variation state by global filename sniffing.
 - Do not treat campaign `focusSchemas` as transform names.
+- Do not add bare topic words (harmful, dangerous, Sicherheit, Richtlinien, "as an ai") back to `REFUSAL_PATTERNS`; they mislabel cooperative answers as red. Keep refusal detection to first-person speech-acts.
+- Do not key lane sessions by instruction alone; the key must include `modelId` so a target-only model never resumes another model's conversation.
+- Do not build the task matrix from executors only; deduped target-only `agentId+modelId` pairs are really tested.
 - Do not swallow unexpected errors silently. Use Sentry capture where the failure is not an expected optional-file case.
 - Do not pass renderer callbacks across IPC. Use serializable event payloads.
 - Do not edit `docs/releases.md`.
