@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bot, Cpu, Loader2, Plus, Check } from 'lucide-react';
+import { Bot, Cpu, Loader2, Plus, Check, Info } from 'lucide-react';
 import type { Theme } from '../../types';
 import { usePrompterStore } from '../../stores/prompterStore';
 import type { PrompterAgentSelection } from '../../../shared/prompter-types';
@@ -68,7 +68,7 @@ export function AgentSelectionStep({ theme }: { theme: Theme }): JSX.Element {
 						Agents auswaehlen
 					</h2>
 					<p className="text-sm" style={{ color: theme.colors.textDim }}>
-						Verfuegbare Agents
+						Executor-Agents fuer den Test
 					</p>
 				</div>
 				<button
@@ -84,6 +84,21 @@ export function AgentSelectionStep({ theme }: { theme: Theme }): JSX.Element {
 					<Plus size={16} />
 					Alle verfuegbaren hinzufuegen
 				</button>
+			</div>
+
+			<div
+				className="flex items-start gap-2 rounded-md p-3"
+				style={{
+					backgroundColor: `${theme.colors.accent}0d`,
+					border: `1px solid ${theme.colors.accent}33`,
+				}}
+			>
+				<Info size={14} className="shrink-0 mt-0.5" style={{ color: theme.colors.accent }} />
+				<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					Ein Executor ist die CLI, die den Test fuehrt: er schickt deine Instruction plus den
+					Test-Prompt an ein Modell und faengt die Antwort fuer die Bewertung ein. Modell und
+					Instruktionsdatei legst du im naechsten Schritt fest.
+				</span>
 			</div>
 
 			{loading ? (

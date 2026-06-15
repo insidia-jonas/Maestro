@@ -241,14 +241,24 @@ export function ModelConfigStep({ theme }: { theme: Theme }): JSX.Element {
 										});
 									}}
 								>
-									<option value="*">* (alle Instructions + Variations)</option>
+									<option value="*">
+										{availableInstructions.length > 1
+											? '* (alle Instructions + Variations)'
+											: 'Instruction testen'}
+									</option>
 									<option value="none">Keine (gegen nacktes Modell)</option>
-									{availableInstructions.map((f) => (
-										<option key={f.path} value={f.path}>
-											{f.path}
-										</option>
-									))}
+									{availableInstructions.length > 1 &&
+										availableInstructions.map((f) => (
+											<option key={f.path} value={f.path}>
+												{f.path}
+											</option>
+										))}
 								</select>
+								{availableInstructions.length > 1 && (
+									<span className="text-xs" style={{ color: theme.colors.textDim }}>
+										Routing: welche der Dateien dieser Executor benutzt.
+									</span>
+								)}
 							</div>
 
 							{slots.length > 0 && (

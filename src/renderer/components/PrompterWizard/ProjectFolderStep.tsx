@@ -7,7 +7,6 @@ import type { PrompterProjectDraft, ProjectPlan } from '../../../shared/prompter
 const DEFAULT_DRAFT: PrompterProjectDraft = {
 	targetDir: '',
 	projectName: 'prompt-power-lab',
-	dryRun: true,
 };
 
 export function ProjectFolderStep({ theme }: { theme: Theme }): JSX.Element {
@@ -68,11 +67,6 @@ export function ProjectFolderStep({ theme }: { theme: Theme }): JSX.Element {
 	const handleNameChange = (value: string): void => {
 		const current = usePrompterStore.getState().projectDraft ?? DEFAULT_DRAFT;
 		usePrompterStore.getState().setProjectDraft({ ...current, projectName: value });
-	};
-
-	const handleDryRunChange = (checked: boolean): void => {
-		const current = usePrompterStore.getState().projectDraft ?? DEFAULT_DRAFT;
-		usePrompterStore.getState().setProjectDraft({ ...current, dryRun: checked });
 	};
 
 	return (
@@ -143,20 +137,6 @@ export function ProjectFolderStep({ theme }: { theme: Theme }): JSX.Element {
 					}}
 				/>
 			</div>
-
-			{/* Dry run toggle */}
-			<label className="flex cursor-pointer items-center gap-2">
-				<input
-					type="checkbox"
-					checked={draft.dryRun}
-					onChange={(e) => handleDryRunChange(e.target.checked)}
-					className="h-4 w-4 cursor-pointer"
-					style={{ accentColor: theme.colors.accent }}
-				/>
-				<span className="text-sm" style={{ color: theme.colors.textMain }}>
-					Dry Run anzeigen, bevor Dateien geschrieben werden
-				</span>
-			</label>
 
 			{/* Plan preview */}
 			<div

@@ -49,7 +49,7 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 				if (cancelled) return;
 
 				const groups: AgentGroup[] = detected
-					.filter((a) => a.available)
+					.filter((a) => a.available === true && a.hidden !== true && a.id !== 'terminal')
 					.map((a) => ({
 						agentId: a.id,
 						displayName: a.name || getAgentDisplayName(a.id),
@@ -70,20 +70,12 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 						const models = await window.maestro.prompter.getAgentModelOptions(group.agentId);
 						if (cancelled) return;
 						setAgentGroups((prev) =>
-							prev.map((g) =>
-								g.agentId === group.agentId
-									? { ...g, models, loading: false }
-									: g
-							)
+							prev.map((g) => (g.agentId === group.agentId ? { ...g, models, loading: false } : g))
 						);
 					} catch {
 						if (cancelled) return;
 						setAgentGroups((prev) =>
-							prev.map((g) =>
-								g.agentId === group.agentId
-									? { ...g, loading: false }
-									: g
-							)
+							prev.map((g) => (g.agentId === group.agentId ? { ...g, loading: false } : g))
 						);
 					}
 				}
@@ -110,8 +102,10 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 		}
 
 		void loadAgents();
-		return () => { cancelled = true; };
-	}, []);  
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	const isSelected = useCallback(
 		(agentId: string, modelId: string): boolean =>
@@ -258,9 +252,7 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 									{group.displayName}
 								</span>
 								<span className="text-xs" style={{ color: theme.colors.textDim }}>
-									{group.loading
-										? 'laden...'
-										: `${group.models.length} Modelle`}
+									{group.loading ? 'laden...' : `${group.models.length} Modelle`}
 								</span>
 								{selCount > 0 && (
 									<span
@@ -279,8 +271,14 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 								<div className="ml-6 flex flex-col gap-1 pb-2">
 									{group.loading ? (
 										<div className="flex items-center gap-2 px-3 py-2">
-											<Loader2 size={12} className="animate-spin" style={{ color: theme.colors.textDim }} />
-											<span className="text-xs" style={{ color: theme.colors.textDim }}>Modelle laden...</span>
+											<Loader2
+												size={12}
+												className="animate-spin"
+												style={{ color: theme.colors.textDim }}
+											/>
+											<span className="text-xs" style={{ color: theme.colors.textDim }}>
+												Modelle laden...
+											</span>
 										</div>
 									) : group.models.length === 0 ? (
 										<span className="px-3 py-2 text-xs" style={{ color: theme.colors.textDim }}>
@@ -298,7 +296,9 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 													className="flex items-center gap-3 rounded-md border px-3 py-2 transition-colors"
 													style={{
 														borderColor: selected ? theme.colors.accent : theme.colors.border,
-														backgroundColor: selected ? theme.colors.accentDim : theme.colors.bgActivity,
+														backgroundColor: selected
+															? theme.colors.accentDim
+															: theme.colors.bgActivity,
 													}}
 												>
 													<button
@@ -417,14 +417,17 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 					<>
 						<p className="text-xs" style={{ color: theme.colors.textDim }}>
 							Optionaler Pool von Crafter-Agents, die als Angreifer den Test-Prompt intelligent
-							modifizieren. Bei mehreren Craftern werden diese pro Task aus dem Pool zugewiesen.
-							For security research and model evaluation only.
+							modifizieren. Bei mehreren Craftern werden diese pro Task aus dem Pool zugewiesen. For
+							security research and model evaluation only.
 						</p>
 						<div className="flex flex-col gap-1 overflow-y-auto" style={{ maxHeight: 200 }}>
 							{agentGroups.map((group) =>
 								group.loading ? null : (
 									<div key={`crafter-${group.agentId}`} className="flex flex-col gap-1">
-										<span className="text-xs font-medium px-2 pt-1" style={{ color: theme.colors.textDim }}>
+										<span
+											className="text-xs font-medium px-2 pt-1"
+											style={{ color: theme.colors.textDim }}
+										>
 											{group.displayName}
 										</span>
 										{group.models.map((model) => {
@@ -437,7 +440,9 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 													className="flex items-center gap-3 rounded-md border px-3 py-1.5 text-left transition-colors ml-2"
 													style={{
 														borderColor: selected ? theme.colors.warning : theme.colors.border,
-														backgroundColor: selected ? `${theme.colors.warning}15` : theme.colors.bgActivity,
+														backgroundColor: selected
+															? `${theme.colors.warning}15`
+															: theme.colors.bgActivity,
 													}}
 												>
 													<div
@@ -449,14 +454,29 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 													>
 														{selected && (
 															<svg width="8" height="8" viewBox="0 0 12 12">
-																<path d="M2.5 6L5 8.5L9.5 3.5" stroke={theme.colors.bgMain} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+																<path
+																	d="M2.5 6L5 8.5L9.5 3.5"
+																	stroke={theme.colors.bgMain}
+																	strokeWidth="2"
+																	fill="none"
+																	strokeLinecap="round"
+																	strokeLinejoin="round"
+																/>
 															</svg>
 														)}
 													</div>
-													<span className="text-xs font-mono truncate" style={{ color: theme.colors.textMain }}>
+													<span
+														className="text-xs font-mono truncate"
+														style={{ color: theme.colors.textMain }}
+													>
 														{model.label || model.id}
 													</span>
-													<Swords size={10} style={{ color: selected ? theme.colors.warning : theme.colors.textDim }} />
+													<Swords
+														size={10}
+														style={{
+															color: selected ? theme.colors.warning : theme.colors.textDim,
+														}}
+													/>
 												</button>
 											);
 										})}

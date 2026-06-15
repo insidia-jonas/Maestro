@@ -125,8 +125,6 @@ export interface PrompterProjectDraft {
 	targetDir: string;
 	/** Project folder name; default "prompt-power-lab". */
 	projectName: string;
-	/** Show a dry-run plan before writing any files. */
-	dryRun: boolean;
 }
 
 /** A declared test target: agent + model combo the project tests against. */

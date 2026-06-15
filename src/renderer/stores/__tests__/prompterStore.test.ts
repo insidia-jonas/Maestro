@@ -222,7 +222,7 @@ describe('prompterStore resume', () => {
 
 	it('saveStateForResume persists and restoreFromSavedState reloads it', () => {
 		const s = usePrompterStore.getState();
-		s.setProjectDraft({ targetDir: '/tmp', projectName: 'lab', dryRun: true });
+		s.setProjectDraft({ targetDir: '/tmp', projectName: 'lab' });
 		s.toggleAgent(agent('claude-code'));
 		s.setWizardStep('schema-selection');
 		s.toggleSchema('adversarial-compliance-test');
@@ -246,7 +246,7 @@ describe('prompterStore resume', () => {
 
 	it('clearResumeState removes the snapshot', () => {
 		const s = usePrompterStore.getState();
-		s.setProjectDraft({ targetDir: '/tmp', projectName: 'lab', dryRun: false });
+		s.setProjectDraft({ targetDir: '/tmp', projectName: 'lab' });
 		s.saveStateForResume();
 		usePrompterStore.getState().clearResumeState();
 		expect(localStorage.getItem('prompter:wizard-resume')).toBeNull();

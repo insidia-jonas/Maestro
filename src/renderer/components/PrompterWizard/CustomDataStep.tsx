@@ -18,6 +18,11 @@ interface PlaceholderInfo {
 	usedBySchemas: string[];
 }
 
+// These placeholders belong to the `green-to-hardened-instruction` schema and are
+// normally filled automatically by the post-run hardening generator from the green
+// findings. They are kept visually separate from the real test input (`task`).
+const HARDENING_PLACEHOLDER_KEYS = new Set(['base_instruction', 'green_findings']);
+
 function collectPlaceholders(
 	schemas: PrompterSchema[],
 	selectedIds: Set<string>
@@ -345,6 +350,46 @@ export function CustomDataStep({ theme }: { theme: Theme }): JSX.Element {
 	const taskPlaceholder = placeholders.find((p) => p.key === 'task');
 	const hasUnfilledTask = taskPlaceholder && !customDataOverrides.task?.trim();
 
+	const hardeningPlaceholders = placeholders.filter((p) => HARDENING_PLACEHOLDER_KEYS.has(p.key));
+	const inputPlaceholders = placeholders.filter((p) => !HARDENING_PLACEHOLDER_KEYS.has(p.key));
+
+	const renderField = (p: PlaceholderInfo): JSX.Element => (
+		<div key={p.key} className="flex flex-col gap-1">
+			<label
+				className="text-xs font-medium flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<code
+					className="px-1.5 py-0.5 rounded text-[11px]"
+					style={{
+						backgroundColor: `${theme.colors.accent}1a`,
+						color: theme.colors.accent,
+					}}
+				>
+					{`{{CUSTOM:${p.key}}}`}
+				</code>
+				<span style={{ color: theme.colors.textDim }}>
+					({p.usedBySchemas.length} {p.usedBySchemas.length === 1 ? 'Schema' : 'Schemata'})
+				</span>
+			</label>
+			<textarea
+				rows={p.key === 'task' ? 3 : 4}
+				className="w-full px-2.5 py-1.5 rounded-md text-sm resize-y"
+				style={{
+					backgroundColor: theme.colors.bgSidebar,
+					color: theme.colors.textMain,
+					border: `1px solid ${theme.colors.border}`,
+				}}
+				placeholder={p.defaultValue}
+				value={customDataOverrides[p.key] ?? ''}
+				onChange={(e) => setCustomDataOverride(p.key, e.target.value)}
+			/>
+			<span className="text-[10px]" style={{ color: theme.colors.textDim }}>
+				Verwendet in: {p.usedBySchemas.join(', ')}
+			</span>
+		</div>
+	);
+
 	return (
 		<div className="flex flex-col gap-4 p-1">
 			<p className="text-sm" style={{ color: theme.colors.textMain }}>
@@ -377,42 +422,29 @@ export function CustomDataStep({ theme }: { theme: Theme }): JSX.Element {
 			)}
 
 			<div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1">
-				{placeholders.map((p) => (
-					<div key={p.key} className="flex flex-col gap-1">
-						<label
-							className="text-xs font-medium flex items-center gap-2"
-							style={{ color: theme.colors.textMain }}
-						>
-							<code
-								className="px-1.5 py-0.5 rounded text-[11px]"
-								style={{
-									backgroundColor: `${theme.colors.accent}1a`,
-									color: theme.colors.accent,
-								}}
-							>
-								{`{{CUSTOM:${p.key}}}`}
-							</code>
-							<span style={{ color: theme.colors.textDim }}>
-								({p.usedBySchemas.length} {p.usedBySchemas.length === 1 ? 'Schema' : 'Schemata'})
+				{inputPlaceholders.map(renderField)}
+
+				{hardeningPlaceholders.length > 0 && (
+					<div
+						className="flex flex-col gap-3 rounded-md p-3"
+						style={{
+							backgroundColor: `${theme.colors.warning ?? '#f59e0b'}0d`,
+							border: `1px solid ${theme.colors.warning ?? '#f59e0b'}33`,
+						}}
+					>
+						<div className="flex flex-col gap-1">
+							<span className="text-xs font-semibold" style={{ color: theme.colors.textMain }}>
+								Hardening (wird normal automatisch gefuellt)
 							</span>
-						</label>
-						<textarea
-							rows={p.key === 'task' ? 3 : 4}
-							className="w-full px-2.5 py-1.5 rounded-md text-sm resize-y"
-							style={{
-								backgroundColor: theme.colors.bgSidebar,
-								color: theme.colors.textMain,
-								border: `1px solid ${theme.colors.border}`,
-							}}
-							placeholder={p.defaultValue}
-							value={customDataOverrides[p.key] ?? ''}
-							onChange={(e) => setCustomDataOverride(p.key, e.target.value)}
-						/>
-						<span className="text-[10px]" style={{ color: theme.colors.textDim }}>
-							Verwendet in: {p.usedBySchemas.join(', ')}
-						</span>
+							<span className="text-[11px]" style={{ color: theme.colors.textDim }}>
+								Diese Felder fuellt der Post-Run-Hardening-Generator normal automatisch aus den
+								Green-Findings. Nur manuell setzen, wenn du das Schema green-to-hardened-instruction
+								direkt fahren willst.
+							</span>
+						</div>
+						{hardeningPlaceholders.map(renderField)}
 					</div>
-				))}
+				)}
 			</div>
 		</div>
 	);
