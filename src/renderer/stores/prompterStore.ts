@@ -122,6 +122,8 @@ interface PrompterStoreActions {
 	setLogFilter: (filter: PrompterLogFilter) => void;
 	clearActiveRun: () => void;
 	loadRunHistory: (runs: PrompterRun[]) => void;
+	/** Upsert a batch of runs into the history without clobbering existing ones. */
+	mergeRunHistory: (runs: PrompterRun[]) => void;
 	/** Show the active run in the center workspace. */
 	focusPrompterRun: () => void;
 	/** Leave the run view (return to agents / group chat). */
@@ -186,6 +188,11 @@ function sortCampaignsNewestFirst(campaigns: Campaign[]): Campaign[] {
 function upsertCampaign(campaigns: Campaign[], campaign: Campaign): Campaign[] {
 	const next = [campaign, ...campaigns.filter((c) => c.id !== campaign.id)];
 	return sortCampaignsNewestFirst(next);
+}
+
+function upsertRun(runs: PrompterRun[], run: PrompterRun): PrompterRun[] {
+	const next = [run, ...runs.filter((r) => r.id !== run.id)];
+	return next.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
 export const usePrompterStore = create<PrompterStore>()((set, get) => ({
@@ -309,18 +316,22 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 	setAvailableInstructions: (availableInstructions) => set({ availableInstructions }),
 
 	// ----------------------------------------------------------------- run
-	setActiveRun: (activeRun) => set({ activeRun }),
+	setActiveRun: (activeRun) =>
+		set((state) => ({
+			activeRun,
+			runHistory: activeRun ? upsertRun(state.runHistory, activeRun) : state.runHistory,
+		})),
 	updateRunFromEvent: (event) =>
 		set((state) => {
 			if (!state.activeRun || state.activeRun.id !== event.runId) return {};
-			return {
-				activeRun: {
-					...state.activeRun,
-					status: event.status,
-					phase: event.phase,
-					summary: event.summary,
-				},
+			const activeRun = {
+				...state.activeRun,
+				status: event.status,
+				phase: event.phase,
+				summary: event.summary,
 			};
+			// Keep the Left Bar runs list live and accurate after completion.
+			return { activeRun, runHistory: upsertRun(state.runHistory, activeRun) };
 		}),
 	updateTaskFromEvent: (event) =>
 		set((state) => {
@@ -339,6 +350,12 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 	setLogFilter: (logFilter) => set({ logFilter }),
 	clearActiveRun: () => set({ activeRun: null, compactLog: [], prompterFocused: false }),
 	loadRunHistory: (runHistory) => set({ runHistory }),
+	mergeRunHistory: (runs) =>
+		set((state) => {
+			let runHistory = state.runHistory;
+			for (const run of runs) runHistory = upsertRun(runHistory, run);
+			return { runHistory };
+		}),
 	focusPrompterRun: () => set({ prompterFocused: true }),
 	blurPrompterRun: () => set({ prompterFocused: false }),
 
@@ -495,6 +512,7 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 export const selectWizardOpen = (state: PrompterStore): boolean => state.wizardOpen;
 export const selectWizardStep = (state: PrompterStore): PrompterWizardStep => state.wizardStep;
 export const selectActiveRun = (state: PrompterStore): PrompterRun | null => state.activeRun;
+export const selectRunHistory = (state: PrompterStore): PrompterRun[] => state.runHistory;
 export const selectCreatedProject = (state: PrompterStore): PrompterProject | null =>
 	state.createdProject;
 

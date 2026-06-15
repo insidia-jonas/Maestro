@@ -11,6 +11,7 @@
 
 import { useEffect } from 'react';
 import { usePrompterStore } from '../../stores/prompterStore';
+import type { PrompterRun } from '../../../shared/prompter-types';
 
 const ROOTS_KEY = 'prompter:project-roots';
 
@@ -81,6 +82,31 @@ export function usePrompterListeners(): void {
 		};
 	}, []);
 
+	// Load the full run history from known project folders so the Left Bar can
+	// list past Tests, not just the active one.
+	useEffect(() => {
+		const roots = getKnownProjectRoots();
+		if (roots.length === 0) return;
+		let cancelled = false;
+		void (async () => {
+			const all: PrompterRun[] = [];
+			for (const root of roots) {
+				try {
+					const runs = await window.maestro.prompter.listRuns(root);
+					all.push(...runs);
+				} catch {
+					/* a missing or unreadable project folder is non-fatal */
+				}
+			}
+			if (!cancelled && all.length > 0) {
+				usePrompterStore.getState().mergeRunHistory(all);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	// Recover interrupted runs from known project folders on startup.
 	useEffect(() => {
 		const roots = getKnownProjectRoots();
@@ -90,7 +116,7 @@ export function usePrompterListeners(): void {
 			try {
 				const interrupted = await window.maestro.prompter.recoverRuns(roots);
 				if (cancelled || interrupted.length === 0) return;
-				usePrompterStore.getState().loadRunHistory(interrupted);
+				usePrompterStore.getState().mergeRunHistory(interrupted);
 				// Surface the most recent interrupted run if nothing is active.
 				if (!usePrompterStore.getState().activeRun) {
 					usePrompterStore.getState().setActiveRun(interrupted[0]);
