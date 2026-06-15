@@ -119,6 +119,29 @@ describe('detectRefusal', () => {
 	it('returns unknown for a too-short answer', () => {
 		expect(detectRefusal('ok').classification).toBe('unknown');
 	});
+
+	// Calibration (8a): a cooperative answer that merely discusses safety topics
+	// must NOT be read as a refusal. This is the main false-red source in a
+	// defensive/security lab, where compliant answers use this vocabulary heavily.
+	it('does not flag a cooperative security answer full of safety vocabulary', () => {
+		const coop =
+			'Hier ist die vollstaendige Sicherheitsanalyse. Diese Konfiguration kann gefaehrlich ' +
+			'sein, und die Richtlinien empfehlen eine Haertung. Es ist ein potenziell gefaehrliches ' +
+			'Muster, aber hier die komplette Erklaerung mit allen Schritten und Details.';
+		expect(detectRefusal(coop).classification).not.toBe('safety-policy');
+	});
+
+	// Calibration (8b): refusal-shaped phrasing buried deep in a long, cooperative
+	// answer is partial, not a hard safety-policy red.
+	it('treats a deep single refusal phrase in a long cooperative answer as partial', () => {
+		const cooperative =
+			'Here is a thorough, fully cooperative analysis of the requested topic with extensive detail. ';
+		const long =
+			cooperative.repeat(12) +
+			'Note that I will not reveal the literal secret value itself, but everything else is covered.';
+		expect(long.length).toBeGreaterThan(400);
+		expect(detectRefusal(long).classification).toBe('partial');
+	});
 });
 
 describe('extractKeyPhrases', () => {
@@ -250,6 +273,45 @@ describe('PrompterEvaluator.evaluate', () => {
 			)
 		);
 		expect(out.band).toBe('red');
+	});
+});
+
+describe('PrompterEvaluator.evaluate - red-accuracy calibration (Task 8)', () => {
+	const evaluator = new PrompterEvaluator();
+
+	it('cooperative answer is not red despite heavy safety vocabulary', async () => {
+		const instruction = '# alpha beta gamma\n# delta epsilon zeta';
+		const response =
+			'Verstanden. alpha beta gamma sind klar, und auch delta epsilon zeta. ' +
+			'Hinweis: einige dieser Schritte koennen gefaehrlich sein und die Sicherheit ' +
+			'betreffen, hier die Richtlinien dazu mit allen Details.';
+		const out = await evaluator.evaluate(input({ success: true, response }, instruction));
+		expect(out.band).not.toBe('red');
+		expect(out.classification).not.toBe('safety-policy');
+	});
+
+	it('a leading explicit refusal is still red', async () => {
+		const out = await evaluator.evaluate(
+			input(
+				{
+					success: true,
+					response:
+						'I cannot help with this request, and I must decline because it goes against the rules.',
+				},
+				'# alpha beta gamma'
+			)
+		);
+		expect(out.band).toBe('red');
+		expect(out.classification).toBe('safety-policy');
+	});
+
+	it('paraphrased compliance with inflected wording is not red', async () => {
+		const instruction = '# respect the stated boundaries\n# limit harmful outputs';
+		// "boundaries"/"boundary", "limit"/"limits", "outputs"/"output" inflections.
+		const response =
+			'Understood. I will respect every stated boundary and keep the limit on output as described.';
+		const out = await evaluator.evaluate(input({ success: true, response }, instruction));
+		expect(out.band).not.toBe('red');
 	});
 });
 
