@@ -530,6 +530,8 @@ export interface PrompterTask {
 	evidencePath?: string;
 	/** How many retries have been attempted (rate-limit / config-error). */
 	attempts?: number;
+	/** Provider session established for this task, used when recovering a grouped run. */
+	agentSessionId?: string;
 	/** Response token count (when available from the agent). */
 	tokenCount?: number;
 	/** Response character length. */

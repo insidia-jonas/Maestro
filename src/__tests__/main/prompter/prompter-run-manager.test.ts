@@ -1,5 +1,5 @@
 /**
- * Tests for prompter-run-manager.ts — task matrix, lane execution with an
+ * Tests for prompter-run-manager.ts - task matrix, lane execution with an
  * injected fake spawn, evidence/ampel/report output, crash recovery and the
  * run lifecycle. No real agents are spawned.
  */
@@ -258,6 +258,32 @@ describe('PrompterRunManager', () => {
 		expect(calls[0].sessionId).toBeUndefined(); // first turn establishes the instruction
 		expect(calls[1].sessionId).toBe('sess-1'); // probe resumes the session
 		expect(calls[2].sessionId).toBe('sess-1');
+	});
+
+	it('recovers a grouped run with the provider session from completed tasks', async () => {
+		const calls: Array<{ sessionId: string | undefined }> = [];
+		const sessionSpawn: PrompterSpawnFn = async (_t, _c, _p, sessionId, options) => {
+			calls.push({ sessionId });
+			return {
+				success: true,
+				response: options.appendSystemPrompt ?? 'ok',
+				agentSessionId: 'sess-resumed',
+			} as SpawnResult;
+		};
+		const mgr = makeManager(sessionSpawn);
+		const run = await mgr.createRun({
+			...runConfig(['adversarial-compliance-test', 'bidi-zero-width-evasion']),
+			autoGenerateHardenedInstruction: false,
+		});
+		run.tasks[0].status = 'completed';
+		run.tasks[0].agentSessionId = 'sess-existing';
+		run.tasks[0].result = 'green';
+
+		await mgr.startRun(run.id);
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0].sessionId).toBe('sess-existing');
+		expect(run.tasks[1].agentSessionId).toBe('sess-resumed');
 	});
 
 	it('keeps one crafter per run and feeds task results back into later prompts', async () => {

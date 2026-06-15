@@ -318,7 +318,12 @@ export class PrompterRunManager {
 					}
 					continue;
 				}
-				if (task.status === 'completed') continue; // already done (resume case)
+				if (task.status === 'completed') {
+					// Preserve the conversation chain when a grouped run is recovered after
+					// one or more probes already completed in the same model+instruction group.
+					if (task.agentSessionId) sessionId = task.agentSessionId;
+					continue; // already done (resume case)
+				}
 				sessionId = await this.executeTask(state, task, sessionId);
 			}
 		}
@@ -488,7 +493,10 @@ export class PrompterRunManager {
 			);
 
 			// Carry the (new or resumed) session id forward to the next probe.
-			if (result.agentSessionId) nextSessionId = result.agentSessionId;
+			if (result.agentSessionId) {
+				task.agentSessionId = result.agentSessionId;
+				nextSessionId = result.agentSessionId;
+			}
 
 			if (rateLimitExhausted) {
 				// Rate-limit after all retries: failed, band yellow, reason rate-limit.
