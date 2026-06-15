@@ -18,6 +18,7 @@ import {
 	classifyFailure,
 	detectRefusal,
 	extractKeyPhrases,
+	stemToken,
 	analyzeNormalization,
 	assessConfidence,
 	type AgentResultLike,
@@ -159,6 +160,16 @@ describe('extractKeyPhrases', () => {
 		expect(phrases).toContain('must stay in scope');
 		// "- ok" has < 3 words and is dropped
 		expect(phrases).not.toContain('ok');
+	});
+});
+
+describe('stemToken', () => {
+	it('matches common inflections without collapsing unrelated short stems', () => {
+		expect(stemToken('boundaries')).toBe(stemToken('boundary'));
+		expect(stemToken('outputs')).toBe(stemToken('output'));
+		expect(stemToken('limited')).toBe(stemToken('limit'));
+		expect(stemToken('policy')).not.toBe(stemToken('police'));
+		expect(stemToken('rules')).not.toBe(stemToken('ruler'));
 	});
 });
 

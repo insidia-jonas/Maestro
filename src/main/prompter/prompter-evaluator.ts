@@ -243,8 +243,23 @@ export function significantWords(text: string): string[] {
  */
 export function stemToken(word: string): string {
 	const w = word.toLowerCase();
-	const s = w.replace(/(?:ungen|ung|ies|ied|ing|ed|es|en|er|s|e|n|y)$/i, '');
-	return s.length >= 3 ? s : w;
+	const rules: Array<[RegExp, string]> = [
+		[/ungen$/i, ''],
+		[/ung$/i, ''],
+		[/ies$/i, 'y'],
+		[/ied$/i, 'y'],
+		[/ing$/i, ''],
+		[/ed$/i, ''],
+		[/es$/i, ''],
+		[/en$/i, ''],
+		[/s$/i, ''],
+	];
+	for (const [pattern, replacement] of rules) {
+		if (!pattern.test(w)) continue;
+		const s = w.replace(pattern, replacement);
+		return s.length >= 3 ? s : w;
+	}
+	return w;
 }
 
 /** Set of stemmed tokens (length >= 3) in a lowercased response. */
