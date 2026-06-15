@@ -156,30 +156,35 @@ export class PrompterRunManager {
 		return run;
 	}
 
+	/** Resolve an instruction-routing selection ('*' / 'none' / path) to inputs. */
+	private resolveInstructionInputs(
+		selection: string,
+		instructions: InstructionFile[]
+	): InstructionFile[] {
+		// A bare input (no instruction) probes the model directly.
+		const BARE: InstructionFile = { path: '', hash: '', sizeBytes: 0, preview: '' };
+		if (selection === 'none') return [BARE];
+		if (selection === '*' || !selection) return instructions;
+		return instructions.filter((i) => i.path === selection || i.path.endsWith(`/${selection}`));
+	}
+
 	private buildTaskMatrix(
 		runId: string,
 		config: PrompterRunConfig,
 		instructions: InstructionFile[]
 	): PrompterTask[] {
 		const tasks: PrompterTask[] = [];
-		// A bare input (no instruction) probes the model directly.
-		const BARE: InstructionFile = { path: '', hash: '', sizeBytes: 0, preview: '' };
-		for (const agent of config.agents) {
-			const selection = agent.instructionFile || '*';
-			let agentInputs: InstructionFile[];
-			if (selection === 'none') agentInputs = [BARE];
-			else if (selection === '*') agentInputs = instructions;
-			else
-				agentInputs = instructions.filter(
-					(i) => i.path === selection || i.path.endsWith(`/${selection}`)
-				);
-			for (const instruction of agentInputs) {
+		// One (agentId, modelId) pair is tested once: executors first, then any
+		// declared target-only models that are not already covered by an executor.
+		const seenPairs = new Set<string>();
+		const pushTasks = (agentId: string, modelId: string, selection: string): void => {
+			for (const instruction of this.resolveInstructionInputs(selection, instructions)) {
 				for (const schemaId of config.schemas) {
 					tasks.push({
 						id: `task-${tasks.length}-${generateUUID().slice(0, 8)}`,
 						runId,
-						agentId: agent.agentId,
-						modelId: agent.modelId,
+						agentId,
+						modelId,
 						schemaId,
 						instructionFile: instruction.path,
 						instructionHash: instruction.hash,
@@ -188,7 +193,23 @@ export class PrompterRunManager {
 					});
 				}
 			}
+		};
+
+		for (const agent of config.agents) {
+			seenPairs.add(`${agent.agentId}::${agent.modelId}`);
+			pushTasks(agent.agentId, agent.modelId, agent.instructionFile || '*');
 		}
+
+		// Independent target-only models: declared targets whose agent+model pair is
+		// not an executor. They are really tested (own tasks), routed by the target's
+		// own instructionFile, so the run is a true cross-model comparison.
+		for (const target of config.testTargets ?? []) {
+			const pair = `${target.agentId}::${target.modelId}`;
+			if (seenPairs.has(pair)) continue;
+			seenPairs.add(pair);
+			pushTasks(target.agentId, target.modelId, target.instructionFile || '*');
+		}
+
 		return tasks;
 	}
 
@@ -266,24 +287,25 @@ export class PrompterRunManager {
 		const { run } = state;
 		await ensureDir(state.runDir);
 		checkNoSymlinkEscape(state.runDir, path.join(run.projectRoot, '3-temp-results', 'runs'));
-		for (const agent of run.agents) {
-			await ensureDir(this.workDir(state, agent.agentId));
-			await ensureDir(
-				assertSafeWritePath(path.posix.join('evidence', agent.agentId), state.runDir)
-			);
+		// Every agent that appears in the task matrix needs a work + evidence dir,
+		// including independent target-only agents that are not executors.
+		const agentIds = new Set(run.tasks.map((t) => t.agentId));
+		for (const agentId of agentIds) {
+			await ensureDir(this.workDir(state, agentId));
+			await ensureDir(assertSafeWritePath(path.posix.join('evidence', agentId), state.runDir));
 		}
 	}
 
 	private async runAgentLane(
 		state: RunState,
-		agentId: string,
+		_agentId: string,
 		tasks: PrompterTask[]
 	): Promise<void> {
-		const agentConfig = state.run.agents.find((a) => a.agentId === agentId);
-		const modelId = agentConfig?.modelId ?? tasks[0]?.modelId ?? '';
-		// Each input (instruction file) runs as ONE conversation: the instruction
-		// is delivered on the first turn, then the probes resume that session.
-		for (const [, groupTasks] of this.groupByInstruction(tasks)) {
+		// Each (model, instruction file) runs as ONE conversation: the instruction
+		// is delivered on the first turn, then the probes resume that session. The
+		// model is part of the key so a target-only model in the same agent lane
+		// never resumes another model's session.
+		for (const [, groupTasks] of this.groupBySession(tasks)) {
 			let sessionId: string | undefined;
 			for (const task of groupTasks) {
 				while (state.run.status === 'paused') {
@@ -297,17 +319,18 @@ export class PrompterRunManager {
 					continue;
 				}
 				if (task.status === 'completed') continue; // already done (resume case)
-				sessionId = await this.executeTask(state, task, modelId, sessionId);
+				sessionId = await this.executeTask(state, task, sessionId);
 			}
 		}
 	}
 
-	private groupByInstruction(tasks: PrompterTask[]): Map<string, PrompterTask[]> {
+	private groupBySession(tasks: PrompterTask[]): Map<string, PrompterTask[]> {
 		const groups = new Map<string, PrompterTask[]>();
 		for (const task of tasks) {
-			const list = groups.get(task.instructionFile);
+			const key = `${task.modelId}::${task.instructionFile}`;
+			const list = groups.get(key);
 			if (list) list.push(task);
-			else groups.set(task.instructionFile, [task]);
+			else groups.set(key, [task]);
 		}
 		return groups;
 	}
@@ -322,10 +345,12 @@ export class PrompterRunManager {
 	private async executeTask(
 		state: RunState,
 		task: PrompterTask,
-		modelId: string,
 		resumeSessionId: string | undefined
 	): Promise<string | undefined> {
 		const { run } = state;
+		// Each task carries its own model (executor model or an independent target
+		// model), so spawning uses task.modelId rather than a single lane model.
+		const modelId = task.modelId;
 		let nextSessionId = resumeSessionId;
 		task.status = 'running';
 		task.startedAt = Date.now();

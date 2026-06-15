@@ -101,6 +101,8 @@ interface PrompterStoreActions {
 	setTestTargets: (targets: TestTarget[]) => void;
 	toggleTestTarget: (target: TestTarget) => void;
 	setPrimaryTarget: (agentId: string, modelId: string) => void;
+	/** Set the instruction routing for a target-only model ('*' / 'none' / path). */
+	setTargetInstruction: (agentId: string, modelId: string, instructionFile: string) => void;
 
 	// Red-Team Crafter
 	setCrafterConfig: (config: RedTeamCrafterConfig | null) => void;
@@ -294,6 +296,12 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 				...t,
 				isPrimary: t.agentId === agentId && t.modelId === modelId,
 			})),
+		})),
+	setTargetInstruction: (agentId, modelId, instructionFile) =>
+		set((state) => ({
+			testTargets: state.testTargets.map((t) =>
+				t.agentId === agentId && t.modelId === modelId ? { ...t, instructionFile } : t
+			),
 		})),
 
 	// ------------------------------------------------- red-team crafter

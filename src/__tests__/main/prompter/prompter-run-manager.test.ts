@@ -339,6 +339,69 @@ describe('PrompterRunManager', () => {
 		expect(appendSeen[0]).toBeUndefined(); // no system instruction sent
 	});
 
+	it('adds independent target-only models to the matrix and dedupes executor pairs', async () => {
+		const mgr = makeManager();
+		const run = await mgr.createRun({
+			...runConfig(['adversarial-compliance-test']),
+			testTargets: [
+				// Same pair as the executor: must not double the tasks.
+				{ agentId: 'claude-code', modelId: 'claude-fable-5', isExecutor: true },
+				// A real target-only model: gets its own tasks.
+				{ agentId: 'codex', modelId: 'o3' },
+			],
+		});
+		// executor (1 instr x 1 schema) + target-only codex (1 instr x 1 schema) = 2
+		expect(run.tasks).toHaveLength(2);
+		expect(run.tasks.some((t) => t.agentId === 'codex' && t.modelId === 'o3')).toBe(true);
+		expect(
+			run.tasks.filter((t) => t.agentId === 'claude-code' && t.modelId === 'claude-fable-5')
+		).toHaveLength(1);
+	});
+
+	it('routes a target-only model by its own instructionFile (none = bare)', async () => {
+		const mgr = makeManager();
+		const run = await mgr.createRun({
+			...runConfig(['adversarial-compliance-test']),
+			testTargets: [{ agentId: 'codex', modelId: 'o3', instructionFile: 'none' }],
+		});
+		const targetTasks = run.tasks.filter((t) => t.agentId === 'codex');
+		expect(targetTasks).toHaveLength(1);
+		expect(targetTasks[0].instructionFile).toBe('');
+	});
+
+	it('runs a target-only model with its own model and a separate session', async () => {
+		const calls: Array<{ tool: string; model?: string; sessionId?: string }> = [];
+		const spawn: PrompterSpawnFn = async (tool, _c, _p, sessionId, options) => {
+			calls.push({ tool, model: options.customModel, sessionId });
+			return {
+				success: true,
+				response: options.appendSystemPrompt ?? 'ok',
+				agentSessionId: `sess-${tool}`,
+			} as SpawnResult;
+		};
+		const mgr = makeManager(spawn);
+		const run = await mgr.createRun({
+			...runConfig(['adversarial-compliance-test', 'bidi-zero-width-evasion']),
+			testTargets: [{ agentId: 'codex', modelId: 'o3' }],
+		});
+		// executor (2 schemas) + target-only codex (2 schemas) = 4
+		expect(run.tasks).toHaveLength(4);
+		await mgr.startRun(run.id);
+
+		const codexCalls = calls.filter((c) => c.tool === 'codex');
+		expect(codexCalls).toHaveLength(2);
+		expect(codexCalls.every((c) => c.model === 'o3')).toBe(true);
+		// The target-only model establishes its OWN session and resumes only that one,
+		// never the executor's.
+		expect(codexCalls[0].sessionId).toBeUndefined();
+		expect(codexCalls[1].sessionId).toBe('sess-codex');
+
+		// Its evidence dir exists even though it is not an executor.
+		expect(
+			fs.existsSync(path.join(projectRoot, '3-temp-results', 'runs', run.id, 'evidence', 'codex'))
+		).toBe(true);
+	});
+
 	it('pauseRun and resumeRun flip the run status', async () => {
 		const mgr = makeManager();
 		const run = await mgr.createRun(runConfig(['adversarial-compliance-test']));

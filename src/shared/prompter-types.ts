@@ -135,6 +135,13 @@ export interface TestTarget {
 	isPrimary?: boolean;
 	/** True when this target was also configured as an executor agent. */
 	isExecutor?: boolean;
+	/**
+	 * Instruction routing for a target-only model (one that is not also an
+	 * executor): '*' = all instructions + variations, 'none' = bare model, or a
+	 * single instruction path. Ignored for executor-backed targets (their routing
+	 * comes from the executor config). Defaults to '*'.
+	 */
+	instructionFile?: string;
 	/** Manual pairing: preferred crafter agent for this target. */
 	preferredCrafterAgentId?: string;
 	/** Manual pairing: preferred crafter model for this target. */

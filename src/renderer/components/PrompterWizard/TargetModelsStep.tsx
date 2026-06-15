@@ -11,7 +11,17 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Target, Star, Info, ChevronDown, ChevronRight, Loader2, Swords, Zap } from 'lucide-react';
+import {
+	Target,
+	Star,
+	Info,
+	ChevronDown,
+	ChevronRight,
+	Loader2,
+	Swords,
+	Zap,
+	FileText,
+} from 'lucide-react';
 import type { Theme } from '../../types';
 import { usePrompterStore } from '../../stores/prompterStore';
 import { getAgentDisplayName } from '../../../shared/agentMetadata';
@@ -32,6 +42,8 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 	const toggleTestTarget = usePrompterStore((s) => s.toggleTestTarget);
 	const setPrimaryTarget = usePrompterStore((s) => s.setPrimaryTarget);
 	const setTestTargets = usePrompterStore((s) => s.setTestTargets);
+	const setTargetInstruction = usePrompterStore((s) => s.setTargetInstruction);
+	const availableInstructions = usePrompterStore((s) => s.availableInstructions);
 	const crafterAgents = usePrompterStore((s) => s.crafterAgents);
 	const toggleCrafterAgent = usePrompterStore((s) => s.toggleCrafterAgent);
 	const [showCrafterPool, setShowCrafterPool] = useState(crafterAgents.length > 0);
@@ -223,8 +235,9 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 			>
 				<Info size={14} className="shrink-0 mt-0.5" style={{ color: theme.colors.accent }} />
 				<span className="text-xs" style={{ color: theme.colors.textDim }}>
-					Waehle beliebige Agent+Modell-Kombinationen als Test-Ziele, auch andere als die
-					konfigurierten Executors. Executor-Targets sind vorausgewaehlt und mit Badge markiert.
+					Jedes gewaehlte Ziel wird real getestet. Executor-Targets sind vorausgewaehlt und mit
+					Badge markiert; fuer zusaetzliche Ziel-Modelle waehlst du die Instruction-Quelle direkt
+					darunter.
 				</span>
 			</div>
 
@@ -290,10 +303,15 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 											const primary = isPrimary(group.agentId, model.id);
 											const executor = isExecutor(group.agentId, model.id);
 
+											const targetInstruction =
+												testTargets.find(
+													(t) => t.agentId === group.agentId && t.modelId === model.id
+												)?.instructionFile ?? '*';
+
 											return (
 												<div
 													key={model.id}
-													className="flex items-center gap-3 rounded-md border px-3 py-2 transition-colors"
+													className="flex flex-col gap-2 rounded-md border px-3 py-2 transition-colors"
 													style={{
 														borderColor: selected ? theme.colors.accent : theme.colors.border,
 														backgroundColor: selected
@@ -301,64 +319,98 @@ export function TargetModelsStep({ theme }: { theme: Theme }): JSX.Element {
 															: theme.colors.bgActivity,
 													}}
 												>
-													<button
-														type="button"
-														onClick={() => handleToggle(group.agentId, model.id)}
-														className="flex min-w-0 flex-1 items-center gap-3 text-left"
-													>
-														<div
-															className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
-															style={{
-																borderColor: selected ? theme.colors.accent : theme.colors.border,
-																backgroundColor: selected ? theme.colors.accent : 'transparent',
-															}}
-														>
-															{selected && (
-																<svg width="10" height="10" viewBox="0 0 12 12">
-																	<path
-																		d="M2.5 6L5 8.5L9.5 3.5"
-																		stroke={theme.colors.accentForeground}
-																		strokeWidth="2"
-																		fill="none"
-																		strokeLinecap="round"
-																		strokeLinejoin="round"
-																	/>
-																</svg>
-															)}
-														</div>
-
-														<span
-															className="text-xs font-mono truncate"
-															style={{ color: theme.colors.textMain }}
-														>
-															{model.label || model.id}
-														</span>
-
-														{executor && (
-															<span
-																className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium"
-																style={{
-																	backgroundColor: theme.colors.accent,
-																	color: theme.colors.accentForeground,
-																}}
-															>
-																Executor
-															</span>
-														)}
-													</button>
-
-													{selected && (
+													<div className="flex items-center gap-3">
 														<button
 															type="button"
-															onClick={() => setPrimaryTarget(group.agentId, model.id)}
-															title="Als primaeres Ziel markieren"
-															className="shrink-0 rounded p-1 transition-colors"
-															style={{
-																color: primary ? theme.colors.warning : theme.colors.textDim,
-															}}
+															onClick={() => handleToggle(group.agentId, model.id)}
+															className="flex min-w-0 flex-1 items-center gap-3 text-left"
 														>
-															<Star size={14} fill={primary ? theme.colors.warning : 'none'} />
+															<div
+																className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+																style={{
+																	borderColor: selected ? theme.colors.accent : theme.colors.border,
+																	backgroundColor: selected ? theme.colors.accent : 'transparent',
+																}}
+															>
+																{selected && (
+																	<svg width="10" height="10" viewBox="0 0 12 12">
+																		<path
+																			d="M2.5 6L5 8.5L9.5 3.5"
+																			stroke={theme.colors.accentForeground}
+																			strokeWidth="2"
+																			fill="none"
+																			strokeLinecap="round"
+																			strokeLinejoin="round"
+																		/>
+																	</svg>
+																)}
+															</div>
+
+															<span
+																className="text-xs font-mono truncate"
+																style={{ color: theme.colors.textMain }}
+															>
+																{model.label || model.id}
+															</span>
+
+															{executor && (
+																<span
+																	className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium"
+																	style={{
+																		backgroundColor: theme.colors.accent,
+																		color: theme.colors.accentForeground,
+																	}}
+																>
+																	Executor
+																</span>
+															)}
 														</button>
+
+														{selected && (
+															<button
+																type="button"
+																onClick={() => setPrimaryTarget(group.agentId, model.id)}
+																title="Als primaeres Ziel markieren"
+																className="shrink-0 rounded p-1 transition-colors"
+																style={{
+																	color: primary ? theme.colors.warning : theme.colors.textDim,
+																}}
+															>
+																<Star size={14} fill={primary ? theme.colors.warning : 'none'} />
+															</button>
+														)}
+													</div>
+
+													{/* Instruction routing for a target-only model (executor targets
+													    use their executor config). */}
+													{selected && !executor && (
+														<div className="flex items-center gap-2 pl-7">
+															<FileText
+																size={12}
+																className="shrink-0"
+																style={{ color: theme.colors.textDim }}
+															/>
+															<select
+																className="min-w-0 flex-1 rounded border px-2 py-1 text-xs outline-none"
+																style={{
+																	backgroundColor: theme.colors.bgMain,
+																	borderColor: theme.colors.border,
+																	color: theme.colors.textMain,
+																}}
+																value={targetInstruction}
+																onChange={(e) =>
+																	setTargetInstruction(group.agentId, model.id, e.target.value)
+																}
+															>
+																<option value="*">* (alle Instructions + Variations)</option>
+																<option value="none">Keine (gegen nacktes Modell)</option>
+																{availableInstructions.map((f) => (
+																	<option key={f.path} value={f.path}>
+																		{f.path}
+																	</option>
+																))}
+															</select>
+														</div>
 													)}
 												</div>
 											);
