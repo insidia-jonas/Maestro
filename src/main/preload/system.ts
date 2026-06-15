@@ -140,8 +140,8 @@ export function createUpdatesApi() {
 			releasesUrl: string;
 			error?: string;
 		}> => ipcRenderer.invoke('updates:check', includePrerelease),
-		download: (): Promise<{ success: boolean; error?: string }> =>
-			ipcRenderer.invoke('updates:download'),
+		download: (targetTag?: string): Promise<{ success: boolean; error?: string }> =>
+			ipcRenderer.invoke('updates:download', targetTag),
 		install: (): Promise<void> => ipcRenderer.invoke('updates:install'),
 		getStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:getStatus'),
 		onStatus: (callback: (status: UpdateStatus) => void) => {

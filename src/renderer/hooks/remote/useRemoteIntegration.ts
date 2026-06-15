@@ -725,6 +725,23 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		};
 	}, []);
 
+	// Handle remote create-worktree-agent from the CLI. Creates a new agent in a
+	// git worktree branched off a parent agent, without an Auto Run playbook.
+	useEffect(() => {
+		const unsubscribe = window.maestro.process.onRemoteCreateWorktreeSession(
+			(parentSessionId: string, config: any, responseChannel: string) => {
+				window.dispatchEvent(
+					new CustomEvent('maestro:createWorktreeSession', {
+						detail: { parentSessionId, config, responseChannel },
+					})
+				);
+			}
+		);
+		return () => {
+			unsubscribe();
+		};
+	}, []);
+
 	// Handle remote set Auto Run folder from web interface — repoints a session
 	// at a different `.maestro/` folder, mirroring desktop's `dialog.selectFolder`
 	// + `handleAutoRunFolderSelected` flow.

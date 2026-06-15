@@ -213,6 +213,20 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: true,
 		category: 'appearance',
 	},
+	showGroupLabelInBookmarks: {
+		description:
+			'Show the group badge (e.g. "CCS") next to bookmarked agents in the left side bar. Turn off to hide the group pill entirely.',
+		type: 'boolean',
+		default: true,
+		category: 'appearance',
+	},
+	showFullGroupLabelInBookmarks: {
+		description:
+			'Show the full group name (e.g. "[2] CASE/CONTENT-SYSTEM") instead of the abbreviated badge (e.g. "CCS") next to bookmarked agents in the left side bar. Long names are truncated with the complete value available on hover.',
+		type: 'boolean',
+		default: false,
+		category: 'appearance',
+	},
 	fileEditWordWrap: {
 		description:
 			'Wrap long lines in the file editor at whitespace boundaries instead of scrolling horizontally.',

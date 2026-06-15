@@ -37,6 +37,77 @@ describe('getClaudeTokenMode', () => {
 		);
 		expect(getClaudeTokenMode({ enableMaestroP: true, maestroPMode: 'dynamic' })).toBe('dynamic');
 	});
+
+	describe('SSH default (sshEnabled option)', () => {
+		it('defaults an UNCONFIGURED SSH agent to interactive (the remote TUI)', () => {
+			// enableMaestroP unset over SSH => default to the Max-plan TUI, not API.
+			expect(getClaudeTokenMode({}, { sshEnabled: true })).toBe('interactive');
+			expect(getClaudeTokenMode(undefined, { sshEnabled: true })).toBe('interactive');
+			expect(getClaudeTokenMode(null, { sshEnabled: true })).toBe('interactive');
+			expect(getClaudeTokenMode({ maestroPMode: 'dynamic' }, { sshEnabled: true })).toBe(
+				'interactive'
+			);
+		});
+
+		it('still honors an EXPLICIT api choice over SSH (false is not unset)', () => {
+			expect(getClaudeTokenMode({ enableMaestroP: false }, { sshEnabled: true })).toBe('api');
+			expect(
+				getClaudeTokenMode(
+					{ enableMaestroP: false, maestroPMode: 'interactive' },
+					{ sshEnabled: true }
+				)
+			).toBe('api');
+		});
+
+		it('honors an explicit opt-in over SSH unchanged', () => {
+			expect(
+				getClaudeTokenMode(
+					{ enableMaestroP: true, maestroPMode: 'interactive' },
+					{ sshEnabled: true }
+				)
+			).toBe('interactive');
+			// dynamic is still surfaced here; resolveClaudeSpawnMode falls it back to api on SSH.
+			expect(
+				getClaudeTokenMode({ enableMaestroP: true, maestroPMode: 'dynamic' }, { sshEnabled: true })
+			).toBe('dynamic');
+		});
+
+		it('does NOT change the local (non-SSH) default for an unconfigured agent', () => {
+			expect(getClaudeTokenMode({}, { sshEnabled: false })).toBe('api');
+			expect(getClaudeTokenMode(undefined)).toBe('api');
+		});
+
+		describe('remote maestro-p availability (sshMaestroPAvailable option)', () => {
+			it('flips the unconfigured SSH default to api when the remote has no maestro-p', () => {
+				expect(getClaudeTokenMode({}, { sshEnabled: true, sshMaestroPAvailable: false })).toBe(
+					'api'
+				);
+				expect(
+					getClaudeTokenMode(undefined, { sshEnabled: true, sshMaestroPAvailable: false })
+				).toBe('api');
+			});
+
+			it('keeps the optimistic interactive default when availability is unknown or present', () => {
+				expect(getClaudeTokenMode({}, { sshEnabled: true, sshMaestroPAvailable: undefined })).toBe(
+					'interactive'
+				);
+				expect(getClaudeTokenMode({}, { sshEnabled: true, sshMaestroPAvailable: true })).toBe(
+					'interactive'
+				);
+			});
+
+			it('does not override an EXPLICIT opt-in even when the remote has no maestro-p', () => {
+				// The selector / resolver enforce availability at spawn time; the stored
+				// preference is left intact so it survives a transient probe miss.
+				expect(
+					getClaudeTokenMode(
+						{ enableMaestroP: true, maestroPMode: 'interactive' },
+						{ sshEnabled: true, sshMaestroPAvailable: false }
+					)
+				).toBe('interactive');
+			});
+		});
+	});
 });
 
 describe('toClaudeTokenModeSource', () => {

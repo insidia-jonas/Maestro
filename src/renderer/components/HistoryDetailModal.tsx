@@ -24,6 +24,7 @@ import { useModalLayer } from '../hooks/ui/useModalLayer';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { formatElapsedTime } from '../utils/formatters';
 import { formatTimestamp } from '../../shared/formatters';
+import { humanizeCueEventType } from '../../shared/cue/cue-summary';
 import { getTokenSourcePill } from '../../shared/claudeTokenModeLabel';
 import { stripAnsiCodes } from '../../shared/stringUtils';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -395,10 +396,12 @@ export function HistoryDetailModal({
 										color: '#06b6d4',
 										border: '1px solid #06b6d440',
 									}}
-									title={`Trigger: ${entry.cueTriggerName}`}
+									title={`Trigger: ${entry.cueTriggerName}${
+										entry.cueEventType ? ` (${entry.cueEventType})` : ''
+									}`}
 								>
 									{entry.cueTriggerName}
-									{entry.cueEventType && ` \u2022 ${entry.cueEventType}`}
+									{entry.cueEventType && ` \u2022 ${humanizeCueEventType(entry.cueEventType)}`}
 								</span>
 							)}
 
@@ -559,18 +562,24 @@ export function HistoryDetailModal({
 					style={{ color: theme.colors.textMain }}
 				>
 					<style>{proseStyles}</style>
-					<MarkdownRenderer
-						content={cleanResponse}
-						theme={theme}
-						onCopy={(text) => safeClipboardWrite(text)}
-						fileTree={fileTree}
-						cwd={cwd}
-						projectRoot={projectRoot}
-						onFileClick={onFileClick}
-						enableBionifyReadingMode={bionifyReadingMode}
-						chatLineBreaks
-						chatMath
-					/>
+					{entry.type === 'CUE' && !entry.fullResponse ? (
+						<p className="text-sm italic" style={{ color: theme.colors.textDim }}>
+							This run produced no captured output.
+						</p>
+					) : (
+						<MarkdownRenderer
+							content={cleanResponse}
+							theme={theme}
+							onCopy={(text) => safeClipboardWrite(text)}
+							fileTree={fileTree}
+							cwd={cwd}
+							projectRoot={projectRoot}
+							onFileClick={onFileClick}
+							enableBionifyReadingMode={bionifyReadingMode}
+							chatLineBreaks
+							chatMath
+						/>
+					)}
 				</div>
 
 				{/* Footer */}

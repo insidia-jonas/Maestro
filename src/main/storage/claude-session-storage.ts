@@ -18,7 +18,7 @@ import Store from 'electron-store';
 import { logger } from '../utils/logger';
 import { captureException } from '../utils/sentry';
 import { CLAUDE_SESSION_PARSE_LIMITS } from '../constants';
-import { calculateClaudeCost } from '../utils/pricing';
+import { computeClaudeUsageCost } from '../utils/pricing';
 import { encodeClaudeProjectPath } from '../utils/statsCache';
 import { readFileRemote, listDirWithStatsRemote } from '../utils/remote-fs';
 import { mapWithConcurrency, REMOTE_SESSION_READ_CONCURRENCY } from '../utils/concurrency';
@@ -149,30 +149,14 @@ function parseSessionContent(
 		// Use assistant response as preview if available, otherwise fall back to user message
 		const previewMessage = firstAssistantMessage || firstUserMessage;
 
-		// Fast regex-based token extraction
-		let totalInputTokens = 0;
-		let totalOutputTokens = 0;
-		let totalCacheReadTokens = 0;
-		let totalCacheCreationTokens = 0;
-
-		const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
-		for (const m of inputMatches) totalInputTokens += parseInt(m[1], 10);
-
-		const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
-		for (const m of outputMatches) totalOutputTokens += parseInt(m[1], 10);
-
-		const cacheReadMatches = content.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g);
-		for (const m of cacheReadMatches) totalCacheReadTokens += parseInt(m[1], 10);
-
-		const cacheCreationMatches = content.matchAll(/"cache_creation_input_tokens"\s*:\s*(\d+)/g);
-		for (const m of cacheCreationMatches) totalCacheCreationTokens += parseInt(m[1], 10);
-
-		const costUsd = calculateClaudeCost(
-			totalInputTokens,
-			totalOutputTokens,
-			totalCacheReadTokens,
-			totalCacheCreationTokens
-		);
+		// Per-model token + cost extraction (a session may mix models).
+		const {
+			inputTokens: totalInputTokens,
+			outputTokens: totalOutputTokens,
+			cacheReadTokens: totalCacheReadTokens,
+			cacheCreationTokens: totalCacheCreationTokens,
+			costUsd,
+		} = computeClaudeUsageCost(content);
 
 		// Extract last timestamp for duration
 		let lastTimestamp = timestamp;

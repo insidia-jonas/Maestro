@@ -418,6 +418,10 @@ export interface UseSettingsReturn {
 	setShowLeftPanelCueIndicator: (value: boolean) => void;
 	showLeftPanelStartupCommandIndicator: boolean;
 	setShowLeftPanelStartupCommandIndicator: (value: boolean) => void;
+	showGroupLabelInBookmarks: boolean;
+	setShowGroupLabelInBookmarks: (value: boolean) => void;
+	showFullGroupLabelInBookmarks: boolean;
+	setShowFullGroupLabelInBookmarks: (value: boolean) => void;
 
 	// File Edit & Preview
 	fileEditWordWrap: boolean;

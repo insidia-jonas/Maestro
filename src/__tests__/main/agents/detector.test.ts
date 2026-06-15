@@ -1083,6 +1083,7 @@ describe('agent-detector', () => {
 
 			const models = await detector.discoverModels('claude-code');
 			// Should include aliases + [1m] variants + historical models
+			expect(models).toContain('fable');
 			expect(models).toContain('sonnet');
 			expect(models).toContain('opus');
 			expect(models).toContain('haiku');
@@ -1120,10 +1121,10 @@ describe('agent-detector', () => {
 
 			const models = await detector.discoverModels('claude-code');
 			expect(models).toEqual([
+				'fable',
 				'sonnet',
 				'opus',
 				'haiku',
-				'fable',
 				'opus[1m]',
 				'sonnet[1m]',
 				'fable[1m]',

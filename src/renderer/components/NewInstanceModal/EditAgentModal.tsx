@@ -47,7 +47,13 @@ export function EditAgentModal({
 	const [customPath, setCustomPath] = useState('');
 	const [customArgs, setCustomArgs] = useState('');
 	const [customEnvVars, setCustomEnvVars] = useState<Record<string, string>>({});
-	const [enableMaestroP, setEnableMaestroP] = useState(false);
+	// Tri-state, NOT coerced to a boolean: undefined = never configured (so the
+	// SSH default - TUI - applies), false = explicit API, true = explicit
+	// maestro-p. Coercing undefined->false here (or false->undefined on save)
+	// erases the distinction, and over SSH that silently reverts an explicit API
+	// choice to the TUI default (which spawns maestro-p on the remote and exits
+	// 127 when it isn't installed there).
+	const [enableMaestroP, setEnableMaestroP] = useState<boolean | undefined>(undefined);
 	const [maestroPMode, setMaestroPMode] = useState<'interactive' | 'dynamic'>('dynamic');
 	const [maestroPPath, setMaestroPPath] = useState('');
 	const [detectedMaestroPPath, setDetectedMaestroPPath] = useState<string | undefined>(undefined);
@@ -236,14 +242,16 @@ export function EditAgentModal({
 			setCustomPath('');
 			setCustomArgs('');
 			setCustomEnvVars({});
-			setEnableMaestroP(false);
+			setEnableMaestroP(undefined);
 			setMaestroPMode('dynamic');
 			setMaestroPPath('');
 		} else {
 			setCustomPath(session.customPath ?? '');
 			setCustomArgs(session.customArgs ?? '');
 			setCustomEnvVars(session.customEnvVars ?? {});
-			setEnableMaestroP(session.enableMaestroP ?? false);
+			// Preserve the tri-state (undefined stays undefined) so an unconfigured
+			// SSH agent keeps its "unset" signal instead of looking like explicit API.
+			setEnableMaestroP(session.enableMaestroP);
 			setMaestroPMode(session.maestroPMode ?? 'dynamic');
 			setMaestroPPath(session.maestroPPath ?? '');
 		}
@@ -347,7 +355,9 @@ export function EditAgentModal({
 			modelValue,
 			contextWindowValue,
 			sessionSshRemoteConfig,
-			enableMaestroP || undefined,
+			// Preserve the explicit tri-state: an explicit `false` (API) must NOT
+			// collapse to `undefined`, or over SSH it reverts to the TUI default.
+			enableMaestroP,
 			enableMaestroP && maestroPPath.trim() ? maestroPPath.trim() : undefined,
 			enableMaestroP ? maestroPMode : undefined
 		);
@@ -661,6 +671,7 @@ export function EditAgentModal({
 							refreshingAgent={refreshingAgent}
 							showBuiltInEnvVars
 							isSshEnabled={isSshEnabled}
+							sshRemoteId={sshRemoteConfig?.remoteId ?? undefined}
 							enableMaestroP={enableMaestroP}
 							onEnableMaestroPChange={setEnableMaestroP}
 							maestroPMode={maestroPMode}

@@ -23,6 +23,7 @@ import {
 	toClaudeTokenModeSource,
 	type ClaudeTokenMode,
 } from '../../../shared/claudeTokenMode';
+import { useRemoteMaestroPAvailable } from '../../hooks/agent/useRemoteMaestroPAvailable';
 import { logger } from '../../utils/logger';
 
 // Counter for generating stable IDs for env vars
@@ -318,6 +319,12 @@ export interface AgentConfigPanelProps {
 	showBuiltInEnvVars?: boolean;
 	// SSH remote execution enabled for this session
 	isSshEnabled?: boolean;
+	/**
+	 * SSH remote id for this session. When set (and SSH enabled), the panel
+	 * probes the remote for `maestro-p` and disables the TUI token-source option
+	 * when it's absent there. Omit for local agents.
+	 */
+	sshRemoteId?: string;
 	// === Claude Code Batch Mode (claude-code agent only) ===
 	// When true, the spawner auto-switches between maestro-p (Time Limits) and
 	// `claude --print` (API Limits) based on the latest usage snapshot. Off by default.
@@ -368,7 +375,11 @@ export function AgentConfigPanel({
 	compact = false,
 	showBuiltInEnvVars = false,
 	isSshEnabled = false,
-	enableMaestroP = false,
+	sshRemoteId,
+	// Left undefined when never configured (NOT coerced to false): getClaudeTokenMode
+	// reads that "unset" state to default an SSH agent to the TUI. An explicit
+	// false (user picked API) collapses to api as usual.
+	enableMaestroP,
 	onEnableMaestroPChange,
 	maestroPMode,
 	onMaestroPModeChange,
@@ -388,11 +399,44 @@ export function AgentConfigPanel({
 	};
 	const padding = compact ? 'p-2' : 'p-3';
 	const spacing = compact ? 'space-y-2' : 'space-y-3';
+	// Probe the SSH remote for maestro-p. When it's known-absent the remote can't
+	// run the TUI, so the TUI option is disabled and the agent defaults to API
+	// (mirrors resolveClaudeSpawnMode, which falls a remote TUI spawn back to api).
+	// undefined = unknown (not SSH, still probing, or unreachable): stay optimistic.
+	const {
+		available: remoteMaestroPAvailable,
+		isProbing: remoteMaestroPProbing,
+		refresh: refreshRemoteMaestroP,
+	} = useRemoteMaestroPAvailable(isSshEnabled ? sshRemoteId : undefined);
+	const remoteMaestroPMissing = isSshEnabled && remoteMaestroPAvailable === false;
 	// Collapse the stored (enableMaestroP, maestroPMode) pair into the tri-state the
 	// segmented "Claude Token Source" selector renders. Source not API => show the
 	// maestro-p path input and the live Time/API-limits pill.
-	const claudeTokenMode = getClaudeTokenMode({ enableMaestroP, maestroPMode });
-	const showMaestroPDetails = claudeTokenMode !== 'api';
+	// Over SSH an unconfigured agent defaults to the TUI (Max plan), so pass the
+	// SSH flag through - getClaudeTokenMode flips the unset default from api to
+	// interactive for remote, except when the remote has no maestro-p.
+	const claudeTokenMode = getClaudeTokenMode(
+		{ enableMaestroP, maestroPMode },
+		{ sshEnabled: isSshEnabled, sshMaestroPAvailable: remoteMaestroPAvailable }
+	);
+	// SSH-remote agents only offer TUI / API, never Dynamic: the auto-switch
+	// reads a LOCAL usage snapshot that says nothing about the remote account's
+	// quota, so there's no honest signal to switch on. Drop the Dynamic segment
+	// and, when a stored Dynamic value meets SSH, display (and behave) as API -
+	// mirroring resolveClaudeSpawnMode, which falls a dynamic+SSH spawn back to
+	// api. Also drop TUI when the remote has no maestro-p to run it. The stored
+	// preference is left untouched so disabling SSH restores it.
+	const claudeTokenModeOptions = isSshEnabled
+		? CLAUDE_TOKEN_MODE_OPTIONS.filter(
+				(o) => o.value !== 'dynamic' && !(remoteMaestroPMissing && o.value === 'interactive')
+			)
+		: CLAUDE_TOKEN_MODE_OPTIONS;
+	const displayClaudeTokenMode: ClaudeTokenMode =
+		isSshEnabled &&
+		(claudeTokenMode === 'dynamic' || (remoteMaestroPMissing && claudeTokenMode === 'interactive'))
+			? 'api'
+			: claudeTokenMode;
+	const showMaestroPDetails = displayClaudeTokenMode !== 'api';
 	// Track which built-in env var tooltip is showing
 	const [showingTooltip, setShowingTooltip] = useState<string | null>(null);
 
@@ -504,9 +548,11 @@ export function AgentConfigPanel({
 			    spends Claude quota: API (claude --print, per-token), TUI (maestro-p
 			    driving the Claude TUI against the Max plan), or Dynamic (start on the
 			    TUI, fall back to API when the 5-hour or weekly window is near
-			    exhaustion, then snap back once both windows reset). Hidden over SSH:
-			    the wrapper needs the real claude binary on the local machine. */}
-			{agent.id === 'claude-code' && !isSshEnabled && onEnableMaestroPChange && (
+			    exhaustion, then snap back once both windows reset). Over SSH only
+			    API / TUI are offered (Dynamic needs a local quota snapshot that
+			    doesn't reflect the remote account) and maestro-p runs on the remote
+			    host's PATH, so the local Maestro-P Path override is hidden. */}
+			{agent.id === 'claude-code' && onEnableMaestroPChange && (
 				<div
 					className={`${padding} rounded border`}
 					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
@@ -515,6 +561,22 @@ export function AgentConfigPanel({
 						<span className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
 							Claude Token Source
 						</span>
+						{isSshEnabled && (
+							<button
+								type="button"
+								onClick={(e) => {
+									e.stopPropagation();
+									refreshRemoteMaestroP();
+								}}
+								disabled={remoteMaestroPProbing}
+								title="Re-check whether maestro-p is installed on the remote host"
+								className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-50"
+								style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
+							>
+								<RefreshCw className={`w-3 h-3 ${remoteMaestroPProbing ? 'animate-spin' : ''}`} />
+								Re-check
+							</button>
+						)}
 						{showMaestroPDetails && claudeInteractive && (
 							<span
 								className="text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap"
@@ -536,8 +598,8 @@ export function AgentConfigPanel({
 						)}
 					</div>
 					<ToggleButtonGroup
-						options={CLAUDE_TOKEN_MODE_OPTIONS}
-						value={claudeTokenMode}
+						options={claudeTokenModeOptions}
+						value={displayClaudeTokenMode}
 						onChange={(mode) => {
 							const src = toClaudeTokenModeSource(mode);
 							onEnableMaestroPChange(src.enableMaestroP);
@@ -545,8 +607,24 @@ export function AgentConfigPanel({
 						}}
 						theme={theme}
 					/>
-					<p className="text-xs opacity-50 mt-2">{CLAUDE_TOKEN_MODE_HINTS[claudeTokenMode]}</p>
-					{showMaestroPDetails && (
+					<p className="text-xs opacity-50 mt-2">
+						{CLAUDE_TOKEN_MODE_HINTS[displayClaudeTokenMode]}
+						{isSshEnabled && displayClaudeTokenMode === 'interactive'
+							? ' Runs maestro-p on the remote host (must be on its PATH).'
+							: ''}
+					</p>
+					{remoteMaestroPMissing && (
+						<p
+							className="text-xs mt-2"
+							style={{ color: theme.colors.warning ?? theme.colors.accent }}
+						>
+							TUI (Max plan) is unavailable: maestro-p was not found on the remote host&apos;s PATH.
+							Install maestro-p there to drive the Claude TUI, or use API.
+						</p>
+					)}
+					{/* Local Maestro-P Path override is local-only: over SSH maestro-p
+					    is resolved as a bare command on the remote PATH, so hide it. */}
+					{showMaestroPDetails && !isSshEnabled && (
 						<div className="mt-3">
 							<label
 								className="block text-xs font-medium mb-2"

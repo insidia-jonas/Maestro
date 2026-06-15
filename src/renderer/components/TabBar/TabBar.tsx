@@ -11,6 +11,7 @@ import { TerminalTabItem } from './TerminalTabItem';
 import { NewTabPopover } from './NewTabPopover';
 import { SearchPopover } from './SearchPopover';
 import { isUnifiedTabActive, getShortcutHint } from './tabBarUtils';
+import { buildFileTabDisplayNames } from '../../hooks/tabs/internal/filePreviewTabHelpers';
 import type { TabBarProps } from './types';
 import { logger } from '../../utils/logger';
 
@@ -334,6 +335,14 @@ function TabBarInner({
 		return map;
 	}, [allTabs]);
 
+	// Folder-disambiguated display names for file tabs that share a filename.
+	// Computed over all file tabs (not just displayed) so labels stay stable when
+	// the unread filter hides siblings.
+	const fileTabDisplayNames = useMemo(
+		() => buildFileTabDisplayNames(allTabs.flatMap((ut) => (ut.type === 'file' ? [ut.data] : []))),
+		[allTabs]
+	);
+
 	/** Render a separator bar between inactive tabs */
 	const separator = (
 		<div
@@ -542,6 +551,7 @@ function TabBarInner({
 										colorBlindMode={colorBlindMode}
 										shortcutHint={shortcutHint}
 										sshRemote={sshRemote}
+										displayName={fileTabDisplayNames.get(fileTab.id)}
 									/>
 								</React.Fragment>
 							);

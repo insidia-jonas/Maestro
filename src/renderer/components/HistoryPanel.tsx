@@ -172,6 +172,13 @@ export const HistoryPanel = React.memo(
 					// Cue-heavy agent fills the window with CUE and toggling CUE
 					// off shows nothing despite USER/AUTO history existing.
 					types: [...activeFilters],
+					// Host filter also runs server-side, for the same reason as
+					// types: the picker counts come from the full-source graph
+					// aggregate, so a host whose entries fall outside the loaded
+					// page would show "(120)" yet render nothing if filtered only
+					// client-side. Changing the host changes this callback's
+					// identity, resetting the window to the newest N of that host.
+					hostKey: selectedHost,
 					pagination: { offset, limit },
 				});
 				return {
@@ -180,7 +187,14 @@ export const HistoryPanel = React.memo(
 					total: result.total,
 				};
 			},
-			[session.id, projectPathForHistory, sharedContextSnapshot, graphLookbackHours, activeFilters]
+			[
+				session.id,
+				projectPathForHistory,
+				sharedContextSnapshot,
+				graphLookbackHours,
+				activeFilters,
+				selectedHost,
+			]
 		);
 
 		const getEntryId = useCallback((entry: HistoryEntry) => entry.id, []);

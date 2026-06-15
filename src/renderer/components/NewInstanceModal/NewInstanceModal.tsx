@@ -529,8 +529,14 @@ export function NewInstanceModal({
 
 		// New agents default Adaptive Mode on for Claude Code (isAdaptiveModeDefaultOn);
 		// an explicit toggle in the form (true/false) always wins over the default.
+		// The explicit choice must NOT be collapsed by `|| undefined` - an explicit
+		// `false` (API) has to survive, or over SSH it reverts to the TUI default
+		// and spawns maestro-p on a remote that may not have it (exit 127). Only the
+		// unset->default path keeps the `|| undefined` collapse (a falsy default
+		// stays "unconfigured").
+		const explicitMaestroP = enableMaestroPByAgent[selectedAgent];
 		const agentEnableMaestroP =
-			(enableMaestroPByAgent[selectedAgent] ?? isAdaptiveModeDefaultOn(selectedAgent)) || undefined;
+			explicitMaestroP ?? (isAdaptiveModeDefaultOn(selectedAgent) || undefined);
 		const agentMaestroPPath =
 			agentEnableMaestroP && maestroPPathByAgent[selectedAgent]?.trim()
 				? maestroPPathByAgent[selectedAgent].trim()

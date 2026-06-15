@@ -98,6 +98,7 @@ export function createHistoryApi() {
 			lookbackHours?: number | null;
 			sharedContext?: { sshRemoteId: string; remoteCwd: string };
 			types?: ('AUTO' | 'USER' | 'CUE')[];
+			hostKey?: string | null;
 		}) => ipcRenderer.invoke('history:getAllPaginated', options),
 
 		add: (entry: HistoryEntry, sharedContext?: { sshRemoteId: string; remoteCwd: string }) =>

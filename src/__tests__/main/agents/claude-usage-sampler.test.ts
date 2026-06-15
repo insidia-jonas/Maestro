@@ -249,7 +249,12 @@ describe('claude-usage-sampler', () => {
 			expect(env.ELECTRON_RUN_AS_NODE).toBe('1');
 		});
 
-		it('prepends the unpacked node_modules to NODE_PATH when packaged (resourcesPath set)', async () => {
+		it('prepends the in-asar node_modules to NODE_PATH when packaged (resourcesPath set)', async () => {
+			// Must be the in-asar path, NOT app.asar.unpacked: node-pty rewrites
+			// `app.asar` -> `app.asar.unpacked` once to find its spawn-helper, so
+			// handing it the already-unpacked path double-applies the replace and
+			// the helper exec fails with "posix_spawn failed: No such file or
+			// directory" (silently broke every packaged Claude usage sample).
 			const originalResourcesPath = process.resourcesPath;
 			Object.defineProperty(process, 'resourcesPath', {
 				value: '/Apps/Maestro.app/Contents/Resources',
@@ -260,8 +265,8 @@ describe('claude-usage-sampler', () => {
 				const inspect = primeSuccess(wireEnvelope());
 				await sampleUsage({ binPath: '/bin/maestro-p.js', cwd: '/tmp' });
 				const env = inspect()?.options.env as NodeJS.ProcessEnv;
-				const unpacked = '/Apps/Maestro.app/Contents/Resources/app.asar.unpacked/node_modules';
-				expect(env.NODE_PATH).toBe(`${unpacked}${path.delimiter}/pre/existing`);
+				const asar = '/Apps/Maestro.app/Contents/Resources/app.asar/node_modules';
+				expect(env.NODE_PATH).toBe(`${asar}${path.delimiter}/pre/existing`);
 			} finally {
 				Object.defineProperty(process, 'resourcesPath', {
 					value: originalResourcesPath,

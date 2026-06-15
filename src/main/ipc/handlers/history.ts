@@ -38,7 +38,7 @@ import {
 	HISTORY_BUCKET_CACHE_VERSION,
 	type CachedGraphBucket,
 } from '../../utils/history-bucket-cache';
-import { buildBucketAggregate } from '../../utils/history-bucket-builder';
+import { buildBucketAggregate, LOCAL_HOST_AGG_KEY } from '../../utils/history-bucket-builder';
 
 const LOG_CONTEXT = '[History]';
 
@@ -252,8 +252,9 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 				lookbackHours?: number | null;
 				sharedContext?: SharedHistoryContext;
 				types?: HistoryEntryType[];
+				hostKey?: string | null;
 			}) => {
-				const { projectPath, sessionId, pagination, lookbackHours, sharedContext, types } =
+				const { projectPath, sessionId, pagination, lookbackHours, sharedContext, types, hostKey } =
 					options || {};
 				const cutoffTime =
 					lookbackHours !== null && lookbackHours !== undefined && lookbackHours > 0
@@ -269,9 +270,20 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 				// "no type filter" (backward compatible); an empty array correctly
 				// yields no entries.
 				const typeSet = types ? new Set(types) : null;
+				// Host filter also runs server-side (mirroring the type filter)
+				// so the loaded window holds the newest N entries OF THE SELECTED
+				// HOST. Without it the host filter was applied client-side over
+				// only the loaded page, so picking a host whose entries fell
+				// outside that page showed nothing despite the picker count
+				// (which comes from the full-source graph aggregate). The key
+				// must match the aggregate / renderer: `hostname` or the
+				// synthetic `LOCAL_HOST_AGG_KEY` for entries with no hostname.
 				const applyFilters = (entries: HistoryEntry[]): HistoryEntry[] => {
 					let out = cutoffTime > 0 ? entries.filter((e) => e.timestamp >= cutoffTime) : entries;
 					if (typeSet) out = out.filter((e) => typeSet.has(e.type));
+					if (hostKey) {
+						out = out.filter((e) => (e.hostname ?? LOCAL_HOST_AGG_KEY) === hostKey);
+					}
 					return out;
 				};
 

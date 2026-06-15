@@ -400,6 +400,20 @@ interface MaestroAPI {
 			responseChannel: string,
 			result: { success: boolean; playbookId?: string; error?: string }
 		) => void;
+		onRemoteCreateWorktreeSession: (
+			callback: (
+				parentSessionId: string,
+				config: {
+					branchName: string;
+					baseBranch?: string;
+				},
+				responseChannel: string
+			) => void
+		) => () => void;
+		sendRemoteCreateWorktreeSessionResponse: (
+			responseChannel: string,
+			result: { success: boolean; sessionId?: string; error?: string }
+		) => void;
 		onRemoteSetAutoRunFolder: (
 			callback: (sessionId: string, folderPath: string, responseChannel: string) => void
 		) => () => void;
@@ -1047,6 +1061,7 @@ interface MaestroAPI {
 			callback: (payload: import('../shared/agentCapabilities').SnapshotUpdatedPayload) => void
 		) => () => void;
 		getMaestroPDetectedPath: () => Promise<string | null>;
+		getRemoteMaestroPAvailable: (sshRemoteId: string, force?: boolean) => Promise<boolean | null>;
 		getClaudeUsageSnapshots: () => Promise<
 			Record<
 				string,
@@ -1659,6 +1674,7 @@ interface MaestroAPI {
 			lookbackHours?: number | null;
 			sharedContext?: { sshRemoteId: string; remoteCwd: string };
 			types?: HistoryEntryType[];
+			hostKey?: string | null;
 		}) => Promise<{
 			entries: Array<{
 				id: string;
@@ -2037,7 +2053,7 @@ interface MaestroAPI {
 			releasesUrl: string;
 			error?: string;
 		}>;
-		download: () => Promise<{ success: boolean; error?: string }>;
+		download: (targetTag?: string) => Promise<{ success: boolean; error?: string }>;
 		install: () => Promise<void>;
 		getStatus: () => Promise<{
 			status:

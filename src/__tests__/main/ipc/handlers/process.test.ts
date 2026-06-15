@@ -221,6 +221,10 @@ vi.mock('../../../../shared/platformDetection', () => ({
 	isLinux: vi.fn(() => process.platform === 'linux'),
 }));
 
+vi.mock('../../../../main/process-manager/utils/childProcessInfo', () => ({
+	getChildProcesses: vi.fn().mockResolvedValue([]),
+}));
+
 // Mock fs/promises so the new temp-file tests can assert on writeFile/unlink
 // without touching the real filesystem. Other tests in this file don't use
 // fs/promises, so the module-level mock is safe.
@@ -861,6 +865,75 @@ describe('process IPC handlers', () => {
 				);
 				expect(resolveCalls.length).toBeGreaterThan(0);
 				expect(resolveCalls[0][2].mode).toBe('api');
+			});
+
+			// Regression: desktop turns spawn with a COMPOUND session id
+			// (`{agentId}-ai-{tabId}`), but persisted session records are keyed by the
+			// bare agent id. The handler must strip the `-ai-…` suffix before the
+			// token-mode lookup AND the claudeInteractive write-back, or every desktop
+			// claude-code turn misses its persisted record and silently resolves to
+			// `api` (`claude --print`) regardless of the agent's TUI/Dynamic setting.
+			// Staging a stale `interactive` record under the bare id and spawning with
+			// the compound id exercises both: the resolver only sees the persisted
+			// state (and clears it to `api`) when the suffix is stripped on both sides.
+			it('matches the bare-id persisted record when spawned with a compound -ai- session id', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4250, success: true });
+
+				mockSessionsStore.get.mockImplementation((key: string, defaultValue: unknown) => {
+					if (key === 'sessions') {
+						return [
+							{
+								id: 'session-rc',
+								claudeInteractive: { mode: 'interactive', modeReason: 'auto' },
+							},
+						];
+					}
+					return defaultValue;
+				});
+
+				const sendSpy = vi.fn();
+				deps = {
+					...deps,
+					getMainWindow: () =>
+						({
+							isDestroyed: vi.fn().mockReturnValue(false),
+							webContents: {
+								send: sendSpy,
+								isDestroyed: vi.fn().mockReturnValue(false),
+							},
+						}) as any,
+				};
+				handlers.clear();
+				vi.mocked(ipcMain.handle).mockImplementation((channel, h) => {
+					handlers.set(channel, h);
+				});
+				registerProcessHandlers(deps);
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-rc-ai-tab-abc123',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					prompt: 'hi',
+				});
+
+				// Write-back found the bare-id record and cleared the stale interactive state.
+				const persisted = mockSessionsStore.set.mock.calls.find((c) => c[0] === 'sessions');
+				expect(persisted).toBeDefined();
+				const nextSessions = persisted![1] as Array<{ id: string; claudeInteractive: any }>;
+				const rc = nextSessions.find((s) => s.id === 'session-rc');
+				expect(rc?.claudeInteractive?.mode).toBe('api');
+
+				// The renderer mirror carries the original compound id (it strips the
+				// suffix on its own side), so the spawner must NOT pre-strip it here.
+				const resolveCalls = sendSpy.mock.calls.filter(
+					(c) => c[0] === 'process:claude-mode-resolved'
+				);
+				expect(resolveCalls.length).toBeGreaterThan(0);
+				expect(resolveCalls[0][1]).toBe('session-rc-ai-tab-abc123');
 			});
 
 			// Once a conversation has run interactive, its transcript can hold

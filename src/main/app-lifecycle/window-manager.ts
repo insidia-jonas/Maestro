@@ -54,6 +54,9 @@ interface BrowserTabGuestContents {
 	): void;
 	on(event: string, handler: (...args: any[]) => void): void;
 	executeJavaScript(code: string): Promise<unknown>;
+	// Privileged Electron paste: bypasses the web-facing `clipboard-read`
+	// permission that the permission handler denies to webviews (issue #1063).
+	paste(): void;
 }
 
 function isAllowedBrowserTabUrl(rawUrl: string): boolean {
@@ -354,11 +357,24 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 					if (!input.meta && !input.control && !input.alt) return;
 					if (input.type !== 'keyDown') return;
 					const k = input.key.toLowerCase();
-					// Let standard text-editing shortcuts pass through to the page.
-					// `f` is intentionally NOT in this list: Cmd+F must reach the
-					// renderer so the in-page find bar can open.
+					// Cmd/Ctrl+V: drive paste through the trusted guest webContents API.
+					// Chromium's native paste needs the `clipboard-read` permission, which
+					// the permission handler denies to webviews as a security boundary, so
+					// native paste silently fails inside browser-tab form fields (issue
+					// #1063). guest.paste() is a privileged Electron call that bypasses
+					// that web-facing permission, mirroring the right-click Paste menu
+					// item (issue #1065).
+					const isPaste = (input.meta || input.control) && !input.alt && !input.shift && k === 'v';
+					if (isPaste) {
+						event.preventDefault();
+						guest.paste();
+						return;
+					}
+					// Let the remaining standard text-editing shortcuts pass through to
+					// the page. `f` is intentionally NOT in this list: Cmd+F must reach
+					// the renderer so the in-page find bar can open.
 					const isTextEditing =
-						(input.meta || input.control) && !input.alt && !input.shift && 'acvxz'.includes(k);
+						(input.meta || input.control) && !input.alt && !input.shift && 'acxz'.includes(k);
 					const isRedo = (input.meta || input.control) && !input.alt && input.shift && k === 'z';
 					if (isTextEditing || isRedo) return;
 					event.preventDefault();
@@ -383,7 +399,7 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 						var hasAlt=e.altKey;
 						if(!hasMod&&!hasAlt)return;
 						var k=e.key.toLowerCase();
-						var te=hasMod&&!hasAlt&&!e.shiftKey&&'acvxz'.indexOf(k)!==-1;
+						var te=hasMod&&!hasAlt&&!e.shiftKey&&'acxz'.indexOf(k)!==-1;
 						var re=hasMod&&!hasAlt&&e.shiftKey&&k==='z';
 						if(te||re)return;
 						e.preventDefault();
@@ -542,11 +558,22 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 					exitCode: details.exitCode,
 				});
 
-				// Report to Sentry from main process (always available)
-				reportCrashToSentry(`Renderer process gone: ${details.reason}`, 'fatal', {
-					reason: details.reason,
-					exitCode: details.exitCode,
-				});
+				// `killed` (signal-terminated, e.g. app quit / OS shutdown / user
+				// force-quit) and `clean-exit` are intentional terminations, not
+				// crashes - the auto-reload guard below already treats them as such.
+				// Reporting them as `fatal` Sentry events is pure noise; genuine
+				// out-of-memory kills surface separately as reason `oom`. Only the
+				// real crash reasons (`crashed`, `oom`, `abnormal-exit`, etc.) are
+				// worth a breadcrumb. Fixes MAESTRO-4X/4Y.
+				const intentionalTermination =
+					details.reason === 'killed' || details.reason === 'clean-exit';
+				if (!intentionalTermination) {
+					// Report to Sentry from main process (always available)
+					reportCrashToSentry(`Renderer process gone: ${details.reason}`, 'fatal', {
+						reason: details.reason,
+						exitCode: details.exitCode,
+					});
+				}
 
 				// Auto-reload unless the process was intentionally killed
 				if (details.reason !== 'killed' && details.reason !== 'clean-exit') {

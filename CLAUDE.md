@@ -71,6 +71,7 @@ Grep-verified 2026-04-10. Import from these canonical locations:
 - **Focus after render:** `useFocusAfterRender()` in `src/renderer/hooks/utils/useFocusAfterRender.ts` (do NOT use `useEffect + setTimeout(() => ref.focus())`)
 - **Event listeners:** `useEventListener()` in `src/renderer/hooks/utils/useEventListener.ts` (do NOT pair raw `addEventListener`/`removeEventListener` inside useEffect)
 - **Debounce/throttle:** `useDebouncedValue()`, `useDebouncedCallback()`, `useThrottledCallback()` in `src/renderer/hooks/utils/useThrottle.ts` (filename is misleading - all three live here)
+- **Render markdown:** `<Markdown preset="chat | document | wizard-bubble | release-notes">` from `src/renderer/components/Markdown/` (do NOT hand-roll `<ReactMarkdown>` + a per-surface `components`/plugin map). The chat preset is what `MarkdownRenderer` wraps. Shared internals: `buildMarkdownPlugins` (`Markdown/plugins.ts`), `preprocessMarkdown` (`Markdown/preprocess.ts`), leaf renderers in `Markdown/components/*`, and the document component map `createMarkdownComponents()` in `src/renderer/utils/markdownConfig.ts`. See [UI-PATTERNS.md → `<Markdown>`](docs/agent-guides/UI-PATTERNS.md).
 
 If your use case does NOT match an existing utility, prefer extending the canonical file over creating a new one. If you genuinely need something new, add it to the relevant guide in `docs/agent-guides/` so the next person can find it.
 
@@ -417,6 +418,14 @@ Initial hypotheses are often wrong. Before implementing any fix:
 - Tab naming bug: Modal coordination was "fixed" when the actual issue was an unregistered IPC handler
 - Tooltip clipping: Attempted `overflow: visible` on element when parent container had `overflow: hidden`
 - Session validation: Fixed renderer calls when handler wasn't wired in main process
+
+### CDP / Browser-Automation Scripts Are Ephemeral
+
+When driving the running app over Chrome DevTools Protocol (e.g. one-off `scripts/cdp-*.js` harnesses for reproducing a bug, clicking through a flow, or capturing screenshots), treat those scripts as **throwaway**. They are debugging scaffolding, not shipped code:
+
+- Write them under `scripts/` if you like, but **delete them when the investigation is done** - do not leave them in the working tree and do not commit them.
+- If one gets committed by accident, remove it (a forward `git rm` commit is fine; avoid history surgery on `rc` unless asked).
+- Heads-up on this dev setup: the dev server often runs with `DISABLE_HMR=1`, so live edits will NOT hot-reload. A full page reload only picks up new code if the vite process was started **after** the edit hit disk. Verify the served module actually contains your change (`curl localhost:17173/<module>` and grep) before trusting any CDP screenshot.
 
 ### Focus Not Working
 

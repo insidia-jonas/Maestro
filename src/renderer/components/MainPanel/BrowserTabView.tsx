@@ -378,9 +378,11 @@ export const BrowserTabView = React.memo(
 			// Uses stopImmediatePropagation to prevent any other listener
 			// (including the main-process-injected bubble-phase one) from
 			// double-firing.
-			// `f` is intentionally NOT in the text-editing pass-through list: Cmd+F
-			// must reach the app so the in-page find bar can open. The remaining
-			// letters (a/c/v/x/z) keep their native text-editing behavior inside
+			// `f` and `v` are intentionally NOT in the text-editing pass-through
+			// list. Cmd+F must reach the app so the in-page find bar can open, and
+			// Cmd/Ctrl+V is handled separately via the privileged paste path
+			// (guest.paste()) so paste works inside the webview. The remaining
+			// letters (a/c/x/z) keep their native text-editing behavior inside
 			// page inputs.
 			const keyboardInjection = `(function(){
 			if(window.__maestroShortcutCaptureInstalled)return;
@@ -390,7 +392,7 @@ export const BrowserTabView = React.memo(
 				var hasAlt=e.altKey;
 				if(!hasMod&&!hasAlt)return;
 				var k=e.key.toLowerCase();
-				var te=hasMod&&!hasAlt&&!e.shiftKey&&'acvxz'.indexOf(k)!==-1;
+				var te=hasMod&&!hasAlt&&!e.shiftKey&&'acxz'.indexOf(k)!==-1;
 				var re=hasMod&&!hasAlt&&e.shiftKey&&k==='z';
 				if(te||re)return;
 				e.preventDefault();

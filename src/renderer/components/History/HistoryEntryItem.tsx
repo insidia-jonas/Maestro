@@ -5,6 +5,7 @@ import { formatElapsedTime } from '../../utils/formatters';
 import { stripMarkdown } from '../../utils/textProcessing';
 import { DoubleCheck, getPillColor, getEntryIcon } from './historyConstants';
 import { formatTimestamp } from '../../../shared/formatters';
+import { humanizeCueEventType } from '../../../shared/cue/cue-summary';
 import { getTokenSourcePill } from '../../../shared/claudeTokenModeLabel';
 
 const formatTime = (timestamp: number) => formatTimestamp(timestamp, 'smart');
@@ -170,8 +171,12 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 
 			{/* CUE metadata subtitle */}
 			{entry.type === 'CUE' && entry.cueEventType && (
-				<p className="text-[10px] mt-1" style={{ color: theme.colors.textDim }}>
-					Triggered by: {entry.cueEventType}
+				<p
+					className="text-[10px] mt-1"
+					style={{ color: theme.colors.textDim }}
+					title={entry.cueEventType}
+				>
+					Triggered by: {humanizeCueEventType(entry.cueEventType)}
 				</p>
 			)}
 

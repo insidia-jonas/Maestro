@@ -1,17 +1,30 @@
 // src/main/process-manager/CopilotShutdownWaiter.ts
 
 import fs from 'fs/promises';
-import os from 'os';
-import path from 'path';
-import { logger } from '../utils/logger';
+import type { SshRemoteConfig } from '../../shared/types';
+import {
+	copilotRemoteEventsPath,
+	readCopilotEventsContent,
+	resolveCopilotEventsPath,
+} from '../utils/copilot-events';
+import { readFileTailRemote } from '../utils/remote-fs';
 
-const LOG_CONTEXT = 'CopilotShutdownWaiter';
+// Re-exported for callers/tests that resolve the local on-disk path directly.
+export { resolveCopilotEventsPath };
 
 // Bytes of "type":"session.shutdown". Match with or without a space after the
 // colon since JSON serializers differ on whitespace.
 const SHUTDOWN_PATTERNS = ['"type":"session.shutdown"', '"type": "session.shutdown"'];
 
 const DEFAULT_POLL_INTERVAL_MS = 500;
+// Remote polling has no SSH connection multiplexing, so every poll is a fresh
+// ssh handshake. We adapt the cadence to the remote file's activity: poll
+// quickly right after new output lands (Copilot is actively writing), then back
+// off geometrically toward an idle ceiling when the file goes quiet, so a long
+// idle gap doesn't spawn an ssh process every second for no reason.
+const DEFAULT_SSH_POLL_ACTIVE_MS = 1000;
+const DEFAULT_SSH_POLL_IDLE_MAX_MS = 4000;
+const SSH_POLL_BACKOFF_FACTOR = 1.5;
 // If events.jsonl hasn't been touched for this long, assume Copilot is truly
 // done (or crashed) and stop waiting. Subagent work typically writes within
 // seconds, so 30s of total silence is a generous "nothing is happening" floor.
@@ -27,6 +40,8 @@ export interface CopilotShutdownWaitOptions {
 	pollIntervalMs?: number;
 	/** Override for testing — defaults to `~/.copilot` (or $COPILOT_CONFIG_DIR). */
 	configDir?: string;
+	/** When set, read the events file from this remote host over SSH instead of locally. */
+	sshRemote?: SshRemoteConfig | null;
 }
 
 export interface CopilotFinalAnswer {
@@ -58,21 +73,19 @@ export interface CopilotShutdownUsage {
 }
 
 /**
- * Resolve the on-disk path Copilot uses for a given agent session.
- */
-export function resolveCopilotEventsPath(agentSessionId: string, configDir?: string): string {
-	const root = configDir || process.env.COPILOT_CONFIG_DIR || path.join(os.homedir(), '.copilot');
-	return path.join(root, 'session-state', agentSessionId, 'events.jsonl');
-}
-
-/**
  * Block until Copilot CLI has written its `session.shutdown` event to the
- * on-disk `events.jsonl`. Copilot CLI in batch mode does NOT emit
- * `session.shutdown` to stdout — it only writes it to disk, and it can
- * continue writing AFTER the parent process we spawned has already exited
- * (subagent delegation runs work in additional processes that share the
- * same session-state directory). Without this wait, Maestro flips the
- * tab to `idle` while Copilot is still working.
+ * `events.jsonl`. Copilot CLI in batch mode does NOT emit `session.shutdown`
+ * to stdout - it only writes it to disk, and it can continue writing AFTER
+ * the parent process we spawned has already exited (subagent delegation runs
+ * work in additional processes that share the same session-state directory).
+ * Without this wait, Maestro flips the tab to `idle` while Copilot is still
+ * working.
+ *
+ * When `options.sshRemote` is set the events file lives on the remote host,
+ * so each poll reads it over SSH. To keep that cheap the remote path reads
+ * only the new tail since the last poll (`tail -c +N`) rather than the whole
+ * file, and adapts its poll interval to the file's activity. See
+ * `waitForCopilotShutdownRemote`.
  *
  * Return values:
  *  - `observed`  — shutdown marker found; Copilot is truly done
@@ -86,10 +99,40 @@ export async function waitForCopilotShutdown(
 	agentSessionId: string,
 	options: CopilotShutdownWaitOptions = {}
 ): Promise<CopilotShutdownWaitResult> {
-	const filePath = resolveCopilotEventsPath(agentSessionId, options.configDir);
 	const maxWait = options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
 	const inactivityThreshold = options.inactivityMs ?? DEFAULT_INACTIVITY_MS;
-	const pollInterval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+
+	if (options.sshRemote) {
+		return waitForCopilotShutdownRemote(
+			agentSessionId,
+			options.sshRemote,
+			maxWait,
+			inactivityThreshold,
+			options.pollIntervalMs
+		);
+	}
+
+	return waitForCopilotShutdownLocal(
+		agentSessionId,
+		options.configDir,
+		maxWait,
+		inactivityThreshold,
+		options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
+	);
+}
+
+/**
+ * Local polling: cheap on local disk, so it stats for an mtime and re-reads
+ * the whole file each poll. Activity is keyed off the mtime changing.
+ */
+async function waitForCopilotShutdownLocal(
+	agentSessionId: string,
+	configDir: string | undefined,
+	maxWait: number,
+	inactivityThreshold: number,
+	pollInterval: number
+): Promise<CopilotShutdownWaitResult> {
+	const filePath = resolveCopilotEventsPath(agentSessionId, configDir);
 
 	const start = Date.now();
 	let lastMtimeMs: number | null = null;
@@ -106,7 +149,7 @@ export async function waitForCopilotShutdown(
 			everSawFile = true;
 			content = await fs.readFile(filePath, 'utf8');
 		} catch {
-			// File doesn't exist yet or transiently unreadable — fall through.
+			// File doesn't exist yet or transiently unreadable - fall through.
 		}
 
 		if (content && contentContainsShutdown(content)) {
@@ -125,6 +168,88 @@ export async function waitForCopilotShutdown(
 		}
 
 		await sleep(pollInterval);
+	}
+
+	return 'timeout';
+}
+
+/**
+ * Remote polling. Two optimizations over the local loop, both aimed at the
+ * fact that every poll is a fresh ssh handshake (no connection multiplexing):
+ *
+ *  1. Incremental tail reads. We track how many bytes we've already consumed
+ *     and `tail -c +N` only the new bytes each poll, so a long session over
+ *     many minutes transfers the file roughly once total, not once per poll.
+ *     The byte offset only advances to the last complete newline, so a poll
+ *     that catches Copilot mid-write never splits a line or a multibyte char.
+ *
+ *  2. Adaptive interval. Poll quickly while new output is landing, then back
+ *     off geometrically toward an idle ceiling when the file goes quiet, so
+ *     idle gaps don't burn an ssh process every second.
+ *
+ * When `pollIntervalMs` is provided (tests) it pins a fixed interval and
+ * disables the adaptive backoff for determinism.
+ */
+async function waitForCopilotShutdownRemote(
+	agentSessionId: string,
+	sshRemote: SshRemoteConfig,
+	maxWait: number,
+	inactivityThreshold: number,
+	fixedPollIntervalMs?: number
+): Promise<CopilotShutdownWaitResult> {
+	const remotePath = copilotRemoteEventsPath(agentSessionId);
+	const adaptive = fixedPollIntervalMs === undefined;
+
+	const start = Date.now();
+	let offset = 0;
+	let lastActivityAt = start;
+	let everSawFile = false;
+	let interval = fixedPollIntervalMs ?? DEFAULT_SSH_POLL_ACTIVE_MS;
+
+	while (Date.now() - start < maxWait) {
+		const result = await readFileTailRemote(remotePath, sshRemote, offset);
+		let sawActivity = false;
+
+		if (result.success) {
+			everSawFile = true;
+			const tail = result.data ?? '';
+
+			// Scan the full returned tail (including any not-yet-terminated final
+			// line) so an unterminated shutdown line is still detected promptly.
+			if (contentContainsShutdown(tail)) {
+				return 'observed';
+			}
+
+			// Advance only through the last complete line; leave any partial
+			// trailing line unconsumed so the next poll re-reads it intact.
+			const lastNewline = tail.lastIndexOf('\n');
+			if (lastNewline >= 0) {
+				const consumed = tail.slice(0, lastNewline + 1);
+				const consumedBytes = Buffer.byteLength(consumed, 'utf8');
+				if (consumedBytes > 0) {
+					offset += consumedBytes;
+					lastActivityAt = Date.now();
+					sawActivity = true;
+				}
+			}
+		}
+		// A failed read means the file isn't there yet or a transient SSH error;
+		// treat it the same as the local "couldn't read this poll" path.
+
+		if (sawActivity) {
+			interval = fixedPollIntervalMs ?? DEFAULT_SSH_POLL_ACTIVE_MS;
+		} else if (everSawFile) {
+			if (Date.now() - lastActivityAt > inactivityThreshold) {
+				return 'inactive';
+			}
+			if (adaptive) {
+				interval = Math.min(interval * SSH_POLL_BACKOFF_FACTOR, DEFAULT_SSH_POLL_IDLE_MAX_MS);
+			}
+		} else if (Date.now() - start > inactivityThreshold) {
+			return 'missing';
+		}
+
+		await sleep(interval);
 	}
 
 	return 'timeout';
@@ -152,19 +277,11 @@ export async function waitForCopilotShutdown(
  */
 export async function readCopilotFinalAnswer(
 	agentSessionId: string,
-	configDir?: string
+	configDir?: string,
+	sshRemote: SshRemoteConfig | null = null
 ): Promise<CopilotFinalAnswer | null> {
-	const filePath = resolveCopilotEventsPath(agentSessionId, configDir);
-	let content: string;
-	try {
-		content = await fs.readFile(filePath, 'utf8');
-	} catch (err) {
-		logger.debug('events.jsonl unavailable', LOG_CONTEXT, {
-			error: String(err),
-			agentSessionId,
-		});
-		return null;
-	}
+	const content = await readCopilotEventsContent(agentSessionId, sshRemote, configDir);
+	if (content === null) return null;
 
 	let latest: string | null = null;
 	for (const line of content.split(/\r?\n/)) {
@@ -227,19 +344,11 @@ export async function readCopilotFinalAnswer(
  */
 export async function readCopilotShutdownUsage(
 	agentSessionId: string,
-	configDir?: string
+	configDir?: string,
+	sshRemote: SshRemoteConfig | null = null
 ): Promise<CopilotShutdownUsage | null> {
-	const filePath = resolveCopilotEventsPath(agentSessionId, configDir);
-	let content: string;
-	try {
-		content = await fs.readFile(filePath, 'utf8');
-	} catch (err) {
-		logger.debug('events.jsonl unavailable for usage extraction', LOG_CONTEXT, {
-			error: String(err),
-			agentSessionId,
-		});
-		return null;
-	}
+	const content = await readCopilotEventsContent(agentSessionId, sshRemote, configDir);
+	if (content === null) return null;
 
 	interface ShutdownData {
 		currentTokens?: number;

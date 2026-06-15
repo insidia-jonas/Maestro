@@ -662,7 +662,7 @@ describe('QuickActionsModal', () => {
 			expect(useUIStore.getState().activeFocus).toBe('main');
 
 			vi.advanceTimersByTime(50);
-			expect(useUIStore.getState().outputSearchOpen).toBe(true);
+			expect(useUIStore.getState().outputSearchByKey['session-1::tab-1']?.open).toBe(true);
 
 			vi.useRealTimers();
 		});

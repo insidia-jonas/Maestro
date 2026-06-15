@@ -127,6 +127,8 @@ import {
 	useQuickActionsHandlers,
 	// Session cycling (Cmd+Shift+[/])
 	useCycleSession,
+	// Starred Sessions list + activation (shared by Left Bar render and cycling)
+	useStarredItems,
 	// Input mode toggle (Tier 3A)
 	useInputMode,
 	// Live mode management (Tier 3B)
@@ -179,6 +181,8 @@ import { usePrompterStore } from './stores/prompterStore';
 import type { RightPanelTab, Session, QueuedItem, CustomAICommand, ThinkingItem } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
+import { getActiveOutputSearchKey } from './utils/outputSearch';
+import { reorderQueueItem } from './utils/executionQueue';
 import { getContextColor } from './utils/theme';
 // safeClipboardWrite moved to AppStandaloneModals (GistPublishModal handler)
 import {
@@ -203,6 +207,7 @@ import {
 // formatLogsForClipboard moved to useTabExportHandlers hook
 // getSlashCommandDescription moved to useWizardHandlers
 import { useUIStore } from './stores/uiStore';
+import { useSettingsStore } from './stores/settingsStore';
 import { useTabStore } from './stores/tabStore';
 import { useFileExplorerStore } from './stores/fileExplorerStore';
 
@@ -589,6 +594,7 @@ function MaestroConsoleInner() {
 	const draggingSessionId = useUIStore((s) => s.draggingSessionId);
 	// flashNotification, successFlashNotification — now self-sourced in AppStandaloneModals
 	const selectedSidebarIndex = useUIStore((s) => s.selectedSidebarIndex);
+	const sidebarExtraSelection = useUIStore((s) => s.sidebarExtraSelection);
 
 	// Actions: stable closures created at store init, no hook overhead needed
 	const {
@@ -602,6 +608,7 @@ function MaestroConsoleInner() {
 		setFlashNotification,
 		setSuccessFlashNotification,
 		setSelectedSidebarIndex,
+		setSidebarExtraSelection,
 	} = useUIStore.getState();
 
 	const {
@@ -1473,6 +1480,20 @@ function MaestroConsoleInner() {
 		}));
 	}, []);
 
+	// Reorder a queued item within the active session's inline chat list. The
+	// inline list is filtered to a single tab, so fromIndex/toIndex address that
+	// tab's items; reorderQueueItem rearranges them while keeping other tabs'
+	// queued items in their absolute positions (see the helper for details).
+	const handleReorderQueuedItem = useCallback(
+		(fromIndex: number, toIndex: number, tabId?: string) => {
+			updateSessionWith(activeSessionIdRef.current, (s) => ({
+				...s,
+				executionQueue: reorderQueueItem(s.executionQueue, fromIndex, toIndex, tabId),
+			}));
+		},
+		[]
+	);
+
 	// toggleBookmark — provided by useSessionCrud hook
 
 	const handleFocusFileInGraph = useFileExplorerStore.getState().focusFileInGraph;
@@ -1788,29 +1809,9 @@ function MaestroConsoleInner() {
 		});
 
 	// --- KEYBOARD NAVIGATION ---
-	// Extracted hook for sidebar navigation, panel focus, and related keyboard handlers
-	const {
-		handleSidebarNavigation,
-		handleTabNavigation,
-		handleEnterToActivate,
-		handleEscapeInMain,
-	} = useKeyboardNavigation({
-		sortedSessions,
-		navSessions,
-		bookmarkNavSize,
-		selectedSidebarIndex,
-		setSelectedSidebarIndex,
-		activeSessionId,
-		setActiveSessionId,
-		activeFocus,
-		setActiveFocus,
-		groups,
-		setGroups,
-		bookmarksCollapsed,
-		setBookmarksCollapsed,
-		inputRef,
-		terminalOutputRef,
-	});
+	// NOTE: useKeyboardNavigation is called further down, after useStarredItems,
+	// so arrow-key navigation can traverse the Starred Sessions + Group Chats
+	// sections (which depend on starredItems / activateStarredItem).
 
 	// --- MAIN KEYBOARD HANDLER ---
 	// Extracted hook for main keyboard event listener (empty deps, uses ref pattern)
@@ -1859,8 +1860,64 @@ function MaestroConsoleInner() {
 	// NOTE: Auto Run document loading and file watching are now handled by useAutoRunDocumentLoader hook
 
 	// --- ACTIONS ---
+	// Starred Sessions list + activation - single owner shared by the Left Bar
+	// render (SessionList) and Cmd+[ / Cmd+] cycling so both traverse the same rows.
+	const { starredItems, activateStarredItem } = useStarredItems({
+		onJumpToStarredSession: handleJumpToStarredSession,
+		showConfirmation,
+	});
+
 	// cycleSession — provided by useCycleSession hook
-	const { cycleSession } = useCycleSession({ sortedSessions, handleOpenGroupChat });
+	const { cycleSession } = useCycleSession({
+		sortedSessions,
+		handleOpenGroupChat,
+		starredItems,
+		activateStarredItem,
+		navIndexMap,
+	});
+
+	// --- KEYBOARD NAVIGATION ---
+	// Sidebar arrow-key navigation, panel focus, Enter-to-activate. Placed after
+	// useStarredItems so it can traverse the Starred Sessions (top) and Group
+	// Chats (bottom) sections in addition to the agent list.
+	const groupChatsExpanded = useSettingsStore((s) => s.groupChatsExpanded);
+	const groupChatSortAlphabetical = useSettingsStore((s) => s.groupChatSortAlphabetical);
+	const starredSessionsCollapsed = useSettingsStore((s) => s.starredSessionsCollapsed);
+	const { setGroupChatsExpanded, setStarredSessionsCollapsed } = useSettingsStore.getState();
+	const {
+		handleSidebarNavigation,
+		handleTabNavigation,
+		handleEnterToActivate,
+		handleEscapeInMain,
+	} = useKeyboardNavigation({
+		sortedSessions,
+		navSessions,
+		bookmarkNavSize,
+		selectedSidebarIndex,
+		setSelectedSidebarIndex,
+		sidebarExtraSelection,
+		setSidebarExtraSelection,
+		activeSessionId,
+		setActiveSessionId,
+		activeFocus,
+		setActiveFocus,
+		groups,
+		setGroups,
+		bookmarksCollapsed,
+		setBookmarksCollapsed,
+		inputRef,
+		terminalOutputRef,
+		starredItems,
+		activateStarredItem,
+		starredSectionCollapsed: starredSessionsCollapsed,
+		setStarredSectionCollapsed: setStarredSessionsCollapsed,
+		groupChats,
+		handleOpenGroupChat,
+		groupChatsExpanded,
+		setGroupChatsExpanded,
+		groupChatSortAlphabetical,
+		showUnreadAgentsOnly,
+	});
 
 	// goToNextUnreadTab — jump to the next agent with unread tabs, clearing current agent's unreads
 	const goToNextUnreadTab = useCallback(() => {
@@ -2401,7 +2458,9 @@ function MaestroConsoleInner() {
 	);
 
 	const handleOpenOutputSearch = useCallback(() => {
-		useUIStore.getState().setOutputSearchOpen(true);
+		// Output search is scoped per agent+AI-tab; open the active window's slot.
+		const key = getActiveOutputSearchKey();
+		if (key) useUIStore.getState().setOutputSearchOpen(key, true);
 	}, []);
 
 	const mainPanelProps = useMainPanelProps({
@@ -2514,6 +2573,7 @@ function MaestroConsoleInner() {
 		handleDeleteLog,
 		handleRemoveQueuedItem,
 		handleToggleQueuedItemPause,
+		handleReorderQueuedItem,
 		handleForceSendQueuedItem,
 		forcedParallelEnabled: settings.forcedParallelExecution,
 		getForceSendContext,
@@ -2651,6 +2711,10 @@ function MaestroConsoleInner() {
 		showSessionJumpNumbers,
 		visibleSessions,
 		navIndexMap,
+
+		// Starred Sessions (shared with Cmd+[ / Cmd+] cycling via useStarredItems)
+		starredItems,
+		activateStarredItem,
 
 		// Ref
 		sidebarContainerRef,

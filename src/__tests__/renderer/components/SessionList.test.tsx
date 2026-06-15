@@ -210,6 +210,8 @@ const createDefaultProps = (overrides: Partial<Parameters<typeof SessionList>[0]
 	webInterfaceUrl: null,
 	showSessionJumpNumbers: false,
 	visibleSessions: [] as Session[],
+	starredItems: [],
+	activateStarredItem: vi.fn(),
 	toggleGlobalLive: vi.fn(),
 	restartWebServer: vi.fn().mockResolvedValue(null),
 	toggleGroup: vi.fn(),
@@ -251,6 +253,7 @@ describe('SessionList', () => {
 			leftSidebarOpen: true,
 			activeFocus: 'main' as const,
 			selectedSidebarIndex: -1,
+			sidebarExtraSelection: null,
 			editingGroupId: null,
 			editingSessionId: null,
 			draggingSessionId: null,
@@ -2301,6 +2304,27 @@ describe('SessionList', () => {
 			// Active session should have accent border color
 			const activeSession = screen.getByText('Active Session').closest('[style*="border"]');
 			expect(activeSession).toHaveStyle({ borderColor: defaultTheme.colors.accent });
+		});
+
+		it('suppresses the agent active border while a Starred keyboard cursor is live', () => {
+			// Cycling onto a Starred row activates its parent agent. Without suppression
+			// the agent row would show its (stronger) active border and steal visual
+			// focus from the Starred row the keyboard cursor is actually on.
+			const sessions = [createMockSession({ id: 's1', name: 'Active Session' })];
+			useSessionStore.setState({
+				sessions,
+				activeSessionId: 's1',
+			});
+			useUIStore.setState({
+				leftSidebarOpen: true,
+				sidebarExtraSelection: { kind: 'starred', key: 'open:s1:t1' },
+			});
+			const props = createDefaultProps({ sortedSessions: sessions });
+			const { container } = render(<SessionList {...props} />);
+
+			const agentRow = screen.getByText('Active Session').closest('[style*="border"]');
+			// Border must NOT be the accent color (active styling suppressed).
+			expect(agentRow).not.toHaveStyle({ borderColor: defaultTheme.colors.accent });
 		});
 
 		it('highlights active session in collapsed mode without ring', () => {

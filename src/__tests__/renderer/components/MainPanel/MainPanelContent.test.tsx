@@ -210,7 +210,7 @@ describe('MainPanelContent', () => {
 		expect(screen.queryByTestId('input-area')).not.toBeInTheDocument();
 	});
 
-	it('renders FilePreview when file tab is active', () => {
+	it('renders FilePreview when file tab is active', async () => {
 		const props = makeDefaultProps();
 		props.activeFileTabId = 'file-1';
 		props.activeFileTab = {
@@ -223,7 +223,9 @@ describe('MainPanelContent', () => {
 		} as FilePreviewTab;
 		props.memoizedFilePreviewFile = { name: 'test.ts', content: 'hello', path: '/test/test.ts' };
 		render(<MainPanelContent {...props} />);
-		expect(screen.getByTestId('file-preview')).toBeInTheDocument();
+		// FilePreview is lazy-loaded behind a Suspense boundary, so it resolves
+		// asynchronously - await it rather than asserting synchronously.
+		expect(await screen.findByTestId('file-preview')).toBeInTheDocument();
 	});
 
 	it('renders loading spinner when active file tab is in loading state', () => {

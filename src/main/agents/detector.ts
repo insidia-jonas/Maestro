@@ -344,13 +344,14 @@ export class AgentDetector {
 					// Discover models dynamically from two sources:
 					// 1. Well-known aliases (always valid, resolve to latest in each tier)
 					//    Includes [1m] variants for 1M extended context window
-					//    (requires extra usage enabled at claude.ai/settings/usage)
+					//    (requires extra usage enabled at claude.ai/settings/usage).
+					//    this fork also exposes fable[1m] (used via claude-fable-5[1m]).
 					// 2. Historical model usage from ~/.claude/stats-cache.json
 					const models: string[] = [
+						'fable',
 						'sonnet',
 						'opus',
 						'haiku',
-						'fable',
 						'opus[1m]',
 						'sonnet[1m]',
 						'fable[1m]',

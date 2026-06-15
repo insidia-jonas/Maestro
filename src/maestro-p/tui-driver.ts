@@ -95,6 +95,23 @@ const LIMIT_REGEX = /(5-hour|weekly)\s+limit\s+(reached|exceeded)/i;
 // escapes have been removed without padding.
 const TRUST_PROMPT_REGEX = /trust\s*this\s*folder|Yes,?\s*I\s*trust/i;
 
+// Claude shows a one-time "Bypass Permissions mode" acceptance screen the first
+// time the INTERACTIVE TUI is launched with `--dangerously-skip-permissions`
+// (the headless `-p` path never shows it). Unlike the trust prompt, its
+// highlighted default is the SAFE option - `❯ 1. No, exit` - with `2. Yes, I
+// accept` below it. The text-agnostic blind-Enter fallback that unsticks every
+// other startup modal therefore BACKFIRES here: pressing Enter accepts "No,
+// exit" and claude quits, surfacing as `tui_exited` on the very first turn for
+// any remote/config that hasn't already accepted bypass mode. So this gate
+// needs the opposite of a blind Enter: move the selection DOWN to "Yes, I
+// accept" first, THEN confirm. The `\s*` tolerance mirrors TRUST_PROMPT_REGEX
+// (raw vs ANSI-stripped-without-padding output).
+const BYPASS_PROMPT_REGEX = /Bypass\s*Permissions\s*mode|Yes,?\s*I\s*accept/i;
+
+// Down-arrow escape sequence: moves the menu selection from the default
+// `1. No, exit` to `2. Yes, I accept` before we confirm with Enter.
+const ARROW_DOWN = '\x1b[B';
+
 // Periodic blind-Enter taps that accept the highlighted default of any
 // startup-blocking modal Claude renders. Text-agnostic: works for the
 // trust prompt today, and for whatever Anthropic ships next without code
@@ -113,7 +130,8 @@ export type TuiDriverEvent =
 	| 'limit-hit'
 	| 'line'
 	| 'exit'
-	| 'trust-accepted';
+	| 'trust-accepted'
+	| 'bypass-accepted';
 
 export class TuiDriver extends EventEmitter {
 	private readonly options: TuiDriverOptions;
@@ -126,6 +144,7 @@ export class TuiDriver extends EventEmitter {
 	private readyEmitted = false;
 	private limitEmitted = false;
 	private trustHandled = false;
+	private bypassHandled = false;
 	private exited = false;
 	private tapsSent = 0;
 	private tapTimer: ReturnType<typeof setInterval> | null = null;
@@ -187,6 +206,11 @@ export class TuiDriver extends EventEmitter {
 	// so READY_MAX_TAPS is a single global cap, not per-source.
 	private tryUnblockTap(): boolean {
 		if (this.exited) return false;
+		// The bypass-permissions gate defaults to "No, exit", so a bare Enter here
+		// would quit claude. Handle it with Down+Enter first; if it fired this
+		// tick, that IS the unblock action - don't also send a plain Enter (which
+		// would land on the now-revealed editor or, worse, re-trigger the menu).
+		if (this.handleBypassPrompt()) return true;
 		if (this.tapsSent >= READY_MAX_TAPS) return false;
 		try {
 			this.ptyProcess?.write('\r');
@@ -195,6 +219,50 @@ export class TuiDriver extends EventEmitter {
 			return false;
 		}
 		this.tapsSent += 1;
+		// Drop everything painted up to and including the modal we just
+		// dismissed, so the unanchored READY_REGEX can't match the modal's own
+		// selector glyph (the trust prompt renders `❯ 1. Yes, I trust this
+		// folder`, whose `❯ ` satisfies `[›❯]\s`). Without this, `ready` fires
+		// on the SAME data chunk that paints the modal, the runner sends the
+		// prompt into the still-open modal where it's consumed as menu
+		// keystrokes, the turn never starts, and the run burns its entire
+		// budget waiting for JSONL that never comes. After the tap dismisses
+		// the modal the genuine editor prompt re-paints `❯` into a now-empty
+		// buffer, so `ready` only fires once we're actually at the input box.
+		this.rollingBuffer = '';
+		return true;
+	}
+
+	// Accept the one-time "Bypass Permissions mode" gate by moving the selection
+	// to "2. Yes, I accept" and confirming, instead of the blind Enter that would
+	// accept its "1. No, exit" default and quit claude. One-shot (bypassHandled);
+	// returns true once it has driven the menu so the caller treats it as the
+	// unblock action for this tick. Like the trust handler it clears the rolling
+	// buffer afterward so the unanchored READY_REGEX can't match the menu's own
+	// `❯ ` selector glyph and fire `ready` into the still-open dialog.
+	private handleBypassPrompt(): boolean {
+		if (this.exited || this.bypassHandled) return false;
+		if (!BYPASS_PROMPT_REGEX.test(this.rollingBuffer)) return false;
+		this.bypassHandled = true;
+		try {
+			this.ptyProcess?.write(ARROW_DOWN);
+			// Split the confirming Enter from the Down keystroke for the same
+			// reason send() splits text from its Enter (SEND_ENTER_DELAY_MS): a
+			// combined write can land before the TUI registers the selection move.
+			setTimeout(() => {
+				if (this.exited) return;
+				try {
+					this.ptyProcess?.write('\r');
+				} catch {
+					// PTY tearing down; ready-timeout / exit will surface it.
+				}
+			}, SEND_ENTER_DELAY_MS);
+		} catch {
+			// PTY may already be tearing down; ready timeout will surface it.
+			return false;
+		}
+		this.rollingBuffer = '';
+		this.emit('bypass-accepted');
 		return true;
 	}
 
@@ -233,6 +301,32 @@ export class TuiDriver extends EventEmitter {
 		for (let tap = 0; tap <= SUBMIT_ENTER_RETRIES; tap += 1) {
 			setTimeout(sendEnter, SEND_ENTER_DELAY_MS + tap * SUBMIT_ENTER_RETRY_INTERVAL_MS);
 		}
+	}
+
+	// Re-press Enter only (never re-type the prompt body). send()'s burst of
+	// taps all land within the first ~3s; if claude's editor was still settling
+	// MCP/plugin init then (morning cue contention can push that to 10-40s),
+	// the parked prompt is never submitted and no turn ever starts. The run-mode
+	// flow drives this on an interval until the first transcript byte lands,
+	// spreading submit attempts across the whole first-byte budget. Pressing
+	// Enter on an already-submitted (empty) input is a no-op, so a resubmit that
+	// races a successful turn is harmless. Re-typing the text is deliberately
+	// NOT done here: it would risk a double prompt if the original DID submit.
+	resubmit(): void {
+		if (!this.ptyProcess || this.exited) return;
+		try {
+			this.ptyProcess.write('\r');
+		} catch {
+			// PTY may already be tearing down; exit/quit path will surface it.
+		}
+	}
+
+	// Last `maxBytes` of the ANSI-stripped rolling screen buffer. Used by the
+	// run-mode flow to dump what was on screen at a first_byte_timeout (an
+	// MCP-connecting banner, a modal, or un-submitted prompt text) so the
+	// failure is diagnosable from stderr alone.
+	getScreenTail(maxBytes = 2048): string {
+		return this.rollingBuffer.slice(-maxBytes);
 	}
 
 	async quit(): Promise<void> {
@@ -292,6 +386,11 @@ export class TuiDriver extends EventEmitter {
 		// waiting up to READY_TAP_INTERVAL_MS for the periodic tap. The
 		// blind-tap loop in start() is the actual contract — this regex
 		// can go stale the moment Anthropic rewords the prompt.
+		// Bypass-permissions gate first: it needs Down+Enter, not the blind Enter
+		// the trust/ready paths use. Run it on the painting chunk so we select
+		// "Yes, I accept" before the periodic blind-tap can hit the "No, exit"
+		// default (which would quit claude -> tui_exited).
+		this.handleBypassPrompt();
 		if (!this.trustHandled && TRUST_PROMPT_REGEX.test(this.rollingBuffer)) {
 			this.trustHandled = true;
 			this.tryUnblockTap();

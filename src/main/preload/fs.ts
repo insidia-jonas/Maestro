@@ -137,7 +137,7 @@ export function createFsApi() {
 			ipcRenderer.invoke('fs:mkdir', dirPath, sshRemoteId),
 
 		/**
-		 * Get file/directory stats
+		 * Get file/directory stats. Resolves to null when the path does not exist.
 		 */
 		stat: (filePath: string, sshRemoteId?: string): Promise<FileStat | null> =>
 			ipcRenderer.invoke('fs:stat', filePath, sshRemoteId),

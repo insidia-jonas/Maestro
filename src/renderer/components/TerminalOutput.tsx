@@ -43,6 +43,7 @@ import { useMessageGistStore } from '../stores/messageGistStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { SessionRecoveryCard } from './SessionRecoveryCard';
 import { getTokenSourcePill } from '../../shared/claudeTokenModeLabel';
+import { getClaudeTokenMode } from '../../shared/claudeTokenMode';
 
 // ============================================================================
 // Tool display helpers (pure functions, hoisted out of render path)
@@ -135,6 +136,37 @@ const summarizeToolInput = (input: unknown): ToolSummary | null => {
 	const detail = parts.length > 0 ? parts.join('  ') : undefined;
 	if (!detail && !description) return null;
 	return { description, detail: detail ?? '' };
+};
+
+/** Max lines of tool output to preview inline before truncating. */
+const TOOL_OUTPUT_PREVIEW_LINES = 8;
+
+/**
+ * Summarize tool output for inline display. MCP tools (and others) return their
+ * result in `toolState.output`; without this the compact tool log shows only the
+ * name + status icon and drops the result entirely. Strings render as-is, objects
+ * are JSON-stringified. Output is capped to a short preview so large results don't
+ * flood the chat.
+ */
+const summarizeToolOutput = (output: unknown): string | null => {
+	if (output === undefined || output === null) return null;
+	let text: string;
+	if (typeof output === 'string') {
+		text = output;
+	} else {
+		try {
+			text = JSON.stringify(output, null, 2);
+		} catch {
+			return null;
+		}
+	}
+	text = text.trim();
+	if (!text) return null;
+	const lines = text.split('\n');
+	if (lines.length > TOOL_OUTPUT_PREVIEW_LINES) {
+		return lines.slice(0, TOOL_OUTPUT_PREVIEW_LINES).join('\n') + '\n…';
+	}
+	return text;
 };
 
 const isHiddenProgressEntry = (log: LogEntry): boolean =>
@@ -667,6 +699,14 @@ const LogItemComponent = memo(
 								toolInput !== undefined && toolInput !== null
 									? summarizeToolInput(toolInput)
 									: null;
+							// Show the tool result once it has finished. Without this the
+							// compact tool log drops the output entirely (e.g. MCP calls
+							// like squash_repos that take no args render as a bare name).
+							const toolStatus = log.metadata?.toolState?.status;
+							const outputSummary =
+								toolStatus === 'completed' || toolStatus === 'failed' || toolStatus === 'error'
+									? summarizeToolOutput(log.metadata?.toolState?.output)
+									: null;
 
 							return (
 								<div
@@ -722,6 +762,17 @@ const LogItemComponent = memo(
 											}}
 										>
 											{toolSummary.detail}
+										</div>
+									)}
+									{outputSummary && (
+										<div
+											className="mt-1 ml-1 pl-2 opacity-60 break-words whitespace-pre-wrap border-l"
+											style={{
+												color: theme.colors.textMain,
+												borderColor: `${theme.colors.success}40`,
+											}}
+										>
+											{outputSummary}
 										</div>
 									)}
 								</div>
@@ -1225,6 +1276,7 @@ interface TerminalOutputProps {
 	onDeleteLog?: (logId: string) => number | null; // Returns the index to scroll to after deletion
 	onRemoveQueuedItem?: (itemId: string) => void; // Callback to remove a queued item from execution queue
 	onTogglePauseQueuedItem?: (itemId: string) => void; // Callback to toggle held/paused state of a queued item
+	onReorderQueuedItem?: (fromIndex: number, toIndex: number, tabId?: string) => void; // Reorder a queued item within the active tab's queue
 	onForceSendQueuedItem?: (itemId: string) => void; // Callback to Force Send a queued item (parallel execution)
 	forcedParallelEnabled?: boolean; // Whether forcedParallelExecution setting is on (gates Force Send button)
 	getForceSendContext?: (
@@ -1290,6 +1342,7 @@ export const TerminalOutput = memo(
 			onDeleteLog,
 			onRemoveQueuedItem,
 			onTogglePauseQueuedItem,
+			onReorderQueuedItem,
 			onForceSendQueuedItem,
 			forcedParallelEnabled,
 			getForceSendContext,
@@ -2279,7 +2332,7 @@ export const TerminalOutput = memo(
 							bionifyAlgorithm={globalBionifyAlgorithm}
 							userMessageAlignment={userMessageAlignment}
 							isClaudeCode={session.toolType === 'claude-code'}
-							isAdaptiveMode={session.enableMaestroP === true}
+							isAdaptiveMode={getClaudeTokenMode(session) === 'dynamic'}
 						/>
 					))}
 
@@ -2290,6 +2343,12 @@ export const TerminalOutput = memo(
 							theme={theme}
 							onRemoveQueuedItem={onRemoveQueuedItem}
 							onTogglePauseQueuedItem={onTogglePauseQueuedItem}
+							onReorderItems={
+								onReorderQueuedItem
+									? (fromIndex, toIndex) =>
+											onReorderQueuedItem(fromIndex, toIndex, activeTabId || undefined)
+									: undefined
+							}
 							onForceSendQueuedItem={onForceSendQueuedItem}
 							forcedParallelEnabled={forcedParallelEnabled}
 							getForceSendContext={getForceSendContext}

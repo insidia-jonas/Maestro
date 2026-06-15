@@ -28,6 +28,8 @@ import {
 } from './cue/cue-executor';
 import { executeCueShell, stopCueShellRun } from './cue/cue-shell-executor';
 import { executeCueCli, stopCueCliRun } from './cue/cue-cli-executor';
+import { executeCueNotify } from './cue/cue-notify-executor';
+import { getAgentDisplayName } from '../shared/agentMetadata';
 import { logger } from './utils/logger';
 import { tunnelManager } from './tunnel-manager';
 import { powerManager } from './power-manager';
@@ -763,6 +765,7 @@ app
 				timeoutMs,
 				action,
 				command,
+				notify,
 			}) => {
 				const storedSessions = sessionsStore.get('sessions', []) as Array<Record<string, any>>;
 				const storedSession = storedSessions.find((s) => s.id === sessionId);
@@ -784,6 +787,56 @@ app
 					},
 					conductorProfile: (store.get('conductorProfile', '') as string) || undefined,
 				};
+
+				// `action: notify` surfaces a toast through the owning agent instead of
+				// spawning anything — handled before command/prompt so the spawn config,
+				// SSH wrap, and history-recording paths below stay agent-only. The
+				// notify message is pre-resolved by the dispatch service via the
+				// fallback chain (notify.message → label → prompt → name); falling
+				// back here to `prompt` (which the dispatcher uses as the carrier)
+				// covers the queue-restored corner where the in-memory `notify` was
+				// lost but the message survived in the persisted `prompt` slot.
+				if (action === 'notify') {
+					const sessionInfo = {
+						id: storedSession.id,
+						name: storedSession.name,
+						toolType: storedSession.toolType,
+						cwd: projectRoot,
+						projectRoot,
+						autoRunFolderPath: storedSession.autoRunFolderPath,
+					};
+					const subscription = {
+						name: subscriptionName,
+						event: event.type,
+						enabled: true,
+						prompt,
+						action,
+						notify,
+						agent_id: storedSession.id,
+					};
+					const notifyLog = (level: string, message: string) => {
+						if (level === 'error') logger.error(message, 'Cue');
+						else if (level === 'warn') logger.warn(message, 'Cue');
+						else if (level === 'debug') logger.debug(message, 'Cue');
+						else logger.cue(message, 'Cue');
+					};
+					const message = notify?.message?.trim() || prompt;
+					const notifyResult = await executeCueNotify({
+						runId,
+						session: sessionInfo,
+						subscription,
+						event,
+						agentId: storedSession.id,
+						message,
+						sticky: notify?.sticky === true,
+						title: storedSession.name || getAgentDisplayName(storedSession.toolType),
+						mainWindow,
+						onLog: notifyLog,
+					});
+					const notifyHistory = recordCueHistoryEntry(notifyResult, sessionInfo);
+					void historyManager.addEntry(storedSession.id, projectRoot, notifyHistory);
+					return notifyResult;
+				}
 
 				// `action: command` runs a shell command or maestro-cli call instead of an
 				// AI prompt — skip agent path resolution and SSH wrapping.

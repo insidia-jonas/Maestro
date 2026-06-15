@@ -420,9 +420,12 @@ describe('cue-spawn-builder', () => {
 					const { command, args, env } = result.spec;
 					// maestro-p runs via the Node execPath...
 					expect(command).toBe(process.execPath);
-					// ...with the maestro-p script + its interactive flags first...
+					// ...with the maestro-p script first, then --max-wait derived from
+					// the run's timeoutMs (30000ms -> 30s), then the interactive flags...
 					expect(args[0]).toBe('/bundled/maestro-p.js');
-					expect(args[1]).toBe('--dangerously-skip-permissions');
+					expect(args[1]).toBe('--max-wait');
+					expect(args[2]).toBe('30');
+					expect(args[3]).toBe('--dangerously-skip-permissions');
 					// ...and the substituted prompt still the trailing positional.
 					expect(args[args.length - 1]).toBe('Hello world');
 					// maestro-p is told which real claude binary to drive.
@@ -445,12 +448,12 @@ describe('cue-spawn-builder', () => {
 				}
 			});
 
-			it('stays on API (no maestro-p rewrite) when SSH is enabled', async () => {
+			it('routes interactive token mode through maestro-p on the remote when SSH is enabled', async () => {
 				mockGetAgentDefinition.mockReturnValue(claudeInteractiveAgentDef);
 				const mockSshStore = { getSshRemotes: vi.fn(() => []) };
 				mockWrapSpawnWithSsh.mockResolvedValue({
 					command: 'ssh',
-					args: ['user@host', 'claude', '--print', '--', 'Hello world'],
+					args: ['user@host', 'maestro-p', '--dangerously-skip-permissions', '--', 'Hello world'],
 					cwd: '/Users/test',
 					customEnvVars: undefined,
 					prompt: undefined,
@@ -467,13 +470,30 @@ describe('cue-spawn-builder', () => {
 					'Hello world'
 				);
 
+				// The SSH wrapper is handed the REMOTE maestro-p command (not the
+				// local execPath rewrite), with --max-wait derived from the run's
+				// timeoutMs (30000ms -> 30s) ahead of the interactive flags, then the
+				// headless arg list (maestro-p strips those on the remote).
+				expect(mockWrapSpawnWithSsh).toHaveBeenCalledWith(
+					expect.objectContaining({
+						agentBinaryName: 'maestro-p',
+						args: expect.arrayContaining(['--max-wait', '30', '--dangerously-skip-permissions']),
+					}),
+					{ enabled: true, remoteId: 'r1' },
+					mockSshStore
+				);
+				const wrapArgs = mockWrapSpawnWithSsh.mock.calls[0][0].args as string[];
+				expect(wrapArgs.slice(0, 3)).toEqual([
+					'--max-wait',
+					'30',
+					'--dangerously-skip-permissions',
+				]);
+
 				expect(result.ok).toBe(true);
 				if (result.ok) {
-					// SSH spawns stay on `claude --print` via the ssh wrapper; the
-					// maestro-p execPath rewrite must NOT apply.
+					// The local maestro-p execPath rewrite must NOT apply for SSH.
 					expect(result.spec.command).toBe('ssh');
 					expect(result.spec.command).not.toBe(process.execPath);
-					expect(result.spec.env.MAESTRO_CLAUDE_BIN).toBeUndefined();
 				}
 			});
 		});

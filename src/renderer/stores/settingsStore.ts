@@ -421,6 +421,8 @@ export interface SettingsStoreState {
 	showLeftPanelGitIndicator: boolean;
 	showLeftPanelCueIndicator: boolean;
 	showLeftPanelStartupCommandIndicator: boolean;
+	showGroupLabelInBookmarks: boolean;
+	showFullGroupLabelInBookmarks: boolean;
 	// File Edit & Preview
 	fileEditWordWrap: boolean;
 	fileEditShowLineNumbers: boolean;
@@ -560,6 +562,8 @@ export interface SettingsStoreActions {
 	setShowLeftPanelGitIndicator: (value: boolean) => void;
 	setShowLeftPanelCueIndicator: (value: boolean) => void;
 	setShowLeftPanelStartupCommandIndicator: (value: boolean) => void;
+	setShowGroupLabelInBookmarks: (value: boolean) => void;
+	setShowFullGroupLabelInBookmarks: (value: boolean) => void;
 	setFileEditWordWrap: (value: boolean) => void;
 	setFileEditShowLineNumbers: (value: boolean) => void;
 	setFilePreviewToolbarButtonVisibility: (button: FilePreviewToolbarButton, value: boolean) => void;
@@ -778,6 +782,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		showLeftPanelGitIndicator: true,
 		showLeftPanelCueIndicator: true,
 		showLeftPanelStartupCommandIndicator: true,
+		showGroupLabelInBookmarks: true,
+		showFullGroupLabelInBookmarks: false,
 		fileEditWordWrap: true,
 		fileEditShowLineNumbers: true,
 		filePreviewToolbarVisibility: { ...DEFAULT_FILE_PREVIEW_TOOLBAR_VISIBILITY },
@@ -1458,6 +1464,16 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setShowLeftPanelStartupCommandIndicator: (value) => {
 			set({ showLeftPanelStartupCommandIndicator: value });
 			window.maestro.settings.set('showLeftPanelStartupCommandIndicator', value);
+		},
+
+		setShowGroupLabelInBookmarks: (value) => {
+			set({ showGroupLabelInBookmarks: value });
+			window.maestro.settings.set('showGroupLabelInBookmarks', value);
+		},
+
+		setShowFullGroupLabelInBookmarks: (value) => {
+			set({ showFullGroupLabelInBookmarks: value });
+			window.maestro.settings.set('showFullGroupLabelInBookmarks', value);
 		},
 
 		setFileEditWordWrap: (value) => {
@@ -2761,6 +2777,12 @@ export async function loadAllSettings(): Promise<void> {
 			patch.showLeftPanelStartupCommandIndicator = allSettings[
 				'showLeftPanelStartupCommandIndicator'
 			] as boolean;
+
+		if (allSettings['showGroupLabelInBookmarks'] !== undefined)
+			patch.showGroupLabelInBookmarks = allSettings['showGroupLabelInBookmarks'] as boolean;
+
+		if (allSettings['showFullGroupLabelInBookmarks'] !== undefined)
+			patch.showFullGroupLabelInBookmarks = allSettings['showFullGroupLabelInBookmarks'] as boolean;
 
 		if (allSettings['fileEditWordWrap'] !== undefined)
 			patch.fileEditWordWrap = allSettings['fileEditWordWrap'] as boolean;

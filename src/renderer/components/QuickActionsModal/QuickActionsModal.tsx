@@ -20,6 +20,7 @@ import { useBatchStore, selectActiveBatchSessionIds } from '../../stores/batchSt
 import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 import { useFeedbackDraftStore } from '../../stores/feedbackDraftStore';
 import { openUrl } from '../../utils/openUrl';
+import { outputSearchKeyFor } from '../../utils/outputSearch';
 import { logger } from '../../utils/logger';
 import { getActiveTabInfo } from './utils/activeTabInfo';
 import {
@@ -215,6 +216,19 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const resetSelectionToFirstRef = useRef<() => void>(() => {});
 	const resetSelectionToFirst = useCallback(() => resetSelectionToFirstRef.current(), []);
 	const activeSession = sessions.find((s) => s.id === activeSessionId);
+	// Output search is scoped per agent+AI-tab; open the active window's slot so
+	// the Find bar doesn't follow the user to other agents/tabs.
+	const openActiveOutputSearch = useCallback(
+		(open: boolean) => {
+			if (activeSession) {
+				storeSetOutputSearchOpen(
+					outputSearchKeyFor(activeSession.id, activeSession.activeTabId),
+					open
+				);
+			}
+		},
+		[storeSetOutputSearchOpen, activeSession]
+	);
 
 	const activeTabInfo = getActiveTabInfo(activeSession, isAiMode);
 
@@ -572,7 +586,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setActiveRightTab,
 			setActiveFocus,
 			setSessionFilterOpen: storeSetSessionFilterOpen,
-			setOutputSearchOpen: storeSetOutputSearchOpen,
+			setOutputSearchOpen: openActiveOutputSearch,
 			setFileTreeFilterOpen: storeSetFileTreeFilterOpen,
 			setHistorySearchFilterOpen: storeSetHistorySearchFilterOpen,
 		}),

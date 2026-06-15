@@ -11,6 +11,7 @@ import { TerminalStartupCommandModal } from '../TerminalStartupCommandModal';
 import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
 import { useModalStore, selectModalOpen, selectModalData } from '../../stores/modalStore';
 import { useTabStore } from '../../stores/tabStore';
+import { useSessionStore } from '../../stores/sessionStore';
 
 /**
  * Props for the AppSessionModals component
@@ -83,7 +84,7 @@ export interface AppSessionModalsProps {
 	onCloseRenameSessionModal: () => void;
 	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
 	renameSessionTargetId: string | null;
-	onAfterRename?: () => void;
+	onAfterRename?: (latestSessions?: Session[]) => void;
 
 	// RenameTabModal
 	renameTabModalOpen: boolean;
@@ -257,8 +258,12 @@ export const AppSessionModals = memo(function AppSessionModals({
 							cwd
 						);
 						// Force immediate persistence so a quick quit after Save
-						// doesn't lose the configuration to the 2s debounce.
-						onAfterRename?.();
+						// doesn't lose the configuration to the 2s debounce. The
+						// store mutation above is synchronous, so reading it back
+						// here yields the post-mutation snapshot - pass it to flushNow
+						// so the flush sees the new startup command instead of the
+						// stale, pre-render sessions held by the persistence hook.
+						onAfterRename?.(useSessionStore.getState().sessions);
 					}}
 					onClose={closeStartupCommandModal}
 				/>

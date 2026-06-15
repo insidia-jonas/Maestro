@@ -557,8 +557,8 @@ describe('Tab Naming IPC Handlers', () => {
 				expect(mockProcessManager.spawn).toHaveBeenCalled();
 			});
 
-			// Advance time past the timeout (45 seconds)
-			vi.advanceTimersByTime(46000);
+			// Advance time past the timeout (120 seconds)
+			vi.advanceTimersByTime(121000);
 
 			const result = await resultPromise;
 			expect(result).toBeNull();
@@ -1114,6 +1114,86 @@ describe('Tab Naming IPC Handlers', () => {
 			finish();
 			await resultPromise;
 		});
+
+		it('runs maestro-p on the remote host when an SSH agent selected interactive (TUI) mode', async () => {
+			// SSH used to be force-downgraded to `claude --print`. It now honors the
+			// selection: TUI routes to maestro-p on the REMOTE host (driving the
+			// remote claude TUI on the Max plan), realized by swapping the SSH
+			// remote command to `maestro-p` and prepending the interactive flags.
+			const { getSshRemoteConfig } = await import('../../../../main/utils/ssh-remote-resolver');
+			const { buildSshCommand } = await import('../../../../main/utils/ssh-command-builder');
+			(getSshRemoteConfig as Mock).mockReturnValue({
+				config: { id: 'r1', host: 'h', port: 22 },
+				source: 'session',
+			});
+			(buildSshCommand as Mock).mockResolvedValue({ command: 'ssh', args: ['remote', 'cmd'] });
+
+			mockAgentDetector.getAgent.mockResolvedValue({
+				...interactiveClaudeAgent,
+				capabilities: { supportsStreamJsonInput: true },
+			});
+			const finish = wireProcessEvents();
+
+			const resultPromise = invokeHandler('tabNaming:generateTabName', {
+				userMessage: 'Help me implement a login form',
+				agentType: 'claude-code',
+				cwd: '/test/project',
+				enableMaestroP: true,
+				maestroPMode: 'interactive',
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'r1' },
+			});
+
+			await vi.waitFor(() => {
+				expect(buildSshCommand).toHaveBeenCalled();
+			});
+
+			// The remote command handed to buildSshCommand is maestro-p (not claude),
+			// with the interactive flags prepended ahead of the existing arg list.
+			const sshCall = (buildSshCommand as Mock).mock.calls[0][1];
+			expect(sshCall.command).toBe('maestro-p');
+			expect(sshCall.args[0]).toBe('--dangerously-skip-permissions');
+			// stream-json prompt still flows over stdin.
+			expect(sshCall.useStdin).toBe(true);
+
+			finish();
+			await resultPromise;
+		});
+
+		it('spawns plain claude over SSH when the agent is API-only (enableMaestroP false)', async () => {
+			const { getSshRemoteConfig } = await import('../../../../main/utils/ssh-remote-resolver');
+			const { buildSshCommand } = await import('../../../../main/utils/ssh-command-builder');
+			(getSshRemoteConfig as Mock).mockReturnValue({
+				config: { id: 'r1', host: 'h', port: 22 },
+				source: 'session',
+			});
+			(buildSshCommand as Mock).mockResolvedValue({ command: 'ssh', args: ['remote', 'cmd'] });
+
+			mockAgentDetector.getAgent.mockResolvedValue({
+				...interactiveClaudeAgent,
+				capabilities: { supportsStreamJsonInput: true },
+			});
+			const finish = wireProcessEvents();
+
+			const resultPromise = invokeHandler('tabNaming:generateTabName', {
+				userMessage: 'Help me implement a login form',
+				agentType: 'claude-code',
+				cwd: '/test/project',
+				enableMaestroP: false,
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'r1' },
+			});
+
+			await vi.waitFor(() => {
+				expect(buildSshCommand).toHaveBeenCalled();
+			});
+
+			// API path keeps the plain remote claude binary - no maestro-p swap.
+			const sshCall = (buildSshCommand as Mock).mock.calls[0][1];
+			expect(sshCall.command).toBe('claude');
+			expect(sshCall.args).not.toContain('--dangerously-skip-permissions');
+
+			finish();
+			await resultPromise;
+		});
 	});
 });
 
@@ -1258,7 +1338,12 @@ describe('tab naming diagnostic logging', () => {
 
 		onDataCallback?.('tab-naming-mock-uuid-1234', 'Error: authentication failed');
 		onExitCallback?.('tab-naming-mock-uuid-1234', 1);
-		await resultPromise;
+		const result = await resultPromise;
+
+		// A non-zero exit must yield null, NOT a name mined from the error banner.
+		// (Regression guard: an "X unavailable. Learn more: https://.../news/..."
+		// banner used to be parsed into a garbage tab name.)
+		expect(result).toBeNull();
 
 		expect(loggerMock.warn).toHaveBeenCalledWith(
 			'Tab naming process exited with non-zero code',
@@ -1336,7 +1421,7 @@ describe('tab naming diagnostic logging', () => {
 			'Thinking about what name to give this tab based on the conversation context provided'
 		);
 
-		await vi.advanceTimersByTimeAsync(46000);
+		await vi.advanceTimersByTimeAsync(121000);
 		const result = await resultPromise;
 
 		expect(result).toBeNull();

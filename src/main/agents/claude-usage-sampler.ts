@@ -139,15 +139,24 @@ export async function sampleUsage(opts: SampleUsageOptions): Promise<UsageSnapsh
 
 	// `maestro-p.js` is shipped via `extraResources` at the resources root and
 	// `require('node-pty')` (left external by its esbuild bundle). From outside
-	// the asar, Node can't reach the native module at
-	// `<resources>/app.asar.unpacked/node_modules`, so make it discoverable via
-	// NODE_PATH. Only applies to the packaged app; in dev `resourcesPath` is
-	// empty and node-pty resolves from the project tree normally.
+	// the asar, Node can't find node-pty without help. Point NODE_PATH at the
+	// IN-ASAR node_modules (`<resources>/app.asar/node_modules`), NOT the
+	// unpacked copy: node-pty's JS loads from the asar (Electron's patched fs
+	// reads it; the native `pty.node` is auto-redirected to app.asar.unpacked),
+	// and critically node-pty computes its `spawn-helper` path by doing
+	// `helperPath.replace('app.asar', 'app.asar.unpacked')`. If we hand it the
+	// already-unpacked path, that replace double-applies to
+	// `app.asar.unpacked.unpacked` and the helper exec fails with
+	// "posix_spawn failed: No such file or directory" - which silently broke
+	// every Claude usage sample in packaged builds (empty store, no dashboard
+	// tab). Feeding the asar path lets node-pty rewrite it once, correctly.
+	// Mirrors resolveClaudeSpawnMode.ts. Only applies to the packaged app; in
+	// dev `resourcesPath` is empty and node-pty resolves from the project tree.
 	if (typeof process.resourcesPath === 'string' && process.resourcesPath.length > 0) {
-		const unpackedModules = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
+		const asarModules = path.join(process.resourcesPath, 'app.asar', 'node_modules');
 		childEnv.NODE_PATH = childEnv.NODE_PATH
-			? `${unpackedModules}${path.delimiter}${childEnv.NODE_PATH}`
-			: unpackedModules;
+			? `${asarModules}${path.delimiter}${childEnv.NODE_PATH}`
+			: asarModules;
 	}
 
 	let stdout: string;

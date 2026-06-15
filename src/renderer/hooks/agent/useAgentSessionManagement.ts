@@ -434,13 +434,23 @@ export function useAgentSessionManagement(
 					prev.map((s) => {
 						if (s.id !== targetSession.id) return s;
 
-						// If an existing tab was found with empty logs, repopulate it instead of creating a new one
-						if (existingTab) {
+						// Re-resolve the existing tab from FRESH state, not the `existingTab`
+						// captured before the async read above. handleResumeSession awaits
+						// disk I/O, so two activations of the same starred session (a rapid
+						// double-click, or a click racing the keyboard cycle) can both pass
+						// the pre-await dedup with no tab present. Re-checking here means the
+						// second update sees the first's committed tab and focuses it instead
+						// of creating a duplicate. There must never be two tabs for one session.
+						const freshExistingTab = s.aiTabs?.find((tab) => tab.agentSessionId === agentSessionId);
+
+						// If a tab already exists for this session, repopulate (if needed) and
+						// focus it instead of creating a duplicate.
+						if (freshExistingTab) {
 							const updatedTabs = s.aiTabs.map((tab) =>
-								tab.id === existingTab.id
+								tab.id === freshExistingTab.id
 									? {
 											...tab,
-											logs: messages,
+											logs: tab.logs && tab.logs.length > 0 ? tab.logs : messages,
 											name: name ?? tab.name,
 											starred: isStarred || tab.starred,
 											usageStats: finalUsageStats ?? tab.usageStats,
@@ -450,7 +460,7 @@ export function useAgentSessionManagement(
 							return {
 								...s,
 								aiTabs: updatedTabs,
-								...aiTabFocusFields(existingTab.id),
+								...aiTabFocusFields(freshExistingTab.id),
 							};
 						}
 

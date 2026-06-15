@@ -14,6 +14,12 @@ vi.mock('../../../main/utils/logger', () => ({
 	},
 }));
 
+vi.mock('../../../main/utils/remote-fs', () => ({
+	readFileRemote: vi.fn(),
+	readFileTailRemote: vi.fn(),
+}));
+import { readFileRemote, readFileTailRemote } from '../../../main/utils/remote-fs';
+
 import {
 	waitForCopilotShutdown,
 	readCopilotFinalAnswer,
@@ -22,6 +28,16 @@ import {
 } from '../../../main/process-manager/CopilotShutdownWaiter';
 
 const AGENT_SESSION_ID = 'cp-test-session';
+
+// Minimal SshRemoteConfig — only the fields readFileRemote touches.
+const SSH_REMOTE = {
+	id: 'r1',
+	name: 'remote',
+	host: 'remote.example',
+	port: 22,
+	username: 'pedram',
+	privateKeyPath: '/tmp/key',
+} as never;
 
 describe('CopilotShutdownWaiter', () => {
 	let configDir: string;
@@ -509,6 +525,162 @@ describe('CopilotShutdownWaiter', () => {
 				cacheCreationInputTokens: 0,
 				reasoningTokens: 0,
 			});
+		});
+	});
+
+	// Over SSH the events file lives on the remote host, so the readers must go
+	// through readFileRemote instead of the local filesystem. Without this the
+	// context gauge stays at 0% for every remote Copilot tab.
+	describe('SSH-remote sessions', () => {
+		beforeEach(() => {
+			vi.mocked(readFileRemote).mockReset();
+			vi.mocked(readFileTailRemote).mockReset();
+		});
+
+		it('reads shutdown usage from the remote events file', async () => {
+			vi.mocked(readFileRemote).mockResolvedValue({
+				success: true,
+				data:
+					JSON.stringify({
+						type: 'session.shutdown',
+						data: {
+							currentTokens: 60000,
+							modelMetrics: { 'gpt-5.5': { usage: { outputTokens: 200, cacheReadTokens: 1000 } } },
+						},
+					}) + '\n',
+			});
+
+			const result = await readCopilotShutdownUsage(AGENT_SESSION_ID, undefined, SSH_REMOTE);
+
+			expect(result).toEqual({
+				inputTokens: 60000,
+				outputTokens: 200,
+				cacheReadInputTokens: 1000,
+				cacheCreationInputTokens: 0,
+				reasoningTokens: 0,
+			});
+			expect(readFileRemote).toHaveBeenCalledWith(
+				expect.stringContaining(`/.copilot/session-state/${AGENT_SESSION_ID}/events.jsonl`),
+				SSH_REMOTE
+			);
+		});
+
+		it('reads the final answer from the remote events file', async () => {
+			vi.mocked(readFileRemote).mockResolvedValue({
+				success: true,
+				data:
+					JSON.stringify({
+						type: 'session.task_complete',
+						data: { summary: 'remote conclusion' },
+					}) + '\n',
+			});
+
+			const result = await readCopilotFinalAnswer(AGENT_SESSION_ID, undefined, SSH_REMOTE);
+
+			expect(result).toEqual({ content: 'remote conclusion' });
+		});
+
+		it('returns null when the remote read fails', async () => {
+			vi.mocked(readFileRemote).mockResolvedValue({ success: false, error: 'no such file' });
+
+			expect(await readCopilotShutdownUsage(AGENT_SESSION_ID, undefined, SSH_REMOTE)).toBeNull();
+			expect(await readCopilotFinalAnswer(AGENT_SESSION_ID, undefined, SSH_REMOTE)).toBeNull();
+		});
+
+		it('waitForCopilotShutdown returns "observed" when the remote tail has the shutdown marker', async () => {
+			// First (and only) poll reads from offset 0 and gets the marker.
+			vi.mocked(readFileTailRemote).mockResolvedValue({
+				success: true,
+				data:
+					[
+						JSON.stringify({ type: 'session.start', data: { sessionId: AGENT_SESSION_ID } }),
+						JSON.stringify({ type: 'session.shutdown', data: { currentTokens: 1234 } }),
+					].join('\n') + '\n',
+			});
+
+			const result = await waitForCopilotShutdown(AGENT_SESSION_ID, {
+				sshRemote: SSH_REMOTE,
+				maxWaitMs: 1000,
+				inactivityMs: 500,
+				pollIntervalMs: 10,
+			});
+
+			expect(result).toBe('observed');
+			expect(readFileTailRemote).toHaveBeenCalledWith(
+				expect.stringContaining(`/.copilot/session-state/${AGENT_SESSION_ID}/events.jsonl`),
+				SSH_REMOTE,
+				0
+			);
+		});
+
+		it('waitForCopilotShutdown reports "missing" when the remote file never appears', async () => {
+			vi.mocked(readFileTailRemote).mockResolvedValue({
+				success: false,
+				error: 'File not found: events.jsonl',
+			});
+
+			const result = await waitForCopilotShutdown(AGENT_SESSION_ID, {
+				sshRemote: SSH_REMOTE,
+				maxWaitMs: 1000,
+				inactivityMs: 50,
+				pollIntervalMs: 10,
+			});
+
+			expect(result).toBe('missing');
+		});
+
+		it('waitForCopilotShutdown reports "inactive" when the remote tail stops growing without a shutdown', async () => {
+			// Model an append-once-then-quiet log: the first poll (offset 0) returns
+			// one complete line, every later poll (offset > 0) returns nothing new.
+			const line =
+				JSON.stringify({ type: 'assistant.message', data: { content: 'working' } }) + '\n';
+			vi.mocked(readFileTailRemote).mockImplementation(
+				async (_path: string, _ssh, offset: number) =>
+					offset === 0 ? { success: true, data: line } : { success: true, data: '' }
+			);
+
+			const result = await waitForCopilotShutdown(AGENT_SESSION_ID, {
+				sshRemote: SSH_REMOTE,
+				maxWaitMs: 1000,
+				inactivityMs: 50,
+				pollIntervalMs: 10,
+			});
+
+			expect(result).toBe('inactive');
+		});
+
+		it('waitForCopilotShutdown advances the byte offset so each poll only fetches the new tail', async () => {
+			// Three appended lines arrive one per poll; the shutdown lands last.
+			// Each poll must request the byte offset just past what it already read.
+			const start = JSON.stringify({ type: 'session.start', data: {} }) + '\n';
+			const msg = JSON.stringify({ type: 'assistant.message', data: { content: 'hi' } }) + '\n';
+			const shutdown =
+				JSON.stringify({ type: 'session.shutdown', data: { currentTokens: 7 } }) + '\n';
+			const tails = [start, msg, shutdown];
+			let call = 0;
+			const seenOffsets: number[] = [];
+			vi.mocked(readFileTailRemote).mockImplementation(
+				async (_path: string, _ssh, offset: number) => {
+					seenOffsets.push(offset);
+					const data = tails[call] ?? '';
+					call++;
+					return { success: true, data };
+				}
+			);
+
+			const result = await waitForCopilotShutdown(AGENT_SESSION_ID, {
+				sshRemote: SSH_REMOTE,
+				maxWaitMs: 1000,
+				inactivityMs: 500,
+				pollIntervalMs: 10,
+			});
+
+			expect(result).toBe('observed');
+			// Poll 1 starts at 0; poll 2 skips the consumed `start` bytes; poll 3
+			// skips start+msg. Offsets must be strictly increasing, never re-reading.
+			expect(seenOffsets[0]).toBe(0);
+			expect(seenOffsets[1]).toBe(Buffer.byteLength(start, 'utf8'));
+			expect(seenOffsets[2]).toBe(Buffer.byteLength(start + msg, 'utf8'));
 		});
 	});
 });

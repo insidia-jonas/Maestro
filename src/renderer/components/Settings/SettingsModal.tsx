@@ -508,7 +508,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 				<div className={`flex flex-1 overflow-hidden ${searchActive ? 'hidden' : ''}`}>
 					{/* Left Sidebar Tabs */}
 					<nav
-						className="w-[220px] flex-shrink-0 border-r py-2 overflow-y-auto scrollbar-thin"
+						className="w-[248px] flex-shrink-0 border-r py-2 overflow-y-auto scrollbar-thin"
 						style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}
 						aria-label="Settings tabs"
 					>

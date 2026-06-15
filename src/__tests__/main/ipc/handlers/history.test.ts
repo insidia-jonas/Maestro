@@ -393,6 +393,48 @@ describe('history IPC handlers', () => {
 			expect(result.total).toBe(0);
 		});
 
+		it('should apply the host filter before pagination', async () => {
+			// Regression: the picker count comes from the full-source graph
+			// aggregate, so selecting a host whose entries fall outside the
+			// loaded page used to show nothing despite "(N)". The host filter
+			// must run server-side (like types) so the window holds the newest
+			// N entries OF THE SELECTED HOST.
+			const entries = [
+				createMockEntry({ id: 'remote1', hostname: 'dev-box', timestamp: 5000 }),
+				createMockEntry({ id: 'local1', timestamp: 4000 }),
+				createMockEntry({ id: 'remote2', hostname: 'dev-box', timestamp: 3000 }),
+			];
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue(entries);
+
+			const handler = handlers.get('history:getAllPaginated');
+			const result = await handler!({} as any, {
+				sessionId: 'session-1',
+				pagination: { limit: 100, offset: 0 },
+				hostKey: 'dev-box',
+			});
+
+			expect(result.entries.map((e: { id: string }) => e.id)).toEqual(['remote1', 'remote2']);
+			expect(result.total).toBe(2);
+		});
+
+		it('should match local (no-hostname) entries via the synthetic __local__ host key', async () => {
+			const entries = [
+				createMockEntry({ id: 'remote1', hostname: 'dev-box', timestamp: 5000 }),
+				createMockEntry({ id: 'local1', timestamp: 4000 }),
+			];
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue(entries);
+
+			const handler = handlers.get('history:getAllPaginated');
+			const result = await handler!({} as any, {
+				sessionId: 'session-1',
+				pagination: { limit: 100, offset: 0 },
+				hostKey: '__local__',
+			});
+
+			expect(result.entries.map((e: { id: string }) => e.id)).toEqual(['local1']);
+			expect(result.total).toBe(1);
+		});
+
 		it('should handle undefined options', async () => {
 			const mockResult = {
 				entries: [],

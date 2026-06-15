@@ -768,13 +768,15 @@ describe('MainPanel', () => {
 			...overrides,
 		});
 
-		it('should render FilePreview when activeFileTab is set', () => {
+		it('should render FilePreview when activeFileTab is set', async () => {
 			const activeFileTab = createFileTab();
 			render(
 				<MainPanel {...defaultProps} activeFileTabId="file-tab-1" activeFileTab={activeFileTab} />
 			);
 
-			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
+			// FilePreview is React.lazy-loaded behind Suspense, so it mounts on a
+			// microtask rather than synchronously - await it the first time.
+			expect(await screen.findByTestId('file-preview')).toBeInTheDocument();
 			expect(screen.getByText('File Preview: test.ts')).toBeInTheDocument();
 		});
 

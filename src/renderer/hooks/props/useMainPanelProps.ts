@@ -162,6 +162,7 @@ export interface UseMainPanelPropsDeps {
 	handleDeleteLog: (logId: string) => number | null;
 	handleRemoveQueuedItem: (itemId: string) => void;
 	handleToggleQueuedItemPause: (itemId: string) => void;
+	handleReorderQueuedItem: (fromIndex: number, toIndex: number, tabId?: string) => void;
 	handleForceSendQueuedItem: (itemId: string) => void;
 	forcedParallelEnabled: boolean;
 	getForceSendContext: (
@@ -395,6 +396,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onDeleteLog: deps.handleDeleteLog,
 			onRemoveQueuedItem: deps.handleRemoveQueuedItem,
 			onTogglePauseQueuedItem: deps.handleToggleQueuedItemPause,
+			onReorderQueuedItem: deps.handleReorderQueuedItem,
 			onForceSendQueuedItem: deps.handleForceSendQueuedItem,
 			forcedParallelEnabled: deps.forcedParallelEnabled,
 			getForceSendContext: deps.getForceSendContext,
@@ -647,6 +649,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleDeleteLog,
 			deps.handleRemoveQueuedItem,
 			deps.handleToggleQueuedItemPause,
+			deps.handleReorderQueuedItem,
 			deps.handleForceSendQueuedItem,
 			deps.forcedParallelEnabled,
 			deps.getForceSendContext,
