@@ -191,8 +191,15 @@ function upsertCampaign(campaigns: Campaign[], campaign: Campaign): Campaign[] {
 }
 
 function upsertRun(runs: PrompterRun[], run: PrompterRun): PrompterRun[] {
-	const next = [run, ...runs.filter((r) => r.id !== run.id)];
-	return next.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+	const existing = runs.find((r) => r.id === run.id);
+	const existingTime = existing?.updatedAt ?? existing?.createdAt ?? 0;
+	const incomingTime = run.updatedAt ?? run.createdAt ?? 0;
+	const kept = existing && existingTime > incomingTime ? existing : run;
+	const next = [kept, ...runs.filter((r) => r.id !== run.id)];
+	return next.sort((a, b) => {
+		const createdDiff = (b.createdAt || 0) - (a.createdAt || 0);
+		return createdDiff !== 0 ? createdDiff : b.id.localeCompare(a.id);
+	});
 }
 
 export const usePrompterStore = create<PrompterStore>()((set, get) => ({
@@ -329,6 +336,7 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 				status: event.status,
 				phase: event.phase,
 				summary: event.summary,
+				updatedAt: Date.now(),
 			};
 			// Keep the Left Bar runs list live and accurate after completion.
 			return { activeRun, runHistory: upsertRun(state.runHistory, activeRun) };
@@ -337,7 +345,8 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 		set((state) => {
 			if (!state.activeRun || state.activeRun.id !== event.runId) return {};
 			const tasks = state.activeRun.tasks.map((t) => (t.id === event.task.id ? event.task : t));
-			return { activeRun: { ...state.activeRun, tasks } };
+			const activeRun = { ...state.activeRun, tasks, updatedAt: Date.now() };
+			return { activeRun, runHistory: upsertRun(state.runHistory, activeRun) };
 		}),
 	appendLog: (event) =>
 		set((state) => {
@@ -349,7 +358,12 @@ export const usePrompterStore = create<PrompterStore>()((set, get) => ({
 		}),
 	setLogFilter: (logFilter) => set({ logFilter }),
 	clearActiveRun: () => set({ activeRun: null, compactLog: [], prompterFocused: false }),
-	loadRunHistory: (runHistory) => set({ runHistory }),
+	loadRunHistory: (runs) =>
+		set(() => {
+			let runHistory: PrompterRun[] = [];
+			for (const run of runs) runHistory = upsertRun(runHistory, run);
+			return { runHistory };
+		}),
 	mergeRunHistory: (runs) =>
 		set((state) => {
 			let runHistory = state.runHistory;

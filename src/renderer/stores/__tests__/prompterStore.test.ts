@@ -58,7 +58,7 @@ const agent = (id: string): PrompterAgentSelection => ({
 	status: 'detected',
 });
 
-function baseRun(): PrompterRun {
+function baseRun(overrides: Partial<PrompterRun> = {}): PrompterRun {
 	const task: PrompterTask = {
 		id: 'task-0',
 		runId: 'run-1',
@@ -81,6 +81,7 @@ function baseRun(): PrompterRun {
 		maxParallelAgents: 4,
 		createdAt: 1,
 		updatedAt: 1,
+		...overrides,
 	};
 }
 
@@ -166,6 +167,7 @@ describe('prompterStore run events', () => {
 		usePrompterStore.getState().updateRunFromEvent(event);
 		expect(usePrompterStore.getState().activeRun?.status).toBe('running');
 		expect(usePrompterStore.getState().activeRun?.phase).toBe('schema-test');
+		expect(usePrompterStore.getState().runHistory[0].status).toBe('running');
 	});
 
 	it('ignores events for a different run', () => {
@@ -199,6 +201,35 @@ describe('prompterStore run events', () => {
 		usePrompterStore.getState().updateTaskFromEvent(event);
 		expect(usePrompterStore.getState().activeRun?.tasks[0].status).toBe('completed');
 		expect(usePrompterStore.getState().activeRun?.tasks[0].result).toBe('green');
+		expect(usePrompterStore.getState().runHistory[0].tasks[0].status).toBe('completed');
+		expect(usePrompterStore.getState().runHistory[0].tasks[0].result).toBe('green');
+	});
+
+	it('mergeRunHistory keeps newest-first order and de-duplicates by run id', () => {
+		usePrompterStore.setState({ activeRun: null, runHistory: [] });
+		usePrompterStore
+			.getState()
+			.mergeRunHistory([
+				baseRun({ id: 'old', createdAt: 10, updatedAt: 10 }),
+				baseRun({ id: 'new', createdAt: 20, updatedAt: 20 }),
+				baseRun({ id: 'old', status: 'completed', createdAt: 10, updatedAt: 30 }),
+			]);
+
+		const history = usePrompterStore.getState().runHistory;
+		expect(history.map((run) => run.id)).toEqual(['new', 'old']);
+		expect(history.find((run) => run.id === 'old')?.status).toBe('completed');
+	});
+
+	it('mergeRunHistory does not let a stale startup snapshot overwrite recovered state', () => {
+		usePrompterStore.setState({ activeRun: null, runHistory: [] });
+		usePrompterStore
+			.getState()
+			.mergeRunHistory([baseRun({ id: 'run-1', status: 'paused', createdAt: 10, updatedAt: 50 })]);
+		usePrompterStore
+			.getState()
+			.mergeRunHistory([baseRun({ id: 'run-1', status: 'running', createdAt: 10, updatedAt: 20 })]);
+
+		expect(usePrompterStore.getState().runHistory[0].status).toBe('paused');
 	});
 
 	it('appendLog and filter work together', () => {

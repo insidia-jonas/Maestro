@@ -754,6 +754,7 @@ export class PrompterRunManager {
 				this.runIndex.set(runId, projectRoot);
 				if (run.status === 'running' || run.status === 'preparing') {
 					run.status = 'paused';
+					run.updatedAt = Date.now();
 					const current = run.tasks.find((t) => t.status === 'running');
 					if (current) {
 						current.status = 'failed';

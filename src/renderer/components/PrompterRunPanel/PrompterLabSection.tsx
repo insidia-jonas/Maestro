@@ -7,8 +7,8 @@
  *   - Kampagnen: autonomous, AI-driven discovery campaigns.
  *   - Logs   : per-run evidence/log folder (opened via the folder button).
  *
- * Reads the prompterStore directly (no prop threading), like PrompterSidebarEntry
- * and GroupChatList do. Renders nothing when the lab has no runs and no campaigns,
+ * Reads the prompterStore directly (no prop threading), like GroupChatList does.
+ * Renders nothing when the lab has no runs and no campaigns,
  * so it stays invisible for users who never open it.
  */
 
