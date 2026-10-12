@@ -51,7 +51,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch --quiet origin main rc
+          git fetch --quiet origin rc
+
+          # Forks that only track rc have no main ref. Fetching it is a hard
+          # error (`couldn't find remote ref main`) and is what made this
+          # scheduled job fail every day on those remotes. Skip until main
+          # exists; the ancestry check is meaningless without both tips.
+          if ! git ls-remote --exit-code --heads origin main >/dev/null; then
+            echo "No origin/main on this repository; skip."
+            exit 0
+          fi
+
+          git fetch --quiet origin main
 
           MAIN=$(git rev-parse origin/main)
           RC=$(git rev-parse origin/rc)
